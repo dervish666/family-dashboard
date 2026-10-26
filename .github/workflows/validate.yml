@@ -18,13 +18,40 @@ jobs:
         with:
           category: plugin
 
+  # dist/family-dashboard.js is what HACS serves, and it is built from src/. Rebuild it and
+  # fail if the committed file is not exactly that build.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Committed dist matches a fresh build
+        run: |
+          if [ -n "$(git status --porcelain -- dist/)" ]; then
+            git status --short -- dist/; git diff --stat -- dist/
+            echo "dist/ is not the build of src/: run npm run build and commit dist/"; exit 1
+          fi
+
   check:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Config and calendar checks
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Config, calendar, creature and scene checks
         run: node tests/check.mjs
       - name: Prove the checks can fail
         run: sh tests/falsify.sh

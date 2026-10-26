@@ -122,6 +122,21 @@ python3 -m http.server 8000
 Then open `http://localhost:8000/demo/`. The page's query string goes to the card as test
 hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night.
 
+## Working on the card
+
+The source is in `src/`. `dist/family-dashboard.js` is built from it by esbuild and
+committed, because that one file is what HACS serves. After a change:
+
+```sh
+npm ci
+npm run build
+node tests/check.mjs && sh tests/falsify.sh
+```
+
+CI rebuilds `dist/` and fails if the committed file differs from the build. A new animal is a
+module in `src/creatures/` plus one line in `src/creatures/index.js`; a new scene is the same in
+`src/scenes/`. The check fails if a module is missing part of its interface or is not listed.
+
 ## Known limits
 
 - Built and tuned for 1280x800. Other sizes work but the village was laid out for that one.
