@@ -249,6 +249,90 @@ eq(m.lunchChoice({ entity: "input_select.k" }, monday, { state: "unavailable" },
 eq(m.lunchChoice({ value: "packed" }, monday, null, "Jacket potato").text, "Jacket potato", "the menu's day choice beats the config");
 eq(m.lunchChoice(null, monday, null, ""), null, "nothing says, nothing shown");
 
+// ── Announcement, due times, status tiles (v1.6.0) ─────────────────────────────────
+// Config: absent means off, so a v1.5.1 config normalises to exactly what it did, plus three empty keys.
+const off = m.normalize({ people: [{ name: "A", calendar: "calendar.a" }, { name: "H" }] });
+eq([off.announcement, off.due, off.status_tiles], [null, null, []], "v1.5.1 configs: no announcement, no due row, no tiles");
+eq([m.normalize({}).announcement, m.normalize({}).due, m.normalize({}).status_tiles], [null, null, []], "and so does a v1.0.0 config");
+const xc = m.normalize({ demo: true, announcement: "input_text.notice", announcement_title: " Notice ", due: "sensor.due", status_tiles: ["sensor.t",
+  { entity: "binary_sensor.back_door", label: "Back door" }, { entity: "light.porch" }, { entity: "sensor.fridge", icon: "flask", unit: "C", min: "2", max: 12, decimals: 1,
+    thresholds: [{ from: 14, color: "#c9594a" }, { from: 0, color: [91, 127, 214] }], on_color: "#abc" }] });
+eq(xc.announcement, { entity: "input_text.notice", title: "Notice" }, "announcement and its trimmed title");
+eq(xc.due, { entity: "sensor.due", attribute: "items" }, "due defaults to the items attribute");
+eq(m.normalize({ demo: true, due: { entity: "sensor.d", attribute: "list" } }).due, { entity: "sensor.d", attribute: "list" }, "due can name its attribute");
+eq(xc.status_tiles.map(function (t) { return t.icon; }), ["thermometer", "door", "bulb", "flask"], "a tile's icon defaults by domain");
+eq(xc.status_tiles[3].thresholds, [{ from: 0, color: "#5b7fd6" }, { from: 14, color: "#c9594a" }], "thresholds sort by from, and [r,g,b] becomes hex");
+eq([xc.status_tiles[3].min, xc.status_tiles[3].max, xc.status_tiles[3].on_color, xc.status_tiles[3].off_color], [2, 12, "#aabbcc", null], "min, max and colours normalise");
+eq(m.normalize({ demo: true, status_tiles: [{ entity: "sensor.x", thresholds: "0 #5B7FD6, 8:#3FA34D" }] }).status_tiles[0].thresholds, [{ from: 0, color: "#5B7FD6" }, { from: 8, color: "#3FA34D" }], "thresholds as the editor's one-line text");
+throws(function () { m.normalize({ demo: true, announcement: "light.kitchen" }); }, /announcement must be an input_text/, "an announcement from a light");
+throws(function () { m.normalize({ demo: true, announcement: "input_text.a", announcement_title: 3 }); }, /announcement_title must be text/, "a title that is a number");
+throws(function () { m.normalize({ demo: true, due: "not an entity" }); }, /due must be an entity id/, "a due that is not an entity");
+throws(function () { m.normalize({ demo: true, due: { entity: "sensor.d", attribute: "" } }); }, /due.attribute must be an attribute name/, "a due with an empty attribute");
+throws(function () { m.normalize({ demo: true, status_tiles: "sensor.t" }); }, /status_tiles must be a list/, "tiles as one string");
+throws(function () { m.normalize({ demo: true, status_tiles: ["sensor.a", "sensor.b", "sensor.c", "sensor.d", "sensor.e"] }); }, /at most 4 tiles, got 5/, "five tiles");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ label: "x" }] }); }, /status_tiles\[0\] needs an entity id/, "a tile with no entity");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ entity: "sensor.t", icon: "rocket" }] }); }, /icon must be one of flask, thermometer, bulb, door, plug/, "an unknown icon");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ entity: "sensor.t", thresholds: [{ from: "warm", color: "#fff" }] }] }); }, /from must be a number/, "a threshold with no number");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ entity: "sensor.t", thresholds: "8 red" }] }); }, /must read like/, "threshold text that does not parse");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ entity: "sensor.t", on_color: "teal" }] }); }, /on_color must be a hex colour/, "a colour name");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ entity: "sensor.t", min: 5, max: 5 }] }); }, /max must be more than min/, "max not above min");
+throws(function () { m.normalize({ demo: true, status_tiles: [{ entity: "sensor.t", decimals: 1.5 }] }); }, /decimals must be 0, 1, 2 or 3/, "half a decimal");
+eq(m.thresholdText([{ from: 0, color: "#5B7FD6" }, { from: 8.5, color: [63, 163, 77] }]), "0 #5B7FD6, 8.5 #3fa34d", "thresholds back to the editor's text");
+eq(m.parseThresholdText(m.thresholdText([{ from: -2, color: "#123456" }])), [{ from: -2, color: "#123456" }], "and the text parses back");
+eq(m.TILE_ICONS.length <= 5 && m.MAX_TILES, 4, "four tiles at most, five icons");
+
+// parseAnnouncement: the pipe form expires, "Name:" names someone in the cast, unknown is empty, missing is unavailable.
+const T0 = new Date(2026, 9, 26, 12, 0).getTime(), lc0 = new Date(T0 - 10 * 60000).toISOString();
+const pa = function (st, at) { return m.parseAnnouncement(st, at == null ? T0 : at, ["Alex", "Sky", "Skye"]); };
+eq(pa({ state: "30|Alex|Dinner's ready", last_changed: lc0 }), { status: "show", text: "Dinner's ready", from: "Alex", mins: 30, until: T0 + 20 * 60000, key: "30|Alex|Dinner's ready|" + lc0 }, "minutes|from|text from a script");
+eq(pa({ state: "30|Alex|Dinner's ready", last_changed: lc0 }, T0 + 20 * 60000).status, "expired", "and it goes when its minutes are up");
+eq([pa({ state: "sky: back by nine", last_changed: lc0 }).from, pa({ state: "sky: back by nine", last_changed: lc0 }).text], ["Sky", "back by nine"], "Name: text names a person, any case");
+eq([pa({ state: "Note: bins tonight", last_changed: lc0 }).from, pa({ state: "Note: bins tonight", last_changed: lc0 }).text], ["", "Note: bins tonight"], "a colon after a word that is nobody stays in the text");
+eq([pa({ state: "Bins tonight", last_changed: lc0 }).status, pa({ state: "Bins tonight", last_changed: lc0 }, T0 + 864e5).status], ["show", "show"], "plain text stays until it is emptied");
+eq([pa({ state: "" }).status, pa({ state: "   " }).status, pa({ state: "unknown" }).status, pa({ state: "5|x|" }).status], ["empty", "empty", "empty", "empty"], "nothing to say is empty, not unavailable");
+eq([pa(null).status, pa(null).reason, pa({ state: "unavailable" }).reason], ["unavailable", "not found", "is unavailable"], "missing or unavailable says so");
+eq(pa({ state: "9999|x|hi", last_changed: lc0 }).mins, 1440, "a day at most");
+
+// parseDue: times today, dates, date-times, people by name or alias, the words, and the bad ones counted.
+const NOW = new Date(2026, 9, 26, 12, 0);
+const pd = function (items, attr) { return m.parseDue({ state: "x", attributes: { items: items, other: items } }, attr, NOW, ["Alex", "Sky", "Skye"]); };
+const D1 = pd([{ label: "Library books", due: "12:25", person: "skye" }, { label: "Bins", due: "19:00" }, { label: "Homework", due: "11:30", person: "Alex" },
+  { label: "Trip form", due: "2026-10-29" }, { label: "PE kit", due: "2026-10-27 08:15" }, { label: "Dentist", due: "2026-10-26T12:00:30" },
+  { label: "Today thing", due: "2026-10-26" }, { label: "Old", due: "2026-10-25" }, { label: "", due: "10:00" }, { label: "No time", due: "soon" }, "string", { label: "Bad day", due: "2026-02-30" }]);
+eq([D1.status, D1.bad], ["ok", 4], "four items that do not parse are counted, not shown");
+eq(D1.items.map(function (i) { return i.label + "|" + i.kind + "|" + i.rel + "|" + i.short + "|" + i.when + "|" + i.person; }), [
+  "Old|overdue|overdue|late|Yesterday|",
+  "Homework|overdue|overdue 30 min|late|11:30|Alex",
+  "Dentist|now|due now|now|12:00|",
+  "Library books|soon|due in 25 min|25m|12:25|Skye",
+  "Bins|today|due in 7h|7h|19:00|",
+  "Today thing|today|due today|today|Today|",
+  "PE kit|tomorrow|due tomorrow 08:15|08:15|Tomorrow 08:15|",
+  "Trip form|later|due Thu|Thu|Thu|"], "sorted soonest first, worded");
+eq(pd([{ label: "x", due: "13:05" }]).items[0].rel, "due in 1h 5m", "hours and minutes");
+eq(pd([{ label: "x", due: "2026-11-10" }]).items[0].when, "Tue 10 Nov", "more than a week away gets a date");
+eq(pd([{ label: "x", due: "2026-10-26T09:00:00Z" }]).items[0].kind, "overdue", "an offset is honoured");
+eq(m.dueForHud(D1, NOW).map(function (i) { return i.label; }), ["Old", "Homework", "Dentist"], "the row in the sky takes three, soonest first");
+eq(m.dueForHud(D1, NOW, 9).map(function (i) { return i.label; }), ["Old", "Homework", "Dentist", "Library books", "Bins", "Today thing"], "and nothing more than 18 hours off");
+eq(m.parseDue({ state: "1", attributes: { items: JSON.stringify([{ label: "j", due: "13:00" }]) } }, "items", NOW).items.length, 1, "a JSON string attribute parses");
+eq(pd([{ label: "o", due: "13:00" }], "other").items.length, 1, "another attribute name");
+eq([m.parseDue(null, "items", NOW).status, m.parseDue(null, "items", NOW).reason], ["unavailable", "not found"], "a missing due sensor is unavailable");
+eq(m.parseDue({ state: "unavailable", attributes: {} }, "items", NOW).reason, "is unavailable", "an unavailable one says so");
+eq(m.parseDue({ state: "0", attributes: {} }, "items", NOW).reason, "has no items list", "and one without the list says that");
+eq([m.parseDue({ state: "0", attributes: { items: [] } }, "items", NOW).status, m.dueForHud(m.parseDue(null, "items", NOW), NOW)], ["ok", []], "an empty list is ok and empty");
+
+// tileState: thresholds, levels, on/off and doors, other words, unavailable.
+const TL = { thresholds: [{ from: 0, color: "#000001" }, { from: 10, color: "#000002" }], min: 0, max: 20, unit: null, decimals: null, color: null, on_color: null, off_color: "#000003" };
+const ts0 = function (st, t) { return m.tileState(t || TL, st); };
+eq([ts0({ state: "12.44", attributes: { unit_of_measurement: "°C" } }).text, ts0({ state: "12.44" }).color, ts0({ state: "12.44" }).level.toFixed(3)], ["12.4°C", "#000002", "0.622"], "a number, its unit, its threshold colour and its level");
+eq([ts0({ state: "-3" }).color, ts0({ state: "10" }).color, ts0({ state: "9.99" }).color], ["#3F5FA8", "#000002", "#000001"], "below every threshold is the default; reaching one takes it");
+eq([ts0({ state: "45", attributes: { unit_of_measurement: "%" } }).text, ts0({ state: "45", attributes: { unit_of_measurement: "W" } }).text, ts0({ state: "99" }).level], ["45%", "45 W", 1], "units sit right, levels clamp");
+eq(ts0({ state: "7" }, { thresholds: [], min: null, max: null, decimals: 2, unit: "kWh" }).text, "7.00 kWh", "decimals and a unit from the config");
+eq([ts0({ state: "on", attributes: {} }).text, ts0({ state: "on", attributes: {} }).color, ts0({ state: "off", attributes: {} }).color, ts0({ state: "off", attributes: {} }).level], ["on", "#E8A93C", "#000003", 0], "on and off take their colours");
+eq([ts0({ state: "on", attributes: { device_class: "door" } }).text, ts0({ state: "off", attributes: { device_class: "window" } }).text, ts0({ state: "open" }).text], ["open", "closed", "open"], "doors and windows read open or closed");
+eq(ts0({ state: "heating" }).text, "heating", "any other word shows as it is");
+eq([ts0(null).status, ts0(null).text, ts0({ state: "unavailable" }).reason, ts0({ state: "unknown" }).status], ["unavailable", "unavailable", "is unavailable", "unavailable"], "missing, unavailable or unknown reads unavailable");
+
 // ── The creature registry ───────────────────────────────────────────────────────
 const isFn = function (f) { return typeof f === "function"; };
 const C = m.CREATURES, ids = C.map(function (c) { return c && c.id; });

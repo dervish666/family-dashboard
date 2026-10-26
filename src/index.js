@@ -12,6 +12,7 @@
 //   config.js         DEFAULTS, normalize(), the first-install stub
 //   calendar.js       reading calendars straight from Home Assistant
 //   school.js         each child's timetable and lunch menu, parsed from sensor attributes
+//   extras.js         the announcement banner, due-time row and status tiles: config and parsing
 //   engine/engine.js  the world: creatures, the day, weather, parties, the cards
 //   engine/draw.js    canvas helpers shared by the engine, creatures and scenes
 //   creatures/*.js    one module per animal, listed in creatures/index.js
@@ -22,5 +23,6 @@ import "./card.js";
 export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
 export { parseCalendarEvents, weekRange, calendarPath } from "./calendar.js";
 export { parseTimetable, parseLunch, lunchChoice, lessonsEnd, lessonsOver } from "./school.js";
+export { parseAnnouncement, parseDue, dueForHud, tileState, thresholdText, parseThresholdText, TILE_ICONS, MAX_TILES } from "./extras.js";
 export { CREATURES, HELPERS as CREATURE_HELPERS, bakeRig } from "./creatures/index.js";
 export { SCENE_LIST, HOTSPOT_IDS } from "./scenes/index.js";

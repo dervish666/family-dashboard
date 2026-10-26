@@ -3,7 +3,8 @@
 # the check to exit non-zero each time. Each break is made in src/ and rebuilt with esbuild
 # (calendar parsing and calendar mode, creature and scene registries and their landmarks,
 # the animals' walk, idle and sleep, a scene's exit and the duty walks round its obstacles,
-# the school timetable and lunch parsers, the per-child school config). The breaks go in
+# the school timetable and lunch parsers, the per-child school config, and v1.6.0's
+# announcement, due-time and status-tile parsers and config). The breaks go in
 # src/, not dist/, because dist/ is minified and its names change with every build. Exits 1
 # if any broken copy passes. Needs npm ci first.
 set -u
@@ -85,5 +86,21 @@ creatures/cat.js|s/id: "cat", label: "Cat"/id: "alien_cat", label: "Cat"/|an ani
 config.js|s#!/^sensor#!/^[a-z_]*#|a timetable from any domain is accepted
 config.js|s/if (owner) { if (!owner\[k\]) owner\[k\]/if (owner) { if (false) owner[k]/|v1.1.0 school sensors are not copied onto their owner
 config.js|s/      warnOnce("sensors." + k/      void ("sensors." + k/|a missing schoolWho owner does not warn
+extras.js|s/if (until != null \&\& t >= until)/if (false)/|an announcement never expires
+extras.js|s/list.indexOf(n\[1\].trim().toLowerCase()) >= 0)/list.indexOf(n[1].trim().toLowerCase()) >= -1)/|any word before a colon reads as who it is from
+extras.js|s/raw === "unknown"/raw === "nope"/|an unknown announcement shows the word unknown
+extras.js|s/return { status: "unavailable", reason: why, items: \[\], bad: 0 };/return { status: "ok", reason: why, items: [], bad: 0 };/|a missing due sensor reads as nothing due
+extras.js|s/\(if (!label .. !at) {\) bad++; return; }/\1 return; }/|due items that do not parse vanish silently
+extras.js|s/return a.sort - b.sort/return b.sort - a.sort/|due items sort latest first
+extras.js|s/it.kind === "today" .. it.sort <= cap/true/|the row in the sky shows items days away
+extras.js|s/if (it.at <= t) {/if (it.at < t - 1e12) {/|an overdue item reads as due later
+extras.js|s/if (v >= th.from) color = th.color;/if (v > th.from) color = th.color;/|a value on a threshold does not take its colour
+extras.js|s/door ? (on ? "open" : "closed")/door ? (on ? "on" : "off")/|a door reads on and off
+extras.js|s/ .. s === "unknown"//|an unknown tile shows the word unknown
+extras.js|s/if (v.length > MAX_TILES)/if (v.length > 9)/|five tiles are accepted
+extras.js|s/domain === "binary_sensor" ? "door"/domain === "binary_sensor" ? "flask"/|a binary sensor tile gets the wrong default icon
+extras.js|s/Math.max(0, Math.min(1, (v - tile.min)/Math.max(0, Math.min(9, (v - tile.min)/|a tile's level runs past full
+extras.js|s/return s.from + " " + /return s.from + ":" + /|the editor's threshold text changes shape
+config.js|s/out.due = normDue(raw);/out.due = normDue(raw) ? normDue(raw) : { entity: "sensor.due", attribute: "items" };/|a v1.5.1 config grows a due row
 EOF
 echo "ok: all $n sabotaged copies failed the check"

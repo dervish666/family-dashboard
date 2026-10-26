@@ -2,6 +2,7 @@
 import { CREATURES } from "./creatures/index.js";
 import { SCENE_LIST } from "./scenes/index.js";
 import { TIMETABLE_ATTR, LUNCH_ATTR, DAY_KEYS } from "./school.js";
+import { normAnnouncement, normDue, normTiles } from "./extras.js";
 
 // ══ CONFIG ═══════════════════════════════════════════════════════════════════
 // Everything household-specific lives in this one object. Edit it and nothing else.
@@ -204,6 +205,11 @@ export function normalize(raw) {
   CARD_KEYS.forEach(function (k) { if (raw[k] !== undefined) out[k] = raw[k]; });
   out.people = people;
   out.demo = raw.demo === true;
+  // v1.6.0: the announcement banner, the due-time row and the status tiles. Absent, each is
+  // null (or no tiles) and draws nothing, so a v1.5.1 config renders exactly as it did.
+  out.announcement = normAnnouncement(raw);
+  out.due = normDue(raw);
+  out.status_tiles = normTiles(raw);
   out.calendarMode = calendarMode && !out.demo;
 
   // New-style configs start with every optional part switched off: a fresh Home Assistant
