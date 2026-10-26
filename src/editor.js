@@ -1,5 +1,6 @@
 import { DEFAULTS, LOOK_TG, PALETTE, ACCESSORIES, SCENES, normalize, rgbHex, clone } from "./config.js";
 import { CREATURES, CREATURE } from "./creatures/index.js";
+import { SCENE_LIST, SCENE_BY_ID } from "./scenes/index.js";
 
 // ── The visual editor ─────────────────────────────────────────────────────────
 // <family-dashboard-card-editor>: the cast, each person's calendar, the optional sensors,
@@ -152,6 +153,10 @@ class FamilyDashboardCardEditor extends HTMLElement {
     let eff = null; try { eff = normalize(this._config); } catch (e) { eff = null; }
     const sensors = eff ? eff.sensors : Object.assign({}, this._config.sensors);
     this._forms.top.set({ scene: this._config.scene || SCENES[0].id, demo: this._config.demo === true });
+    // which animals suit the chosen scene (the scene module's creatures list)
+    const sc = SCENE_BY_ID[this._config.scene || SCENES[0].id];
+    if (this._forms.suits) this._forms.suits.textContent = sc && sc.creatures ? "Animals that suit the " + sc.label.toLowerCase() + ": " +
+      sc.creatures.filter(function (id) { return CREATURE[id] && CREATURE[id].editor; }).map(function (id) { return CREATURE[id].label; }).join(", ") + "." : "";
     this._forms.sensors.set(sensors);
     const self = this;
     this._shown = [];
@@ -183,7 +188,11 @@ class FamilyDashboardCardEditor extends HTMLElement {
       if (d.scene && d.scene !== SCENES[0].id) c.scene = d.scene; else delete c.scene;
       self._emit(c);
     });
-    sec("Scene", "The meadow has the village: school, workshop, bandstand and cottage. The seaside has the promenade and beach huts, the pier and its band, a boat shed and a lighthouse. Winter village, Forest camp and Space station are coming. The demo cast runs on made-up data, so turn it off to see your calendars.").appendChild(F.top.el);
+    // the hint is each scene's own blurb, so a new scene describes itself here
+    const blurbs = SCENE_LIST.map(function (s) { return s.blurb; }).filter(Boolean).map(function (b) { return b.charAt(0).toUpperCase() + b.slice(1) + ". "; }).join("");
+    const ss = sec("Scene", blurbs + "A space station is coming. The demo cast runs on made-up data, so turn it off to see your calendars.");
+    ss.appendChild(F.top.el);
+    F.suits = document.createElement("p"); F.suits.className = "hint suits"; ss.appendChild(F.suits);
     const ps = sec("People", "One creature each. Give each person their calendar. The last one is the household: bin day and anything nobody owns.");
     for (let i = 0; i < n; i++) {
       const box = document.createElement("div"); box.className = "person";

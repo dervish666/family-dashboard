@@ -8,8 +8,9 @@ import { rand, pick, rr, rimmed } from "../engine/draw.js";
 
 export default {
   id: "meadow", label: "Meadow",
+  blurb: "the meadow has the village: school, workshop, bandstand and cottage",
   village: true, grazers: true,
-  creatures: ["crow", "capybara", "deer", "shark", "otter", "snail", "fox", "hedgehog", "bear", "bunny"],
+  creatures: ["crow", "capybara", "deer", "shark", "otter", "snail", "fox", "hedgehog", "rabbit", "frog", "cat", "owl", "bear", "bunny"],
   bake: bake,
   // spread out along the meadow, clear of the workshop plot on the right
   start: function (i, S) { return { x: S.W * (0.24 + (i % 3) * 0.22), y: i < 3 ? S.TOP + 150 : S.H - 200 }; },

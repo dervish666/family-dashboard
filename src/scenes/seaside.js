@@ -773,7 +773,8 @@ export default {
   id: "seaside", label: "Seaside",
   shadow: "100,85,55",                                       // warm-grey shadows on the sand
   depth: [0.64, 0.36],                                       // a deeper view than the meadow's, so the pier reads as going out to sea
-  creatures: ["otter", "shark", "crow", "capybara", "snail", "fox", "hedgehog"],
+  blurb: "the seaside has the promenade and beach huts, the pier and its band, a boat shed and a lighthouse",
+  creatures: ["otter", "shark", "crow", "capybara", "snail", "fox", "hedgehog", "cat"],
   bake: function (g, S) { bake(g, S); },
   // spread over the beach, the pier, the promenade and the rocks
   start: function (i, S) {

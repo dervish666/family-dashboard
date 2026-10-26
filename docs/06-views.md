@@ -66,7 +66,10 @@ What else happens, all of it driven by data and none of it guessed:
 - **Buildings are shortcuts.** Tap the cottage for Home, the bandstand for Music, the
   workshop for Printer. See `view` below. At the seaside the same views hang off beach hut
   No. 7, the band in the pier's pavilion, the boat shed and the lighthouse, and the fingerpost
-  up the lane opens the School card (README, "Scenes").
+  up the lane opens the School card. In the winter village they are the cottage, the church,
+  the smithy and the post office, with the school itself for the School card; at the forest
+  camp the bell tent, the campfire, the woodpile and the lookout in the oak, with the
+  fingerpost on the trail (README, "Scenes").
 - **The office robot.** Off unless `officeUrl` is set. A small robot wanders the meadow
   saying the latest line from an agent office (see [the Office
   example](#an-example-our-office)).
@@ -120,7 +123,7 @@ Four options exist only on the card:
 | `demo` | `false` | runs on the built-in demo cast and ignores Home Assistant |
 | `query` | none | test hooks as a query string, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | CSS height of the card. Use `100vh` when the header is hidden |
-| `scene` | `meadow` | which scene to draw: `meadow` or `seaside` (README, "Scenes"). Winter village, Forest camp and Space station are coming |
+| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest` (README, "Scenes"). A Space station is coming |
 
 **`people`**, one entry per creature:
 
@@ -137,8 +140,9 @@ people:
 - `role: adult` or `role: kid` is another way to write `adult`.
 - `col` is the person's colour, used for the creature, the name tag and the card.
 - `look` is the animal. The rigged, part-animated looks are `crow`, `capybara`, `shark`,
-  `deer`, `otter` and `snail`. The older whole-sprite looks are `bear`, `bunny`, `phones`,
-  `curls` and `flower`.
+  `deer`, `otter`, `snail`, `fox`, `hedgehog`, `owl`, `rabbit` (the editor's Bunny), `frog`
+  and `cat`. The older whole-sprite looks are `bear`, `bunny`, `phones`, `curls` and
+  `flower`. README, "Animals", has what each does and the scenes it suits.
 - Accessories are flags worn whatever the animal: `glasses`, `phones` (headphones),
   `daisy`. `adult: true` gives neater ears and a taller body. The comment above `DEFAULTS`
   has the current list.
@@ -208,7 +212,9 @@ anyone (Halloween, bonfire night, Christmas, New Year's Eve). Holidays need no e
 they come from the `trips` calendar.
 
 **`view`** maps landmarks to dashboard views (the cottage, bandstand, workshop and robot in the
-meadow; beach hut No. 7, the pier's pavilion, the boat shed and the lighthouse at the seaside):
+meadow; beach hut No. 7, the pier's pavilion, the boat shed and the lighthouse at the seaside;
+the cottage, the church, the smithy and the post office in the winter village; the bell tent,
+the campfire, the woodpile and the lookout at the forest camp):
 
 ```yaml
 view:

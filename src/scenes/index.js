@@ -5,6 +5,7 @@
 // A scene module's default export:
 //   id, label        the scene's name in config and in the editor
 //   creatures        the looks that suit it (ids from creatures/index.js), for the editor's hint
+//   blurb            what it has, a phrase for the editor's Scene hint ("the meadow has ...")
 //   bake(g, S)       paints the static background (g is already scaled to the device pixel
 //                    ratio) and, before anything asks S.inZone, calls S.place(layout) with
 //                    { lay, zones, water, patch, roam, home, exit, doors? }:

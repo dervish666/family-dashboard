@@ -1,8 +1,9 @@
 # Family Dashboard
 
 A Lovelace card for a Home Assistant wall panel. It draws a small animated world, a village
-meadow or a British seaside, where each member of the household lives as a creature. Tap one
-to see that person's week, pulled from your Home Assistant calendars.
+meadow, a British seaside, a village under snow or a camp in the woods, where each member of
+the household lives as a creature. Tap one to see that person's week, pulled from your Home
+Assistant calendars.
 
 ![The meadow by day, with the band playing and a print on the go](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/meadow.png)
 
@@ -40,13 +41,16 @@ cast** off and the creatures show your calendars. No template sensors and no YAM
 
 The editor covers:
 
-- **People**: add, remove and reorder. Each has a name, adult or kid, an animal, a colour,
+- **People**: add, remove and reorder. Each has a name, adult or kid, an animal (see
+  [Animals](#animals)), a colour,
   accessories (glasses, headphones, a daisy, the bee), whether they go to school, and one or
   more calendars. A child who goes to school also gets a timetable and a lunch menu sensor.
   The last person is the household.
 - **Sensors**: weather, music speaker, letter helper, trips calendar, 3D printer, and the
   school data and kit sensors. All optional. Empty means that part of the scene stays off.
-- **Scene**: the meadow or the seaside, from a drop-down. See [Scenes](#scenes).
+- **Scene**: the meadow, the seaside, the winter village or the forest camp, from a
+  drop-down. Under it the editor lists the animals that suit the scene you picked. See
+  [Scenes](#scenes).
 - **Demo cast**: made-up data, no Home Assistant needed.
 
 The same thing in YAML:
@@ -76,26 +80,83 @@ It looks best alone in a `panel` view.
 |---|---|---|---|
 | Meadow (the default) | `meadow` | a village with a high street, the school, the woodcutter, a pond and a pitch | the school: the School card. The cottage: `view.home`. The bandstand: `view.music`. The workshop: `view.printer`. The office robot: `view.office` |
 | Seaside | `seaside` | a British beach: the promenade on its sea wall, beach huts, a pier with a pavilion, rock pools, deckchairs, chalk cliffs and a lighthouse | the fingerpost up the lane to school: the School card. Beach hut No. 7: `view.home`. The band in the pier's pavilion: `view.music`. The boat shed: `view.printer`. The lighthouse: `view.office` |
+| Winter village | `winter` | a British village under snow: the school with its bell, the church, The Robin pub, the post office, the smithy, Christmas lights between the lamps, the village tree, a frozen pond, snowmen and the family's cottage on the green | the school: the School card. The cottage: `view.home`. The church, where carol singers gather: `view.music`. The smithy: `view.printer`. The post office: `view.office` |
+| Forest camp | `forest` | a clearing in a wood: the family's bell tent, a campfire with log seats and a kettle, a string of paper lanterns, the woodpile, a stream running down to a pool, and a lookout up in the old oak | the fingerpost on the trail to school: the School card. The bell tent: `view.home`. The campfire: `view.music`. The woodpile: `view.printer`. The lookout: `view.office` |
+
+| Winter village at dusk | Forest camp at night |
+|---|---|
+| ![The winter village at dusk: lamps and Christmas lights on, carol singers at the church, smoke from the chimneys](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/winter.png) | ![The forest camp at night: the campfire lighting everyone round it, lanterns, fireflies and an owl in the oak](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/forest.png) |
 
 Pick one in the editor's **Scene** drop-down, or in YAML:
 
 ```yaml
 type: custom:family-dashboard-card
-scene: seaside
+scene: winter        # or meadow, seaside, forest
 ```
 
 A config without `scene` gets the meadow, so older cards look exactly as they did. The kids
-leave for school in both: in the meadow they queue at the village school, at the seaside they
-go up the slipway, along the promenade and off up the lane to town, and come back the same
-way. Anyone else with somewhere to be leaves by the bus stop or the lane. The tide at the
-seaside follows the clock, the band plays when your speaker does, and the lamps, the pavilion
-and the chip shop light up after dark.
+leave for school in every scene: in the meadow they queue at the village school, at the
+seaside they go up the slipway, along the promenade and off up the lane to town, in the winter
+village they walk along the lane past the school and off, and at the forest camp they take the
+trail past the fingerpost into the wood. They come back the same way. Anyone else with
+somewhere to be leaves the same way (the bus stop in the meadow), and walks round the
+campfire, the tents or the frozen pond rather than through them.
+
+The tide at the seaside follows the clock, the band plays when your speaker does, and the
+lamps, the pavilion and the chip shop light up after dark. In the winter village the snow
+always lies; snow falling follows your weather and covers the trodden paths, smoke rises from
+the chimneys, a robin hops about the green and flies off from anyone close, and when your
+speaker plays carol singers gather at the church door and the bell swings. At dusk the windows,
+the lamps and the Christmas lights come on and spill warm light on the snow. At the forest
+camp a duck paddles on the pool and a squirrel runs about by day; the fire burns low in the
+rain and leaps when your speaker plays, and at dusk it lights everyone round it while the
+lanterns come on, fireflies rise and two owls wake up in the trees. The swimmers dive in the
+forest pool; the winter pond is frozen, so they stay out.
 
 The meadow's village life stays in the meadow: the walkers and their errands, the workshop
 building up with a print's progress, the postie on foot (at the seaside letters come by air),
 the kit bag by the cottage, the house party and the office robot.
 
-Coming: Winter village, Forest camp and a Space station.
+Coming: a Space station.
+
+## Animals
+
+![The new animals in their poses: idle, walking, a habit, asleep, and as grown-ups](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/animals.png)
+
+Every person is one animal, set with `look:` or the editor's **Animal** drop-down. The rigged
+ones move in pieces: they walk, idle with habits of their own, and at bedtime shut their eyes;
+the four added in v1.4.0 also settle into a sleeping pose.
+
+| Animal | `look:` | Its habits | Suits |
+|---|---|---|---|
+| Crow | `crow` | hops, cocks its head, stoops for anything shiny | meadow, seaside, winter, forest |
+| Capybara | `capybara` | chews, flicks its ears, balances a yuzu | meadow, seaside, winter |
+| Deer | `deer` | twitches its ears, grazes, pronks | meadow, winter, forest |
+| Shark | `shark` | swims across dry land in its own puddle, dives in the water | meadow, seaside |
+| Otter | `otter` | twitches its whiskers, floats on its back in the water | meadow, seaside, forest |
+| Snail | `snail` | carries the house about, slowly | every scene |
+| Fox | `fox` | flicks its ears, swishes its brush, pounces on nothing | every scene |
+| Hedgehog | `hedgehog` | snuffles, bristles when startled | meadow, seaside, winter, forest |
+| Owl | `owl` | turns its head right round, tilts it to listen, rouses with a flap; waddles; sleeps sunk into its feathers | winter, forest (and the meadow) |
+| Bunny | `rabbit` | ears that twitch one at a time, a nose that never stops, a binky when happy, a thump when startled; sleeps with its ears laid back | winter, forest, meadow |
+| Frog | `frog` | croaks with its cheek sacs, sits still then leaps; sleeps low with its eyes drawn down | forest (the stream), meadow (the pond) |
+| Cat | `cat` | a slow blink, ear flicks, a tail swish, washes a paw; wears a collar in the person's colour; sleeps with its tail laid out | winter, forest, meadow, seaside |
+| Bear, Bunny (classic) | `bear`, `bunny` | the older whole-sprite looks, unchanged | |
+
+```yaml
+type: custom:family-dashboard-card
+scene: forest
+people:
+  - { name: Parent 1, role: adult, look: owl, calendar: calendar.parent_1 }
+  - { name: Kid 1, role: kid, look: frog, calendar: calendar.kid_1, school: true }
+  - { name: Kid 2, role: kid, look: rabbit, col: "#E68AB0", calendar: calendar.kid_2, school: true }
+  - { name: House, look: cat, calendar: calendar.family }
+```
+
+`look: bunny` is still the older whole-sprite bunny, so a v1.3.0 card that uses it looks the
+same; `look: rabbit` is the new rigged one, listed as **Bunny** in the editor (the old one is
+**Bunny (classic)**). The cat's collar takes the person's `col`; the other new animals keep
+their own colours, like the fox and hedgehog.
 
 ## School data per child
 
@@ -286,7 +347,7 @@ setup stays editable.
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
 | `demo` | `false` | run on the built-in demo cast |
-| `scene` | `meadow` | which scene to draw: `meadow` or `seaside`. Winter village, Forest camp and Space station are coming |
+| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest`. A Space station is coming |
 | `query` | none | test hooks, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | card height. Use `100vh` with the header hidden |
 
@@ -320,7 +381,7 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000/demo/`. The page's query string goes to the card as test
 hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night, and `/demo/?scene=seaside`
-shows the seaside.
+shows the seaside (`scene=winter` and `scene=forest` the other two).
 
 ## Working on the card
 
@@ -341,7 +402,7 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 
 ## Known limits
 
-- Built and tuned for 1280x800. Other sizes work but both scenes were laid out for that one.
+- Built and tuned for 1280x800. Other sizes work but every scene was laid out for that one.
 - On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
   since the template sensor tags each event with its owner's name. Calendars set on people
   have no such rule.

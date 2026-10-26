@@ -2866,9 +2866,10 @@ CREATURES.forEach(function(c) {
 var meadow_default = {
   id: "meadow",
   label: "Meadow",
+  blurb: "the meadow has the village: school, workshop, bandstand and cottage",
   village: true,
   grazers: true,
-  creatures: ["crow", "capybara", "deer", "shark", "otter", "snail", "fox", "hedgehog", "bear", "bunny"],
+  creatures: ["crow", "capybara", "deer", "shark", "otter", "snail", "fox", "hedgehog", "rabbit", "frog", "cat", "owl", "bear", "bunny"],
   bake,
   // spread out along the meadow, clear of the workshop plot on the right
   start: function(i, S) {
@@ -5291,7 +5292,8 @@ var seaside_default = {
   // warm-grey shadows on the sand
   depth: [0.64, 0.36],
   // a deeper view than the meadow's, so the pier reads as going out to sea
-  creatures: ["otter", "shark", "crow", "capybara", "snail", "fox", "hedgehog"],
+  blurb: "the seaside has the promenade and beach huts, the pier and its band, a boat shed and a lighthouse",
+  creatures: ["otter", "shark", "crow", "capybara", "snail", "fox", "hedgehog", "cat"],
   bake: function(g, S) {
     bake2(g, S);
   },
@@ -9794,6 +9796,12 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
     }
     const sensors = eff ? eff.sensors : Object.assign({}, this._config.sensors);
     this._forms.top.set({ scene: this._config.scene || SCENES[0].id, demo: this._config.demo === true });
+    const sc = SCENE_BY_ID[this._config.scene || SCENES[0].id];
+    if (this._forms.suits) this._forms.suits.textContent = sc && sc.creatures ? "Animals that suit the " + sc.label.toLowerCase() + ": " + sc.creatures.filter(function(id) {
+      return CREATURE[id] && CREATURE[id].editor;
+    }).map(function(id) {
+      return CREATURE[id].label;
+    }).join(", ") + "." : "";
     this._forms.sensors.set(sensors);
     const self = this;
     this._shown = [];
@@ -9841,7 +9849,16 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
       else delete c.scene;
       self._emit(c);
     });
-    sec("Scene", "The meadow has the village: school, workshop, bandstand and cottage. The seaside has the promenade and beach huts, the pier and its band, a boat shed and a lighthouse. Winter village, Forest camp and Space station are coming. The demo cast runs on made-up data, so turn it off to see your calendars.").appendChild(F.top.el);
+    const blurbs = SCENE_LIST.map(function(s) {
+      return s.blurb;
+    }).filter(Boolean).map(function(b) {
+      return b.charAt(0).toUpperCase() + b.slice(1) + ". ";
+    }).join("");
+    const ss = sec("Scene", blurbs + "A space station is coming. The demo cast runs on made-up data, so turn it off to see your calendars.");
+    ss.appendChild(F.top.el);
+    F.suits = document.createElement("p");
+    F.suits.className = "hint suits";
+    ss.appendChild(F.suits);
     const ps = sec("People", "One creature each. Give each person their calendar. The last one is the household: bin day and anything nobody owns.");
     for (let i = 0; i < n; i++) {
       const box = document.createElement("div");
