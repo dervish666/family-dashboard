@@ -1,0 +1,19 @@
+# Kid A's room panel on a Cheap Yellow Display (ESP32-2432S028R).
+#
+# Copy this file into your ESPHome folder, rename it, set child to the slug
+# of input_text.letter_<slug>, and add panel_kid_a_api_key to secrets.yaml
+# (esphome/README.md says how to make one). The three packages come from
+# GitHub; pin @main to a release tag once you have it working.
+substitutions:
+  name: panel-kid-a
+  friendly_name: Kid A panel
+  child: kid_a
+  api_key: !secret panel_kid_a_api_key
+  # Anything from packages/base.yaml or the board file can be overridden here:
+  # night_start: "20:00"
+  # cyd_model: ESP32-2432S028      # the micro-USB-only ILI9341 version
+
+packages:
+  base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
+  board: github://dervish666/family-dashboard/esphome/boards/esp32_2432s028.yaml@main
+  profile: github://dervish666/family-dashboard/esphome/profiles/kid.yaml@main

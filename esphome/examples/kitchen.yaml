@@ -1,0 +1,16 @@
+# The kitchen panel on a Guition JC3248W535 (3.5", ESP32-S3).
+#
+# The four presets must match broadcast_presets in
+# homeassistant/panels.example.yaml word for word, or Home Assistant ignores
+# the button and logs a warning saying so.
+substitutions:
+  name: panel-kitchen
+  friendly_name: Kitchen panel
+  api_key: !secret panel_kitchen_api_key
+  # preset_1: "Dinner's ready"
+  # night_start: "22:30"
+
+packages:
+  base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
+  board: github://dervish666/family-dashboard/esphome/boards/guition_jc3248w535.yaml@main
+  profile: github://dervish666/family-dashboard/esphome/profiles/kitchen.yaml@main

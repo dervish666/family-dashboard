@@ -1,0 +1,76 @@
+# Generic profile: a clock, the family announcement and one line of text
+# from any Home Assistant sensor. For a hallway, a spare room, or a panel
+# that should show the family's news without anyone's letters.
+#
+# info_entity can be any entity whose state is text: sensor.panel_today from
+# panels.example.yaml (the default), a weather summary, the bin day.
+
+substitutions:
+  info_entity: sensor.panel_today
+  info_title: "Today"
+
+text_sensor:
+  - platform: homeassistant
+    id: info_text
+    entity_id: ${info_entity}
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: info_label
+          text: !lambda |-
+            return (x == "unavailable" || x == "unknown") ? std::string("${info_title} unavailable") : x;
+
+lvgl:
+  pages:
+    - id: main_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      layout:
+        type: flex
+        flex_flow: column
+        flex_align_cross: center
+        pad_row: 8
+      widgets:
+        - label:
+            id: clock_label
+            text: "--:--"
+            text_font: font_clock
+        - label:
+            id: date_label
+            text: ""
+        - label:
+            id: offline_label
+            text: "offline"
+            text_font: font_small
+            text_color: 0xC9594A
+            hidden: true
+        - obj:
+            id: announce_box
+            width: 100%
+            height: SIZE_CONTENT
+            styles: banner_style
+            hidden: true
+            widgets:
+              - label:
+                  id: announce_label
+                  width: 100%
+                  text: ""
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            flex_grow: 1
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label:
+                  text: "${info_title}"
+                  text_font: font_small
+                  text_color: 0x3F7A50
+              - label:
+                  id: info_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap

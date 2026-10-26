@@ -1,0 +1,11 @@
+# Kid B's room panel on a JC2432W328C, built from the files in a checkout.
+substitutions:
+  name: panel-kid-b
+  friendly_name: Kid B panel
+  child: kid_b
+  api_key: !secret panel_kid_b_api_key
+
+packages:
+  base: !include ../packages/base.yaml
+  board: !include ../boards/jc2432w328.yaml
+  profile: !include ../profiles/kid.yaml
