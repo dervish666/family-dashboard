@@ -10,7 +10,7 @@
 //
 // No village population: school and away duties go up the trail past the fingerpost and off
 // the left edge. The swimmers dive in the pool.
-import { rand, pick, rr, rimmed, canvas, K } from "../engine/draw.js";
+import { rand, pick, rr, rimmed, canvas, K, aoShadow } from "../engine/draw.js";
 import { around } from "../engine/route.js";
 
 var G = null;
@@ -67,11 +67,17 @@ function bake(g, S) {
   var L = layout(S), W = S.W, H = S.H, HZ = S.HZ, B = G.B, i, x, y;
   S.place(L);
   var sky = g.createLinearGradient(0, 0, 0, HZ);
-  sky.addColorStop(0, "#A8D2E4"); sky.addColorStop(0.7, "#D8EBE4"); sky.addColorStop(1, "#EEF1D8");
+  sky.addColorStop(0, "#9CCBE2"); sky.addColorStop(0.65, "#D3E9E3"); sky.addColorStop(1, "#EEF1D8");
   g.fillStyle = sky; g.fillRect(0, 0, W, HZ + 40);
+  var sg = g.createRadialGradient(W * 0.3, 20, 0, W * 0.3, 20, HZ);                                   // the sun, up and to the left
+  sg.addColorStop(0, "rgba(255,250,215,.6)"); sg.addColorStop(0.5, "rgba(255,248,210,.16)"); sg.addColorStop(1, "rgba(255,248,210,0)");
+  g.fillStyle = sg; g.fillRect(0, 0, W, HZ + 40);
+  hills(g, HZ - 36, 20, "#CFE0D4", 0.4);                                                              // a far ridge in the haze
   hills(g, HZ - 22, 22, "#BCD6C6", 1.1); hills(g, HZ - 4, 14, "#A6C8B2", 3.3);
   // the far wood, pale with distance
   for (i = 0; i < 52; i++) { x = (i / 51) * W * 1.04 - 20 + Math.sin(i * 5.1) * 8; fir(g, x, HZ + 14 + Math.abs(Math.sin(i * 1.9)) * 6, 34 + Math.abs(Math.sin(i * 3.3)) * 22, i % 2 ? "#8FB5A0" : "#86AE99", false); }
+  var hz = g.createLinearGradient(0, HZ - 30, 0, HZ + 40); hz.addColorStop(0, "rgba(220,238,228,.5)"); hz.addColorStop(1, "rgba(220,238,228,0)");   // the air in front of it
+  g.fillStyle = hz; g.fillRect(0, HZ - 30, W, 70);
   // the clearing: grass, lighter in the middle where the sun gets in, darker under the trees
   var gr = g.createLinearGradient(0, HZ, 0, H);
   gr.addColorStop(0, "#9CC583"); gr.addColorStop(0.35, "#A7CF88"); gr.addColorStop(1, "#86BC72");
@@ -81,11 +87,17 @@ function bake(g, S) {
   g.fillStyle = sun; g.fillRect(0, HZ, W, H);
   for (i = 0; i < 70; i++) { g.fillStyle = Math.random() < 0.5 ? "rgba(255,255,220,.08)" : "rgba(40,90,40,.07)";
     g.beginPath(); g.ellipse(rand(0, W), rand(HZ + 30, H), rand(30, 110), rand(8, 26), 0, 0, 7); g.fill(); }
+  var vg = g.createRadialGradient(W * 0.48, H * 0.64, H * 0.22, W * 0.48, H * 0.64, W * 0.68);        // darker under the trees at the edges
+  vg.addColorStop(0, "rgba(15,50,25,0)"); vg.addColorStop(1, "rgba(15,50,25,.2)");
+  g.fillStyle = vg; g.fillRect(0, HZ + 18, W, H - HZ);
   // the near wood along the back edge: a band of firs and bushes, taller on the right
   for (i = 0; i < 30; i++) { x = (i / 29) * W * 1.02 - 10; var big = x > W * 0.7 ? 1.5 : x < W * 0.2 ? 0.9 : 0.75;
     fir(g, x, B - 4 + Math.sin(i * 2.3) * 3, (60 + Math.abs(Math.sin(i * 4.1)) * 40) * big, i % 2 ? "#4E8A62" : "#5A9468", false); }
   for (i = 0; i < 26; i++) bush(g, (i / 25) * W, B + 4 + Math.sin(i * 3.7) * 4, 14 + Math.abs(Math.sin(i * 2.9)) * 10, i % 3 ? "#5E9A5E" : "#6AA66A");
   shadowBand(g, B);
+  [[0.22, 0.46], [0.3, 0.55], [0.38, 0.64]].forEach(function (b, n) {                                 // sunbeams through the trees
+    var bg = g.createLinearGradient(0, B - 40, 0, H * 0.78); bg.addColorStop(0, "rgba(255,250,210," + (0.11 - n * 0.02) + ")"); bg.addColorStop(1, "rgba(255,250,210,0)");
+    g.fillStyle = bg; g.beginPath(); g.moveTo(W * b[0] - 14, B - 40); g.lineTo(W * b[0] + 14, B - 40); g.lineTo(W * b[1] + 70, H * 0.78); g.lineTo(W * b[1] - 10, H * 0.78); g.closePath(); g.fill(); });
   trail(g);
   stream(g);
   // flowers, ferns, tufts and toadstools, kept off the furniture
@@ -148,7 +160,7 @@ function onTrail(x, y) { for (var k = 0; k <= 1; k += 0.05) { var p = trailAt(k)
 function trail(g) {
   var P = trailPts();
   g.lineCap = "round"; g.lineJoin = "round";
-  [[40, "rgba(150,120,80,.35)"], [32, "#D9C49A"], [16, "rgba(240,225,190,.5)"]].forEach(function (s) {
+  [[46, "rgba(60,90,40,.14)"], [40, "rgba(150,120,80,.35)"], [32, "#D9C49A"], [16, "rgba(240,225,190,.5)"]].forEach(function (s) {
     g.strokeStyle = s[1]; g.lineWidth = s[0]; g.beginPath(); g.moveTo(P[0][0], P[0][1]); g.bezierCurveTo(P[1][0], P[1][1], P[2][0], P[2][1], P[3][0], P[3][1]); g.stroke(); });
   for (var i = 0; i < 40; i++) { var p = trailAt(rand(0, 1)); g.fillStyle = pick(["#B8A27A", "#A89070", "#C9B590"]);
     g.beginPath(); g.ellipse(p.x + rand(-12, 12), p.y + rand(-5, 5), rand(1.5, 3), rand(1, 2), 0, 0, 7); g.fill(); }
@@ -164,6 +176,11 @@ function stream(g) {
   band(9, "#7A9A62"); band(5, "#A8936E");
   var wg = g.createLinearGradient(0, G.B, 0, G.H); wg.addColorStop(0, "#8FC6CC"); wg.addColorStop(1, "#5FAABA");
   band(0, wg);
+  g.strokeStyle = "rgba(30,90,110,.22)"; g.lineCap = "round";                                          // deeper down the middle
+  for (k = 0.05; k < 1; k += 0.05) { s = streamAt(k); var s2 = streamAt(k + 0.05); g.lineWidth = s.w * 0.45; g.beginPath(); g.moveTo(s.x, s.y); g.lineTo(s2.x, s2.y); g.stroke(); }
+  var dp = g.createRadialGradient(p.x, p.y + 4, 0, p.x, p.y + 4, p.rx * 0.9); dp.addColorStop(0, "rgba(30,90,110,.3)"); dp.addColorStop(1, "rgba(30,90,110,0)");
+  g.fillStyle = dp; g.beginPath(); g.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, 7); g.fill();
+  g.fillStyle = "rgba(255,255,255,.2)"; g.beginPath(); g.ellipse(p.x - p.rx * 0.2, p.y - p.ry * 0.45, p.rx * 0.5, p.ry * 0.22, 0, 0, 7); g.fill();   // the sky in it
   g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 2; g.lineCap = "round";
   g.beginPath(); g.ellipse(p.x - p.rx * 0.2, p.y - p.ry * 0.3, p.rx * 0.45, p.ry * 0.3, 0, 3.5, 5.3); g.stroke();
   for (var i = 0; i < 26; i++) { s = streamAt(rand(0.05, 1)); var side = Math.random() < 0.5 ? -1 : 1;                 // pebbles on the banks
@@ -195,7 +212,7 @@ function toadstool(g, x, y, s) {
 // Paper lanterns on a line across the back, hung between two poles.
 function lanternString(g) {
   var W = G.W, x0 = W * 0.2, x1 = W * 0.74, y0 = G.B - 30, y1 = G.B - 36, sag = 30;
-  [[x0, y0], [x1, y1]].forEach(function (p) { g.fillStyle = "#6B4E36"; g.fillRect(p[0] - 2, p[1] - 4, 4, G.B + 26 - p[1]); });
+  [[x0, y0], [x1, y1]].forEach(function (p) { aoShadow(g, p[0] + 3, G.B + 26, 12, 3, 0.3); g.fillStyle = "#6B4E36"; g.fillRect(p[0] - 2, p[1] - 4, 4, G.B + 26 - p[1]); });
   g.strokeStyle = "rgba(60,50,40,.7)"; g.lineWidth = 1; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo((x0 + x1) / 2, Math.max(y0, y1) + sag * 2, x1, y1); g.stroke();
   var cols = ["#F2C14E", "#E86A5B", "#F4F1E8", "#7BC4A8", "#F29E7A"], n = 13;
   for (var i = 1; i < n; i++) { var t = i / n, x = (1 - t) * (1 - t) * x0 + 2 * t * (1 - t) * (x0 + x1) / 2 + t * t * x1, y = (1 - t) * (1 - t) * y0 + 2 * t * (1 - t) * (Math.max(y0, y1) + sag * 2) + t * t * y1;
@@ -446,7 +463,12 @@ function update(dt, S) {
 // Under the weather: the water's ripples and glints, flowing down the stream.
 function under(ctx, time, S) {
   if (!A) return;
-  var i, k, s;
+  var i, k, s, D0 = S.DARK || 0;
+  if (D0 > 0 && D0 < 1) {                                                                            // the sunset behind the wood
+    var sa = Math.sin(D0 * Math.PI) * 0.34, sg = ctx.createLinearGradient(0, G.HZ - 130, 0, G.HZ + 50);
+    sg.addColorStop(0, "rgba(255,150,90,0)"); sg.addColorStop(0.6, "rgba(255,140,80," + sa.toFixed(3) + ")"); sg.addColorStop(1, "rgba(255,170,120,0)");
+    ctx.fillStyle = sg; ctx.fillRect(0, G.HZ - 130, G.W, 180);
+  }
   ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1.4; ctx.lineCap = "round"; ctx.beginPath();
   for (i = 0; i < 18; i++) { k = ((i / 18) + time * 0.03) % 1; s = streamAt(k); var off = Math.sin(i * 2.7) * s.w * 0.25, l = 4 + s.w * 0.12;
     ctx.moveTo(s.x + off - l / 2, s.y); ctx.quadraticCurveTo(s.x + off, s.y - 1.5, s.x + off + l / 2, s.y); }
@@ -546,10 +568,15 @@ function light(ctx, time, S) {
   if (!A) return;
   var D = S.DARK, i, W = G.W, f = G.fire, fs = fireSize(S);
   if (D <= 0.02) return;
+  var ng = ctx.createLinearGradient(0, 0, 0, G.HZ + 20); ng.addColorStop(0, "rgba(6,10,42,.55)"); ng.addColorStop(0.7, "rgba(10,16,52,.28)"); ng.addColorStop(1, "rgba(16,24,60,0)");   // a deep blue night sky
+  ctx.globalAlpha = D; ctx.fillStyle = ng; ctx.fillRect(0, 0, W, G.HZ + 20);
+  ctx.fillStyle = "rgba(20,40,110,.1)"; ctx.fillRect(0, G.HZ + 20, W, G.H - G.HZ);                      // moonlight cools the clearing, so the fire reads warm
   ctx.fillStyle = "#FFFFFF";
-  for (i = 0; i < A.stars.length; i++) { var st = A.stars[i], tw = 0.55 + 0.45 * Math.sin(time * 1.4 + st.ph); ctx.globalAlpha = D * tw * 0.85; ctx.fillRect(st.x, st.y, st.s, st.s); }
+  for (i = 0; i < A.stars.length; i++) { var st = A.stars[i], tw = 0.55 + 0.45 * Math.sin(time * 1.4 + st.ph), ss = st.s * 1.3; ctx.globalAlpha = D * tw * 0.9; ctx.fillRect(st.x - ss / 2, st.y - ss / 2, ss, ss);
+    if (st.s > 1.9) { ctx.globalAlpha = D * tw * 0.4; ctx.fillRect(st.x - ss * 1.6, st.y - 0.5, ss * 3.2, 1); ctx.fillRect(st.x - 0.5, st.y - ss * 1.6, 1, ss * 3.2); } }
   var mx = W * 0.46, my = 100;
-  ctx.globalAlpha = D * 0.25; ctx.drawImage(A.glow, mx - 40, my - 40, 80, 80);
+  var halo = ctx.createRadialGradient(mx, my, 14, mx, my, 70); halo.addColorStop(0, "rgba(255,245,210,.38)"); halo.addColorStop(1, "rgba(255,245,210,0)");
+  ctx.globalAlpha = D; ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(mx, my, 70, 0, 7); ctx.fill();
   ctx.globalAlpha = D; ctx.fillStyle = "#FFF8DC"; ctx.beginPath(); ctx.arc(mx, my, 16, 0, 7); ctx.fill();
   ctx.fillStyle = "rgba(230,222,190,.7)"; ctx.beginPath(); ctx.arc(mx - 5, my - 3, 3.5, 0, 7); ctx.arc(mx + 6, my + 5, 2.5, 0, 7); ctx.fill();
   ctx.globalCompositeOperation = "lighter";
