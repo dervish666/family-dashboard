@@ -18,6 +18,17 @@ export function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { retu
 export function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 // A quick spike that fades: 0 at the start, a peak early, back to 0 at the end.
 export function spike(tLeft, dur) { if (!(tLeft > 0)) return 0; var k = 1 - tLeft / dur; return Math.sin(k * Math.PI) * (1 - k * 0.5); }
+// A scene's own random numbers for decoration (stars, pebbles, grass): seeded, so the sim's
+// Math.random sequence is untouched and a bake draws the same set every time at a size.
+export function prng(seed) { var s = seed | 0; return function () { s = s + 0x6D2B79F5 | 0; var t = Math.imul(s ^ s >>> 15, 1 | s);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+// A soft contact shadow: an ellipse that fades out from its middle, for the ground under
+// a building or a prop.
+export function aoShadow(g, x, y, rx, ry, a, col) {
+  var gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+  gr.addColorStop(0, "rgba(" + (col || "30,60,30") + "," + a + ")"); gr.addColorStop(0.55, "rgba(" + (col || "30,60,30") + "," + (a * 0.55).toFixed(3) + ")"); gr.addColorStop(1, "rgba(" + (col || "30,60,30") + ",0)");
+  g.save(); g.translate(x, y); g.scale(rx, ry); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 1, 0, 7); g.fill(); g.restore();
+}
 
 // ── Sprites. Everything is baked once, then blitted: this panel is an Android 5
 // tablet, and a creature built from paths every frame is ten rasterisations. ─────
