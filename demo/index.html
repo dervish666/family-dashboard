@@ -10,12 +10,14 @@
 <body>
 <!-- The card on its built-in demo cast, no Home Assistant needed. Serve the repo root over
      HTTP (python3 -m http.server) and open /demo/. The page's own query string is passed
-     to the card as its test hooks, so /demo/?hour=21.5&weather=snow works. -->
+     to the card as its test hooks, so /demo/?hour=21.5&weather=snow works, and scene=seaside picks
+     the scene. -->
 <family-dashboard-card></family-dashboard-card>
 <script type="module">
 import "../dist/family-dashboard.js";
 const card = document.querySelector("family-dashboard-card");
-card.setConfig({ demo: true, height: "100vh", query: location.search });
+const scene = new URLSearchParams(location.search).get("scene");     // /demo/?scene=seaside
+card.setConfig(Object.assign({ demo: true, height: "100vh", query: location.search }, scene ? { scene: scene } : {}));
 </script>
 </body>
 </html>

@@ -64,7 +64,9 @@ What else happens, all of it driven by data and none of it guessed:
   light show with a sign on its roof that shows what is playing. Podcasts and audiobooks do
   not count.
 - **Buildings are shortcuts.** Tap the cottage for Home, the bandstand for Music, the
-  workshop for Printer. See `view` below.
+  workshop for Printer. See `view` below. At the seaside the same views hang off beach hut
+  No. 7, the band in the pier's pavilion, the boat shed and the lighthouse, and the fingerpost
+  up the lane opens the School card (README, "Scenes").
 - **The office robot.** Off unless `officeUrl` is set. A small robot wanders the meadow
   saying the latest line from an agent office (see [the Office
   example](#an-example-our-office)).
@@ -118,7 +120,7 @@ Four options exist only on the card:
 | `demo` | `false` | runs on the built-in demo cast and ignores Home Assistant |
 | `query` | none | test hooks as a query string, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | CSS height of the card. Use `100vh` when the header is hidden |
-| `scene` | `meadow` | which scene to draw. The meadow is the only one so far |
+| `scene` | `meadow` | which scene to draw: `meadow` or `seaside` (README, "Scenes"). Winter village, Forest camp and Space station are coming |
 
 **`people`**, one entry per creature:
 
@@ -205,7 +207,8 @@ each one throws that person's party on the day. `fixed` is the list of days that
 anyone (Halloween, bonfire night, Christmas, New Year's Eve). Holidays need no entry here,
 they come from the `trips` calendar.
 
-**`view`** maps buildings to dashboard views:
+**`view`** maps landmarks to dashboard views (the cottage, bandstand, workshop and robot in the
+meadow; beach hut No. 7, the pier's pavilion, the boat shed and the lighthouse at the seaside):
 
 ```yaml
 view:
@@ -215,7 +218,7 @@ view:
   office: null
 ```
 
-`null` leaves that building as scenery. A tap navigates the way Home Assistant's own cards
+`null` leaves that landmark as scenery. A tap navigates the way Home Assistant's own cards
 do, with `history.pushState` and a `location-changed` event.
 
 **`officeUrl`** is the address the office robot polls. `null`, the default, keeps the robot

@@ -183,7 +183,7 @@ class FamilyDashboardCardEditor extends HTMLElement {
       if (d.scene && d.scene !== SCENES[0].id) c.scene = d.scene; else delete c.scene;
       self._emit(c);
     });
-    sec("Scene", "The meadow has the village: school, workshop, bandstand and cottage. The seaside has a pier, rock pools and the tide. The demo cast runs on made-up data, so turn it off to see your calendars.").appendChild(F.top.el);
+    sec("Scene", "The meadow has the village: school, workshop, bandstand and cottage. The seaside has the promenade and beach huts, the pier and its band, a boat shed and a lighthouse. Winter village, Forest camp and Space station are coming. The demo cast runs on made-up data, so turn it off to see your calendars.").appendChild(F.top.el);
     const ps = sec("People", "One creature each. Give each person their calendar. The last one is the household: bin day and anything nobody owns.");
     for (let i = 0; i < n; i++) {
       const box = document.createElement("div"); box.className = "person";

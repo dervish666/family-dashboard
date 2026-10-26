@@ -1,8 +1,8 @@
 # Family Dashboard
 
-A Lovelace card for a Home Assistant wall panel. It draws a small animated village where each
-member of the household lives as a creature. Tap one to see that person's week, pulled from
-your Home Assistant calendars.
+A Lovelace card for a Home Assistant wall panel. It draws a small animated world, a village
+meadow or a British seaside, where each member of the household lives as a creature. Tap one
+to see that person's week, pulled from your Home Assistant calendars.
 
 ![The meadow by day, with the band playing and a print on the go](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/meadow.png)
 
@@ -46,7 +46,7 @@ The editor covers:
   The last person is the household.
 - **Sensors**: weather, music speaker, letter helper, trips calendar, 3D printer, and the
   school data and kit sensors. All optional. Empty means that part of the scene stays off.
-- **Scene**: the meadow. It is a list so more scenes can join it later.
+- **Scene**: the meadow or the seaside, from a drop-down. See [Scenes](#scenes).
 - **Demo cast**: made-up data, no Home Assistant needed.
 
 The same thing in YAML:
@@ -67,6 +67,35 @@ calendar never reads as a free day. The school data sensor (`sensors.extra`) wor
 way: off when empty, "School info unavailable" when it is set but missing.
 
 It looks best alone in a `panel` view.
+
+## Scenes
+
+![The seaside by day: the promenade and its beach huts, the pier with the band in its pavilion, the boat shed and the lighthouse](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/seaside.png)
+
+| Scene | `scene:` | Where the family lives | What a tap opens |
+|---|---|---|---|
+| Meadow (the default) | `meadow` | a village with a high street, the school, the woodcutter, a pond and a pitch | the school: the School card. The cottage: `view.home`. The bandstand: `view.music`. The workshop: `view.printer`. The office robot: `view.office` |
+| Seaside | `seaside` | a British beach: the promenade on its sea wall, beach huts, a pier with a pavilion, rock pools, deckchairs, chalk cliffs and a lighthouse | the fingerpost up the lane to school: the School card. Beach hut No. 7: `view.home`. The band in the pier's pavilion: `view.music`. The boat shed: `view.printer`. The lighthouse: `view.office` |
+
+Pick one in the editor's **Scene** drop-down, or in YAML:
+
+```yaml
+type: custom:family-dashboard-card
+scene: seaside
+```
+
+A config without `scene` gets the meadow, so older cards look exactly as they did. The kids
+leave for school in both: in the meadow they queue at the village school, at the seaside they
+go up the slipway, along the promenade and off up the lane to town, and come back the same
+way. Anyone else with somewhere to be leaves by the bus stop or the lane. The tide at the
+seaside follows the clock, the band plays when your speaker does, and the lamps, the pavilion
+and the chip shop light up after dark.
+
+The meadow's village life stays in the meadow: the walkers and their errands, the workshop
+building up with a print's progress, the postie on foot (at the seaside letters come by air),
+the kit bag by the cottage, the house party and the office robot.
+
+Coming: Winter village, Forest camp and a Space station.
 
 ## School data per child
 
@@ -252,12 +281,12 @@ setup stays editable.
 | `people` | a demo cast of six | one creature each: `name`, `calendar` (one or a list), `col`, `look`, `role` (`adult` or `kid`), `r`, `tg`, the school sources `timetable`, `lunch` and `choice`, plus flags `adult`, `school`, `glasses`, `phones`, `daisy`, `bee`. The last entry is the household |
 | `sensors` | with calendars: `sun` and `weather` only. Without: `sensor.family_week` and friends | entity ids: `week`, `extra`, `kit`, `sun`, `weather`, `printer`, `letter`, `music`, `rain`, `trips`. `timetable` and `lunch` are the v1.1.0 way, see above |
 | `dates` | demo birthdays, Halloween to New Year's Eve | `birthdays` (name to `MM-DD`) and `fixed` days, shown as countdowns in the sky |
-| `view` | with calendars: all `null`. Without: `/wall-panel/...` paths | which view a tap on the cottage, bandstand, workshop or robot opens. `null` leaves the building as scenery |
+| `view` | with calendars: all `null`. Without: `/wall-panel/...` paths | which view a tap on a landmark opens: `home`, `music`, `printer` and `office`, see [Scenes](#scenes). `null` leaves that landmark as scenery |
 | `anniversary` | the first two people | who gets the party on an "Anniversary" event |
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
 | `demo` | `false` | run on the built-in demo cast |
-| `scene` | `meadow` | which scene to draw. The meadow is the only one so far |
+| `scene` | `meadow` | which scene to draw: `meadow` or `seaside`. Winter village, Forest camp and Space station are coming |
 | `query` | none | test hooks, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | card height. Use `100vh` with the header hidden |
 
@@ -290,7 +319,8 @@ python3 -m http.server 8000
 ```
 
 Then open `http://localhost:8000/demo/`. The page's query string goes to the card as test
-hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night.
+hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night, and `/demo/?scene=seaside`
+shows the seaside.
 
 ## Working on the card
 
@@ -305,11 +335,13 @@ node tests/check.mjs && sh tests/falsify.sh
 
 CI rebuilds `dist/` and fails if the committed file differs from the build. A new animal is a
 module in `src/creatures/` plus one line in `src/creatures/index.js`; a new scene is the same in
-`src/scenes/`. The check fails if a module is missing part of its interface or is not listed.
+`src/scenes/`. The check fails if a module is missing part of its interface or is not listed,
+and if a scene leaves any landmark unmapped: every scene needs a tappable `school`, `home`,
+`music`, `printer` and `office` (the comment in `src/scenes/index.js` has the shape).
 
 ## Known limits
 
-- Built and tuned for 1280x800. Other sizes work but the village was laid out for that one.
+- Built and tuned for 1280x800. Other sizes work but both scenes were laid out for that one.
 - On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
   since the template sensor tags each event with its owner's name. Calendars set on people
   have no such rule.
