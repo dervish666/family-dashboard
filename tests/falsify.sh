@@ -1,10 +1,10 @@
 #!/bin/sh
 # Proves tests/check.mjs can fail. Breaks the card in known ways on temp copies and expects
-# the check to exit non-zero each time: two breaks in the built file (calendar parsing,
-# calendar mode), then the source ones below, each rebuilt with esbuild (creature and scene
-# registries and their landmarks, the animals' walk, idle and sleep, a scene's exit and the
-# duty walks round its obstacles, the school timetable and lunch parsers, the per-child
-# school config). Exits 1
+# the check to exit non-zero each time. Each break is made in src/ and rebuilt with esbuild
+# (calendar parsing and calendar mode, creature and scene registries and their landmarks,
+# the animals' walk, idle and sleep, a scene's exit and the duty walks round its obstacles,
+# the school timetable and lunch parsers, the per-child school config). The breaks go in
+# src/, not dist/, because dist/ is minified and its names change with every build. Exits 1
 # if any broken copy passes. Needs npm ci first.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -12,14 +12,6 @@ esbuild="$here/node_modules/.bin/esbuild"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 node "$here/tests/check.mjs" "$here/dist/family-dashboard.js" "$here/src" >/dev/null || { echo "check fails on the real files"; exit 1; }
 n=0
-
-for break in 's/at: allDay ? "" : s.slice(11, 16)/at: allDay ? "" : s.slice(11, 15)/' \
-             's/if (calendarMode) {/if (false) {/'; do
-  sed "$break" "$here/dist/family-dashboard.js" > "$tmp/fd.js"
-  cmp -s "$tmp/fd.js" "$here/dist/family-dashboard.js" && { echo "sabotage did not apply: $break"; exit 1; }
-  if node "$here/tests/check.mjs" "$tmp/fd.js" "$here/src" >/dev/null 2>&1; then echo "broken copy passed: $break"; exit 1; fi
-  n=$((n + 1))
-done
 
 # file | sed expression | what it breaks. No "|" inside an expression: it splits the line. A file that does not exist yet is created from
 # hedgehog.js, so the sabotage is a new module.
@@ -32,6 +24,8 @@ while IFS='|' read -r f expr what; do
   if node "$here/tests/check.mjs" "$tmp/fd.js" "$tmp/src" >/dev/null 2>&1; then echo "broken copy passed: $what"; exit 1; fi
   n=$((n + 1))
 done <<'EOF'
+calendar.js|s/at: allDay ? "" : s.slice(11, 16)/at: allDay ? "" : s.slice(11, 15)/|calendar times lose their last digit
+config.js|s/  if (calendarMode) {/  if (false) {/|calendar mode never switches on
 creatures/fox.js|s/^  anim: function (t, p, time, M) {/  move: function (t, p, time, M) {/|the fox loses anim()
 creatures/badger.js|s/id: "hedgehog", label: "Hedgehog"/id: "badger", label: "Badger"/|a badger module nobody registered
 creatures/index.js|s/owl, rabbit, frog, cat,/owl, frog, cat,/|the bunny dropped from the registry

@@ -6,7 +6,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.js --bundle --format=esm --target=chrome87 --charset=utf8 --legal-comments=none \"--banner:js=// Family Dashboard card. Built from src/ by esbuild: edit src/ and run npm run build, never this file.\" --outfile=dist/family-dashboard.js",
+    "build": "esbuild src/index.js --bundle --format=esm --target=chrome87 --minify --charset=utf8 --legal-comments=none \"--banner:js=// Family Dashboard card. Built from src/ by esbuild: edit src/ and run npm run build, never this file.\" --outfile=dist/family-dashboard.js",
+    "build:debug": "esbuild src/index.js --bundle --format=esm --target=chrome87 --charset=utf8 --sourcemap --outfile=build/family-dashboard.js",
     "check": "node tests/check.mjs",
     "falsify": "sh tests/falsify.sh"
   },

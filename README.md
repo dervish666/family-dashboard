@@ -394,6 +394,10 @@ npm run build
 node tests/check.mjs && sh tests/falsify.sh
 ```
 
+`dist/` is minified, so stack traces from it name nothing useful. `npm run build:debug` writes
+an unminified copy with a source map to `build/` (ignored by git); point a test page at that
+one when you need to read a trace. Nothing in `build/` ships.
+
 CI rebuilds `dist/` and fails if the committed file differs from the build. A new animal is a
 module in `src/creatures/` plus one line in `src/creatures/index.js`; a new scene is the same in
 `src/scenes/`. The check fails if a module is missing part of its interface or is not listed,
