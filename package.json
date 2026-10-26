@@ -1,0 +1,16 @@
+{
+  "name": "family-dashboard",
+  "version": "1.1.0",
+  "private": true,
+  "description": "A Lovelace card: an animated world where each person in the household is a creature.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=esm --target=chrome87 --charset=utf8 --legal-comments=none \"--banner:js=// Family Dashboard card. Built from src/ by esbuild: edit src/ and run npm run build, never this file.\" --outfile=dist/family-dashboard.js",
+    "check": "node tests/check.mjs",
+    "falsify": "sh tests/falsify.sh"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

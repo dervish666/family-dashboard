@@ -12,3 +12,6 @@ __pycache__/
 
 # Local agent tooling state
 .recall/
+
+# Build tooling
+node_modules/
