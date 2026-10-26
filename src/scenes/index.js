@@ -33,8 +33,9 @@
 import meadow from "./meadow.js";
 import seaside from "./seaside.js";
 import winter from "./winter.js";
+import forest from "./forest.js";
 
-export const SCENE_LIST = [meadow, seaside, winter];
+export const SCENE_LIST = [meadow, seaside, winter, forest];
 // Every scene maps each of these to a landmark, in this order of tap priority.
 export const HOTSPOT_IDS = ["school", "printer", "music", "home", "office"];
 export const SCENE_BY_ID = {};

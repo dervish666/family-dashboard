@@ -326,9 +326,9 @@ eq(m.SCENES.map(function (s) { return s.id; }), sids, "config's scenes are the r
 eq(sids[0], "meadow", "the meadow stays first, the default for configs with no scene");
 ok(new Set(sids).size === sids.length, "scene ids are unique");
 eq(m.HOTSPOT_IDS, ["school", "printer", "music", "home", "office"], "the landmark ids are the ones the engine taps");
-["seaside", "winter"].forEach(function (id) { let got = null; try { got = m.normalize({ demo: true, scene: id }).scene; } catch (e) { got = e.message; }
+["seaside", "winter", "forest"].forEach(function (id) { let got = null; try { got = m.normalize({ demo: true, scene: id }).scene; } catch (e) { got = e.message; }
   eq(got, id, "the " + id + " is a valid scene"); });
-eq(sids.slice(0, 3), ["meadow", "seaside", "winter"], "the scenes, in the editor's order");
+eq(sids.slice(0, 4), ["meadow", "seaside", "winter", "forest"], "the scenes, in the editor's order");
 SL.forEach(function (sc) {
   const who = "scene " + (sc && sc.id);
   ok(sc && typeof sc.id === "string" && /^[a-z]+$/.test(sc.id), who + ": id is a lower-case word");
