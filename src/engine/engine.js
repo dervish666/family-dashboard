@@ -4,6 +4,7 @@ import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../cr
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
 import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
+import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -2676,6 +2677,154 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return !!(b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10);
   }
 
+  // ── Announcements, due times, status tiles ──────────────────────────────────
+  // v1.6.0. Each is off unless the config names its entity, and each lives in the HUD layer
+  // (HTML over the canvas), so neither the scene's pixels nor the sim change for them:
+  //   CONFIG.announcement  a banner under the countdowns while the entity holds text; a tap hides it here
+  //   CONFIG.due           due-time chips under the countdowns, and each person's items on their card
+  //   CONFIG.status_tiles  up to four icon tiles under the corner hint; a tap opens Home Assistant's more-info
+  // Read from hass.states with the clock, once a second, and redrawn only when the words change.
+  // A configured entity that is missing or unavailable says so in grey rather than vanishing.
+  // The demo makes up a state for each configured entity (demoExtra).
+  var ANN_CONF = CONFIG.announcement || null, DUE_CONF = CONFIG.due || null, TILE_CONF = CONFIG.status_tiles || [];
+  var XS = { ann: null, annKey: null, hidden: null, due: null, dueKey: null, tiles: [], tileKey: null, taps: [] };
+  var XNAMES = [], XCANON = {};
+  PEOPLE.forEach(function (p) { [p.name].concat(p.aliases || []).forEach(function (a) { XNAMES.push(String(a)); XCANON[String(a).toLowerCase()] = p.name; }); });
+  var XICON = {
+    clock: '<circle cx="12" cy="12.5" r="9.5" fill="#FFF4E8" stroke="#8A5A3C" stroke-width="1.8"/><path d="M12 7v5.8l3.6 2.2" fill="none" stroke="#26352C" stroke-width="2" stroke-linecap="round"/>',
+    bell: '<path d="M12 3.2c3.6 0 6 2.8 6 6.6v4.4l2 3.2H4l2-3.2V9.8c0-3.8 2.4-6.6 6-6.6z" fill="#E8A93C"/><path d="M8.6 7.4q1.4-2 3.4-2" fill="none" stroke="#FFF4C8" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="19.6" r="2.3" fill="#8A5A3C"/><rect x="11" y="1" width="2" height="2.8" rx="1" fill="#8A5A3C"/>'
+  };
+  function xIcon(k) { return '<svg class="dic" viewBox="0 0 24 24">' + XICON[k] + "</svg>"; }
+  // A tile's icon, 32x40: the liquid, mercury or light takes the reading's colour and level.
+  function tileSvg(kind, col, level, na, uid) {
+    var ink = na ? "#8A8A94" : "#26352C", glass = "#F4F7FA", y = function (top, bot) { return (bot - (bot - top) * level).toFixed(1); }, s = "";
+    if (kind === "flask") {
+      var body = "M13 6h6v5c0 1.2 1 2.1 2.8 3.3C25 16.4 27 19.4 27 24c0 6.4-4.9 11.5-11 11.5S5 30.4 5 24c0-4.6 2-7.6 5.2-9.7C12 13.1 13 12.2 13 11z";
+      s = '<defs><clipPath id="' + uid + '"><path d="' + body + '"/></clipPath></defs><path d="' + body + '" fill="' + glass + '"/>' +
+        (level > 0 ? '<rect x="4" y="' + y(13, 35.5) + '" width="24" height="30" fill="' + col + '" clip-path="url(#' + uid + ')"/>' : "") +
+        '<path d="' + body + '" fill="none" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/><rect x="12" y="2.5" width="8" height="4.5" rx="1.6" fill="#B08A5A"/>' +
+        '<path d="M9.5 21q-1.2 2.6-.6 5.6" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="1.8" stroke-linecap="round"/>';
+    } else if (kind === "thermometer") {
+      s = '<rect x="12.5" y="3" width="7" height="25" rx="3.5" fill="' + glass + '" stroke="' + ink + '" stroke-width="1.8"/><circle cx="16" cy="31" r="6" fill="' + (na ? glass : col) + '" stroke="' + ink + '" stroke-width="1.8"/>' +
+        (level > 0 ? '<rect x="14.5" y="' + y(6, 28) + '" width="3" height="' + (28 - +y(6, 28) + 1).toFixed(1) + '" rx="1.5" fill="' + col + '"/>' : "") +
+        '<path d="M21 9h3M21 14h3M21 19h3" stroke="' + ink + '" stroke-width="1.4" stroke-linecap="round"/>';
+    } else if (kind === "bulb") {
+      var lit = level > 0.5;
+      s = (lit ? '<circle cx="16" cy="15" r="14" fill="' + col + '" fill-opacity=".25"/>' : "") +
+        '<path d="M16 4a10 10 0 00-6 18c1.4 1.1 2 2.4 2 4h8c0-1.6.6-2.9 2-4a10 10 0 00-6-18z" fill="' + (lit ? col : glass) + '" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/>' +
+        '<rect x="12" y="27" width="8" height="6" rx="1.5" fill="#9AA0A8" stroke="' + ink + '" stroke-width="1.4"/><path d="M13.5 37h5" stroke="' + ink + '" stroke-width="1.8" stroke-linecap="round"/>' +
+        '<path d="M12.5 12q1.4-3 4.4-3.4" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="1.8" stroke-linecap="round"/>';
+    } else if (kind === "door") {
+      var open = level > 0.5;
+      s = '<rect x="6" y="3" width="20" height="34" rx="2" fill="' + (open ? "#3B4A40" : glass) + '" stroke="' + ink + '" stroke-width="1.8"/>' +
+        (open ? '<path d="M6 3l11 4v34l-11-4z" fill="' + col + '" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/><circle cx="14.5" cy="22" r="1.4" fill="#F3DE7C"/>'
+          : '<rect x="9" y="6" width="14" height="28" rx="1.5" fill="' + col + '"/><circle cx="20" cy="21" r="1.5" fill="#F3DE7C"/>');
+    } else {
+      var on = level > 0.5;
+      s = '<path d="M16 30v4q0 3 4 3h6" fill="none" stroke="' + ink + '" stroke-width="2" stroke-linecap="round"/><path d="M11 10h3V4M18 10h3V4" fill="none" stroke="#9AA0A8" stroke-width="2.4" stroke-linecap="round"/>' +
+        '<path d="M8 10h16v9a8 8 0 01-16 0z" fill="' + (on ? col : glass) + '" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/>' +
+        (on ? '<path d="M17 14l-3.5 5h3l-1.5 4.5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' : "");
+    }
+    return '<svg viewBox="0 0 32 40" width="32" height="40">' + s + "</svg>";
+  }
+  // The demo's made-up states, one per configured entity, worded from the demo clock.
+  function demoExtra(id) {
+    var d = now(), at = function (mins) { var x = new Date(d.getTime() + mins * 60000); return ymd(x) + "T" + pad2(x.getHours()) + ":" + pad2(x.getMinutes()) + ":00"; };
+    var lc = new Date(d.getTime() - 3 * 60000).toISOString(), kids = PEOPLE.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
+    if (ANN_CONF && id === ANN_CONF.entity) return { state: "45|" + (PEOPLE[1] || PEOPLE[0]).name + "|Dinner's at six tonight, wash your paws!", last_changed: lc, attributes: {} };
+    if (DUE_CONF && id === DUE_CONF.entity) { var a = {};
+      a[DUE_CONF.attribute] = [{ label: "Library books back", due: at(25), person: kids[0] || PEOPLE[0].name }, { label: "Bins out", due: at(7 * 60) },
+        { label: "Maths homework", due: at(21 * 60), person: kids[1] || PEOPLE[0].name }, { label: "Trip form", due: ymd(new Date(d.getTime() + 3 * 864e5)), person: kids[2] || PEOPLE[0].name }];
+      return { state: "4", attributes: a, last_changed: lc }; }
+    for (var i = 0; i < TILE_CONF.length; i++) if (TILE_CONF[i].entity === id) {
+      var ic = TILE_CONF[i].icon;
+      return ic === "flask" ? { state: "12.4", attributes: { unit_of_measurement: "°C" } } : ic === "thermometer" ? { state: "19.5", attributes: { unit_of_measurement: "°C" } }
+        : ic === "door" ? { state: "off", attributes: { device_class: "door" } } : { state: "on", attributes: {} }; }
+    return null;
+  }
+  // The state of a configured entity, null when Home Assistant does not have it, undefined before hass arrives.
+  function xState(id) {
+    if (DEMO) return demoExtra(id);
+    var h = HA.hass(); return h && h.states ? h.states[id] || null : undefined;
+  }
+  function xPerson(n) { return n ? XCANON[String(n).toLowerCase()] || n : ""; }
+  function extrasSetup() {
+    if (!ANN_CONF && !DUE_CONF && !TILE_CONF.length) return;
+    var before = $("scrim");
+    function el(id, parent) { var e = document.createElement("div"); e.id = id; if (parent) parent.appendChild(e); else WRAP.insertBefore(e, before); return e; }
+    if (DUE_CONF) el("due");
+    if (ANN_CONF) { var an = el("announce"); if (DUE_CONF) an.style.top = "124px";
+      an.addEventListener("pointerdown", function () { activity(); var a = XS.ann; if (a && a.status === "show") { XS.hidden = a.key; XS.annKey = null; extrasHud(now()); } }); }
+    if (TILE_CONF.length) { var tl = el("tiles", $("corner"));
+      tl.addEventListener("pointerdown", function (e) { activity();
+        var t = e.target && e.target.closest ? e.target.closest(".tile") : null, k = t ? +t.getAttribute("data-i") : -1;
+        if (k >= 0 && TILE_CONF[k]) { XS.taps.push(TILE_CONF[k].entity); t.classList.add("tap"); setTimeout(function () { t.classList.remove("tap"); }, 260);
+          if (!DEMO) HA.moreInfo(TILE_CONF[k].entity); } }); }
+  }
+  function extrasHud(d) {
+    if (ANN_CONF) renderAnn(d);
+    if (DUE_CONF) renderDue(d);
+    if (TILE_CONF.length) renderTiles();
+  }
+  function renderAnn(d) {
+    var st = xState(ANN_CONF.entity); if (st === undefined) return;
+    var a = parseAnnouncement(st, d, XNAMES), key = a.status === "unavailable" ? "u|" + a.reason : a.status === "show" && XS.hidden !== a.key ? "s|" + a.key : "-";
+    if (a.from) a.from = xPerson(a.from);
+    XS.ann = a;
+    if (key === XS.annKey) return; XS.annKey = key;
+    var el = $("announce"), head = (ANN_CONF.title || "") + (a.from ? (ANN_CONF.title ? ", from " : "From ") + a.from : "");
+    if (a.status === "unavailable") el.innerHTML = '<div class="ann na">' + xIcon("bell") + '<div class="ax">' + esc((ANN_CONF.title || "Announcements") + " unavailable") + "</div></div>";
+    else if (key !== "-") el.innerHTML = '<div class="ann">' + xIcon("bell") + '<div class="ab">' + (head ? '<div class="at">' + esc(head) + "</div>" : "") + '<div class="ax">' + esc(a.text) + "</div></div></div>";
+    else el.innerHTML = "";
+  }
+  function dueCol(it) { var p = PEOPLE.filter(function (q) { return q.name === it.person; })[0] || PEOPLE[PEOPLE.length - 1]; return p.col; }
+  function readDue(d) {
+    var st = xState(DUE_CONF.entity); if (st === undefined) return null;
+    var due = parseDue(st, DUE_CONF.attribute, d, XNAMES);
+    due.items.forEach(function (it) { it.person = xPerson(it.person); });
+    return due;
+  }
+  function renderDue(d) {
+    var due = readDue(d); if (!due) return;
+    XS.due = due;
+    var row = dueForHud(due, d, 3), house = PEOPLE[PEOPLE.length - 1].name;
+    var key = due.status !== "ok" ? "u|" + due.reason : row.map(function (it) { return it.kind + "|" + it.short + "|" + it.person + "|" + it.label; }).join(";");
+    if (key === XS.dueKey) return; XS.dueKey = key;
+    var el = $("due");
+    if (due.status !== "ok") { el.innerHTML = '<span class="dchip na">' + xIcon("clock") + '<span class="dl">Due times unavailable</span></span>'; return; }
+    el.innerHTML = row.map(function (it) {
+      var col = dueCol(it), badge = it.kind === "overdue" ? "#C4553A" : it.kind === "now" || it.kind === "soon" ? "#D98A1F" : shade(col, 0.6);
+      return '<span class="dchip' + (it.kind === "now" || it.kind === "soon" || it.kind === "overdue" ? " now" : "") + '" style="border-color:' + shade(col, 0.72) + '">' + xIcon("clock") +
+        '<span class="dl">' + esc(it.person && it.person !== house ? it.person + " · " + it.label : it.label) + '</span><span class="dn" style="background:' + badge + '">' + esc(it.short) + "</span></span>";
+    }).join("");
+    while (el.children.length > 1 && el.scrollWidth > el.clientWidth) el.removeChild(el.lastChild);   // as many as fit, soonest kept
+  }
+  function renderTiles() {
+    var key = "", out = TILE_CONF.map(function (t) {
+      var st = xState(t.entity), s = st === undefined ? null : tileState(t, st);
+      if (s) key += t.entity + "=" + s.text + "|" + s.color + "|" + s.level.toFixed(2) + ";"; else key += "?;";
+      return s; });
+    XS.tiles = out;
+    if (key === XS.tileKey) return; XS.tileKey = key;
+    $("tiles").innerHTML = TILE_CONF.map(function (t, i) {
+      var s = out[i]; if (!s) return "";
+      var st = xState(t.entity), na = s.status !== "ok", label = t.label || (st && st.attributes && st.attributes.friendly_name) || t.entity.split(".")[1].replace(/_/g, " ");
+      return '<div class="tile' + (na ? " na" : "") + '" data-i="' + i + '" style="border-color:' + (na ? "#8A8A94" : shade(s.color, 0.85)) + '">' +
+        tileSvg(t.icon, na ? "#C9C9D0" : s.color, na ? 0 : s.level, na, "fdt" + i) + '<div class="tv">' + esc(s.text) + '</div><div class="tl">' + esc(label) + "</div></div>";
+    }).join("");
+  }
+  // This person's due items on their card (no person: the household's), and the unavailable foot.
+  function dueSection(name) {
+    if (!DUE_CONF) return { html: "", foot: "" };
+    var due = readDue(now()); if (!due) return { html: "", foot: "" };
+    if (due.status !== "ok") return { html: "", foot: "Due times unavailable (" + DUE_CONF.entity + " " + due.reason + ")." };
+    var house = PEOPLE[PEOPLE.length - 1].name, mine = due.items.filter(function (it) { return (it.person || house) === name; });
+    var html = mine.length ? "<h2>Due</h2>" + mine.map(function (it) {
+      return row(it.when, esc(it.label) + ' <span class="soft' + (it.kind === "overdue" ? " late" : "") + '">' + esc(it.rel) + "</span>", "", true); }).join("") : "";
+    return { html: html, foot: due.bad ? due.bad + (due.bad === 1 ? " due item" : " due items") + " in " + DUE_CONF.entity + " could not be read." : "" };
+  }
+  function activity() { try { document.dispatchEvent(new Event("panel-activity")); } catch (err) { console.warn("meadow: activity event failed", err); } }
+
   // ── HUD ─────────────────────────────────────────────────────────────────────
   var $ = function (id) { return ROOT.getElementById(id); };
   function hud() {
@@ -2697,6 +2846,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
     $("status").textContent = st;
     $("next").style.opacity = FLIGHT ? 0 : 1;
+    extrasHud(d);
     WRAP.classList.toggle("night", DARK > 0.5);
     if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
   }
@@ -2731,6 +2881,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       later.forEach(function (e) { html += row(dayLabel(e.day) + (e.all_day ? "" : " " + e.at), e.what); });
     }
     // This child's lessons and lunch (people[].timetable, .lunch), with what went wrong for the foot.
+    var dueS = dueSection(name);
+    html += dueS.html;
     var sch = schoolSections(name);
     html += sch.html;
     var ex = DATA.extra || {}, items = (ex.items || []).filter(function (i) { return i.who === name && i.date >= td; })
@@ -2753,6 +2905,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     sch.foot.forEach(function (f) { foot.push('<span class="bad">' + esc(f) + "</span>"); });
     if (calBad.length) foot.push('<span class="bad">Calendar unavailable: ' + calBad.map(function (f) { return esc(f.id); }).join(", ") + ". This week may be missing events.</span>");
     if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
+    if (dueS.foot) foot.push('<span class="bad">' + esc(dueS.foot) + "</span>");
     if (LETTER.clearErr) foot.push('<span class="bad">Couldn\'t clear the letter in Home Assistant (' + esc(LETTER.clearErr) + ').</span>');
     html += '<div class="foot">' + foot.join(" ") + "</div>";
 
@@ -3150,7 +3303,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function start() {
     // Tags go up before any data: if Home Assistant is down at boot, everyone still has a name.
-    size(); setup(); refreshTags(); load(); nightness = sleepCurve(now(), 20.5); DARK = darkness(now()); hud();
+    size(); setup(); refreshTags(); load(); extrasSetup(); nightness = sleepCurve(now(), 20.5); DARK = darkness(now()); hud();
     loadMusic();                                                                   // before the warm-up, so ?music=on is seen by it
     if (WARM) { nightness = sleepCurve(now(), PARTY ? 21.5 : 20.5); for (var wi = 0; wi < Math.min(WARM, 120) * 30; wi++) update(1 / 30); }
     setInterval(load, 5 * 60000);
@@ -3160,7 +3313,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     requestAnimationFrame(frame);
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
-      office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone };
+      office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone,
+      extras: function () { return { ann: XS.ann, due: XS.due, tiles: XS.tiles, taps: XS.taps, hidden: XS.hidden }; } };
     if (OPEN === "school") { if (SCENE.hotspots && SCENE.hotspots.school) setTimeout(openSchool, 900); }
     else if (OPEN === "workshop") setTimeout(openShop, 900);
     else if (OPEN) setTimeout(function () { var t = fam.filter(function (f) { return f.person.name.toLowerCase() === OPEN.toLowerCase(); })[0]; if (t) openCard(t); }, 900);

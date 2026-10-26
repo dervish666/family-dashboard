@@ -49,6 +49,36 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .dchip.now { animation: dbob 1.4s ease-in-out infinite; }
 @keyframes dbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 
+/* v1.6.0, only on the page when configured: due-time chips under the countdowns, the
+   announcement banner under those, and status tiles under the corner hint. Grey and dashed
+   when the entity cannot be read, like the old "no reading" tag. */
+#due { position: absolute; left: 390px; right: 340px; top: 80px; height: 40px; display: flex;
+  align-items: flex-start; overflow: hidden; pointer-events: none; }
+.dchip.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #6E6E78; padding-right: 12px; }
+#announce { position: absolute; left: 390px; right: 340px; top: 80px; display: flex; justify-content: center; }
+.ann { display: flex; align-items: center; max-width: 100%; box-sizing: border-box; padding: 10px 22px 11px 14px;
+  border-radius: 20px; background: #FFF8EE; border: 2.5px solid #D9C6A5;
+  color: #26352C; animation: annin .5s cubic-bezier(.2, 1.3, .4, 1); cursor: pointer; }
+.ann .dic { width: 34px; height: 34px; flex: none; margin-right: 12px; animation: ring 1.1s ease-in-out 3; transform-origin: 50% 8%; }
+.ann .ab { min-width: 0; }
+.ann .at { font: 600 14px Fredoka, sans-serif; color: #B5583A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ann .ax { font: 600 24px/1.18 Fredoka, sans-serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ann.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #6E6E78; padding: 6px 16px 6px 10px; cursor: default; animation: none; }
+.ann.na .dic { width: 22px; height: 22px; margin-right: 8px; animation: none; opacity: .6; }
+.ann.na .ax { font-size: 16px; }
+@keyframes annin { from { transform: translateY(-14px) scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(16deg); } 45% { transform: rotate(-14deg); } 70% { transform: rotate(8deg); } }
+#tiles { display: flex; justify-content: flex-end; margin-top: 10px; pointer-events: auto; }
+.tile { width: 70px; margin-left: 7px; box-sizing: border-box; padding: 6px 3px 5px; border-radius: 16px; text-align: center;
+  background: rgba(255, 255, 255, .95); border: 2.5px solid #999; color: #26352C; cursor: pointer; transition: transform .15s; }
+.tile svg { display: block; margin: 0 auto 1px; }
+.tile .tv { font: 600 15px/18px Fredoka, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .tl { font: 500 11px/14px Fredoka, sans-serif; color: #56675C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile.na { background: rgba(226, 226, 230, .95); border-style: dashed; color: #6E6E78; }
+.tile.na .tv { font-size: 11px; }
+.tile.tap { transform: scale(.93); }
+.soft.late { color: var(--warn); }
+
 #scrim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; opacity: 0;
   pointer-events: none; transition: opacity .22s ease-out; }
@@ -103,7 +133,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .chip.pick { background: #F3E3A2; color: #26352C; }
 #next { transition: opacity .6s; }
 .foot .bad { color: var(--warn); }
-@media (prefers-reduced-motion: reduce) { #card, #scrim { transition: none; } .dchip.now { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #card, #scrim { transition: none; } .dchip.now, .ann, .ann .dic { animation: none; } }
 `;
 
 const MARKUP = `<div class="fd">
@@ -174,6 +204,10 @@ class FamilyDashboardCard extends HTMLElement {
         history.pushState(null, "", path);
         window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
         return true;
+      },
+      // A status tile's tap: Home Assistant's own more-info dialog (history included) for that entity.
+      moreInfo: function (entityId) {
+        self.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: entityId } }));
       }
     };
     const go = function () {
