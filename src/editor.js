@@ -1,6 +1,7 @@
 import { DEFAULTS, LOOK_TG, PALETTE, ACCESSORIES, SCENES, normalize, rgbHex, clone } from "./config.js";
 import { CREATURES, CREATURE } from "./creatures/index.js";
 import { SCENE_LIST, SCENE_BY_ID } from "./scenes/index.js";
+import { TILE_ICONS, MAX_TILES, TILE_DEFAULTS, thresholdText, parseThresholdText, hexOf } from "./extras.js";
 
 // ── The visual editor ─────────────────────────────────────────────────────────
 // <family-dashboard-card-editor>: the cast, each person's calendar, the optional sensors,
@@ -22,6 +23,18 @@ const SENSOR_FIELDS = [
 const LABELS = { name: "Name", role: "Role", look: "Animal", col: "Colour", calendar: "Calendar", accessories: "Accessories",
   school: "Goes to school", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
 SENSOR_FIELDS.forEach(function (f) { LABELS[f[0]] = f[2]; });
+Object.assign(LABELS, { announcement: "Announcement entity (input_text or sensor)", announcement_title: "Announcement heading (optional)", due: "Due times sensor",
+  entity: "Entity", label: "Label", icon: "Icon", unit: "Unit (optional)", thresholds: "Colour from a value: 0 #5B7FD6, 8 #3FA34D", on_color: "Colour when on or open", off_color: "Colour when off or closed", min: "Empty at", max: "Full at" });
+// v1.6.0: the announcement banner, the due-time row and the status tiles (extras.js has the shapes).
+const EXTRA_SCHEMA = [entityField("announcement", ["input_text", "text", "sensor", "input_select"]), { name: "announcement_title", selector: { text: {} } }, entityField("due", "sensor")];
+const TILE_SCHEMA = [
+  entityField("entity", ["sensor", "binary_sensor", "switch", "light", "input_boolean"]),
+  { type: "grid", name: "", schema: [{ name: "label", selector: { text: {} } },
+    { name: "icon", required: true, selector: { select: { mode: "dropdown", options: TILE_ICONS.map(function (i) { return { value: i, label: i.charAt(0).toUpperCase() + i.slice(1) }; }) } } }] },
+  { type: "grid", name: "", schema: [{ name: "unit", selector: { text: {} } }, { name: "min", selector: { text: {} } }, { name: "max", selector: { text: {} } }] },
+  { name: "thresholds", selector: { text: {} } },
+  { type: "grid", name: "", schema: [{ name: "on_color", selector: { color_rgb: {} } }, { name: "off_color", selector: { color_rgb: {} } }] }
+];
 
 function hexRgb(h) { const v = parseInt(String(h).slice(1), 16); return [v >> 16, (v >> 8) & 255, v & 255]; }
 function entityField(name, domain) {
@@ -89,20 +102,21 @@ function makeForm(schema, onChange) {
     } else {
       el = document.createElement("input"); el.type = "text";
       const multi = kind === "entity" && sel.entity.multiple;
-      if (kind === "entity") { el.placeholder = (sel.entity.filter.domain + ".") + (multi ? " (comma between several)" : ""); el.setAttribute("list", "fd-" + sel.entity.filter.domain); }
+      const doms = kind === "entity" ? [].concat(sel.entity.filter.domain) : [];
+      if (kind === "entity") { el.placeholder = doms.map(function (d) { return d + "."; }).join(" or ") + (multi ? " (comma between several)" : ""); el.setAttribute("list", "fd-" + doms.join("-")); }
       get = function () { const v = el.value.trim(); return multi ? v.split(/\s*,\s*/).filter(Boolean) : v; };
       put = function (v) { el.value = Array.isArray(v) ? v.join(", ") : v == null ? "" : v; };
     }
     el.addEventListener("change", function () { const d = Object.assign({}, data); d[s.name] = get(); data = d; onChange(d); });
     row.appendChild(el); box.appendChild(row);
-    return { put: function () { put(data[s.name]); }, domain: kind === "entity" && sel.entity.filter.domain };
+    return { put: function () { put(data[s.name]); }, domain: kind === "entity" && [].concat(sel.entity.filter.domain) };
   });
   function lists() {                                     // entity suggestions for the text inputs
     if (!hass) return;
     inputs.forEach(function (i) {
-      if (!i.domain || box.querySelector("#fd-" + i.domain)) return;
-      const dl = document.createElement("datalist"); dl.id = "fd-" + i.domain;
-      Object.keys(hass.states).filter(function (id) { return id.indexOf(i.domain + ".") === 0; }).sort().forEach(function (id) {
+      if (!i.domain || box.querySelector("#fd-" + i.domain.join("-"))) return;
+      const dl = document.createElement("datalist"); dl.id = "fd-" + i.domain.join("-");
+      Object.keys(hass.states).filter(function (id) { return i.domain.indexOf(id.split(".")[0]) >= 0; }).sort().forEach(function (id) {
         const o = document.createElement("option"); o.value = id; dl.appendChild(o); });
       box.appendChild(dl);
     });
@@ -149,7 +163,8 @@ class FamilyDashboardCardEditor extends HTMLElement {
       (Array.isArray(this._config.people) && !this._config.people.some(function (p) { return p && (p.calendar || p.calendars); }));
     // ...and when someone's school switch flips, since that adds or removes their school fields.
     const mask = people.map(function (p) { return p && p.school ? 1 : 0; }).join("");
-    if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek || this._forms.mask !== mask) this._build(people.length, withWeek, mask);
+    const nt = this._tiles().length;
+    if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek || this._forms.mask !== mask || this._forms.nt !== nt) this._build(people.length, withWeek, mask, nt);
     let eff = null; try { eff = normalize(this._config); } catch (e) { eff = null; }
     const sensors = eff ? eff.sensors : Object.assign({}, this._config.sensors);
     this._forms.top.set({ scene: this._config.scene || SCENES[0].id, demo: this._config.demo === true });
@@ -158,7 +173,19 @@ class FamilyDashboardCardEditor extends HTMLElement {
     if (this._forms.suits) this._forms.suits.textContent = sc && sc.creatures ? "Animals that suit the " + sc.label.toLowerCase() + ": " +
       sc.creatures.filter(function (id) { return CREATURE[id] && CREATURE[id].editor; }).map(function (id) { return CREATURE[id].label; }).join(", ") + "." : "";
     this._forms.sensors.set(sensors);
+    const c0 = this._config, dueV = c0.due;
+    this._forms.extras.set({ announcement: c0.announcement || "", announcement_title: c0.announcement_title || "", due: typeof dueV === "string" ? dueV : dueV && dueV.entity || "" });
     const self = this;
+    this._tileShown = this._tiles().map(function (t, i) {
+      const o = typeof t === "string" ? { entity: t } : t || {}, sh = { entity: o.entity || "", label: o.label == null ? "" : String(o.label), icon: o.icon || "",
+        unit: o.unit == null ? "" : String(o.unit), min: o.min == null ? "" : String(o.min), max: o.max == null ? "" : String(o.max),
+        thresholds: typeof o.thresholds === "string" ? o.thresholds : thresholdText(o.thresholds) };
+      ["on_color", "off_color"].forEach(function (k) { let h = TILE_DEFAULTS[k]; try { if (o[k]) h = hexOf(o[k], k); } catch (e) { h = TILE_DEFAULTS[k]; } sh[k] = hexRgb(h); });
+      if (!sh.icon) { const dm = sh.entity.split(".")[0]; sh.icon = dm === "light" ? "bulb" : dm === "switch" || dm === "input_boolean" ? "plug" : dm === "binary_sensor" ? "door" : "thermometer"; }
+      self._forms.tiles[i].set(sh);
+      self._forms.theads[i].querySelector("b").textContent = sh.label || sh.entity || "New tile";
+      return sh;
+    });
     this._shown = [];
     people.forEach(function (p, i) {
       const cal = p.calendar != null ? p.calendar : p.calendars;
@@ -174,10 +201,11 @@ class FamilyDashboardCardEditor extends HTMLElement {
       self._forms.heads[i].querySelector("b").textContent = (p.name || "Unnamed") + (i === people.length - 1 && people.length > 1 ? " (household)" : "");
     });
   }
-  _build(n, withWeek, mask) {
+  _tiles() { return Array.isArray(this._config.status_tiles) ? this._config.status_tiles : []; }
+  _build(n, withWeek, mask, nt) {
     const self = this, sr = this.shadowRoot;
     sr.innerHTML = "<style>" + EDITOR_STYLE + "</style>";
-    const F = { n: n, week: withWeek, mask: mask, people: [], heads: [], all: [] };
+    const F = { n: n, week: withWeek, mask: mask, nt: nt, people: [], heads: [], tiles: [], theads: [], all: [] };
     function sec(title, hint) {
       const s = document.createElement("div"); s.className = "sec";
       s.innerHTML = "<h3>" + title + "</h3>" + (hint ? '<p class="hint">' + hint + "</p>" : ""); sr.appendChild(s); return s;
@@ -214,7 +242,21 @@ class FamilyDashboardCardEditor extends HTMLElement {
     add.addEventListener("click", function () { self._add(); }); ps.appendChild(add);
     F.sensors = makeForm(sensorSchema(withWeek), function (d) { self._sensors(d); });
     sec("Sensors", "All optional. Leave one empty and that part of the scene stays off. A sensor that is set but missing says unavailable on the cards.").appendChild(F.sensors.el);
-    F.all = [F.top, F.sensors].concat(F.people);
+    F.extras = makeForm(EXTRA_SCHEMA, function (d) { self._extras(d); });
+    sec("Announcements and due times", "A banner in the sky while the announcement entity holds text, and a row of chips for a sensor whose items attribute lists { label, due, person }. Empty means off.").appendChild(F.extras.el);
+    const ts = sec("Status tiles", "Up to " + MAX_TILES + " small tiles under the corner hint, one per entity: a number fills the icon in its threshold colour, on and off use their two colours. A tap opens the entity in Home Assistant.");
+    for (let i = 0; i < nt; i++) {
+      const box = document.createElement("div"); box.className = "person";
+      const head = document.createElement("div"); head.className = "phead"; head.innerHTML = "<b></b>";
+      const rm = document.createElement("button"); rm.textContent = "Remove";
+      rm.addEventListener("click", function () { self._tileRemove(i); }); head.appendChild(rm);
+      const f = makeForm(TILE_SCHEMA, function (d) { self._tile(i, d); });
+      box.appendChild(head); box.appendChild(f.el); ts.appendChild(box);
+      F.tiles.push(f); F.theads.push(head);
+    }
+    const addT = document.createElement("button"); addT.className = "add"; addT.textContent = "Add tile"; addT.disabled = nt >= MAX_TILES;
+    addT.addEventListener("click", function () { self._tileAdd(); }); ts.appendChild(addT);
+    F.all = [F.top, F.sensors, F.extras].concat(F.people, F.tiles);
     this._forms = F;
     if (this._hass) F.all.forEach(function (f) { f.hass(self._hass); });
   }
@@ -257,6 +299,27 @@ class FamilyDashboardCardEditor extends HTMLElement {
     if (j < 0 || j >= people.length) return;
     const t = people[i]; people[i] = people[j]; people[j] = t; c.people = people; this._emit(c);
   }
+  // Writes only the keys that changed, and keeps a due attribute that YAML set.
+  _extras(d) {
+    const c = clone(this._config);
+    ["announcement", "announcement_title"].forEach(function (k) { if (!(k in d)) return; const v = (d[k] || "").trim();
+      if (v === (c[k] || "")) return; if (v) c[k] = v; else delete c[k]; });
+    if ("due" in d) { const v = (d.due || "").trim(), cur = typeof c.due === "string" ? c.due : c.due && c.due.entity || "";
+      if (v !== cur) { if (!v) delete c.due; else if (c.due && typeof c.due === "object") c.due = Object.assign({}, c.due, { entity: v }); else c.due = v; } }
+    this._emit(c);
+  }
+  _tile(i, d) {
+    const c = clone(this._config), tiles = clone(this._tiles()), sh = (this._tileShown || [])[i] || {};
+    const t = typeof tiles[i] === "string" ? { entity: tiles[i] } : tiles[i] || {};
+    ["entity", "label", "icon", "unit", "min", "max"].forEach(function (k) { if (!(k in d)) return; const v = d[k] == null ? "" : String(d[k]).trim();
+      if (v === (sh[k] || "")) return; if (v === "") delete t[k]; else t[k] = (k === "min" || k === "max") && isFinite(+v) ? +v : v; });
+    if ("thresholds" in d) { const v = (d.thresholds || "").trim();
+      if (v !== (sh.thresholds || "")) { if (!v) delete t.thresholds; else { try { t.thresholds = parseThresholdText(v); } catch (e) { t.thresholds = v; } } } }
+    ["on_color", "off_color"].forEach(function (k) { if (Array.isArray(d[k]) && rgbHex(d[k]) !== rgbHex(sh[k] || [0, 0, 0])) t[k] = rgbHex(d[k]); });
+    tiles[i] = t; c.status_tiles = tiles; this._emit(c);
+  }
+  _tileAdd() { const c = clone(this._config), tiles = clone(this._tiles()); if (tiles.length >= MAX_TILES) return; tiles.push({ entity: "", icon: "flask" }); c.status_tiles = tiles; this._emit(c); }
+  _tileRemove(i) { const c = clone(this._config), tiles = clone(this._tiles()); tiles.splice(i, 1); if (tiles.length) c.status_tiles = tiles; else delete c.status_tiles; this._emit(c); }
   _sensors(d) {
     const c = clone(this._config), prev = (function () { try { return normalize(c).sensors; } catch (e) { return c.sensors || {}; } })();
     const s = Object.assign({}, c.sensors || {});
