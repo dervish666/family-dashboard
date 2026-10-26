@@ -554,6 +554,27 @@ hand and needs [card-mod](https://github.com/thomasloven/lovelace-card-mod) and
 | [01 Any tablet](docs/01-any-tablet.md) | Install, sign-in, kiosk browser, other screen sizes |
 | [05 Theme and glass](docs/05-theme-and-glass.md) | The glass look without blur, wallpaper, column and row maths |
 | [06 Views](docs/06-views.md) | Each view, the card's options, adding people and views |
+| [07 Room panels](docs/07-room-panels.md) | The optional ESPHome panels: letters, presets, the contracts |
+
+## Room panels (optional)
+
+Small ESP32 touchscreens for the rooms, built with ESPHome and kept in [`esphome/`](esphome/).
+A panel in a child's room shows the clock, the family announcement and letters sent to that
+child; the child taps the envelope, reads it, taps **Done**, and it is gone from every screen. A
+kitchen panel shows today, lunch and kit, what is due, and four preset announcements.
+
+- Three boards: the Guition JC3248W535 (3.5", ESP32-S3), the Guition JC2432W328C and the
+  ESP32-2432S028R "Cheap Yellow Display" (both 2.8", ESP32). A device file is three package
+  lines and a key.
+- Letters are `input_text.letter_<child>` in `from|text` form, sent by
+  `script.family_send_panel_letter` from any phone, panel or automation, all in
+  [`homeassistant/panels.example.yaml`](homeassistant/panels.example.yaml).
+- Panels use the encrypted native API only: no web server, no cloud, no "allow actions".
+
+Until v1.8 the wall card sees a panel letter through the postie (the script copies it there).
+Coming in v1.8: card integration, a per-person `letter:` entity that the card shows and clears
+when that person's card is opened. Setup, hardware and flashing:
+[esphome/README.md](esphome/README.md). The contracts: [docs/07](docs/07-room-panels.md).
 
 ## Try it without Home Assistant
 

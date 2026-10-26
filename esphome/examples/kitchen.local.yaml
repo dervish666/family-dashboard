@@ -1,0 +1,10 @@
+# The kitchen panel, built from the files in a checkout of this repo.
+substitutions:
+  name: panel-kitchen
+  friendly_name: Kitchen panel
+  api_key: !secret panel_kitchen_api_key
+
+packages:
+  base: !include ../packages/base.yaml
+  board: !include ../boards/guition_jc3248w535.yaml
+  profile: !include ../profiles/kitchen.yaml

@@ -1,0 +1,86 @@
+# Guition JC2432W328C: ESP32-WROOM-32, 4 MB flash, no PSRAM, 2.8" 240x320
+# IPS with an ST7789 driver and CST816-family capacitive touch. Same size and
+# price bracket as the Cheap Yellow Display, with a better screen and touch
+# that needs no calibration. Make sure the listing says "C" (capacitive):
+# the JC2432W328R is the resistive version and needs xpt2046 instead.
+#
+# Pins (Guition's board files): display SPI CLK 14, MOSI 13, MISO 12, CS 15,
+# DC 2; touch I2C SDA 33, SCL 32, reset 25; backlight GPIO27.
+#
+# The panel is portrait; rotation 90 turns it to 320x240 landscape. If touch
+# lands mirrored after a rotation change, flip touch_mirror_x / touch_mirror_y.
+
+substitutions:
+  panel_width: "320"
+  panel_height: "240"
+  rotation: "90"
+  touch_swap_xy: "false"
+  touch_mirror_x: "false"
+  touch_mirror_y: "false"
+  font_small: "14"
+  font_body: "18"
+  font_big: "24"
+  font_clock: "52"
+
+esp32:
+  board: esp32dev
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+spi:
+  - id: lcd_spi
+    clk_pin: 14
+    mosi_pin: 13
+    miso_pin:
+      number: 12
+      ignore_strapping_warning: true
+
+i2c:
+  - id: touch_i2c
+    sda: 33
+    scl: 32
+
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: 27
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Screen
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 400ms
+
+display:
+  - platform: mipi_spi
+    id: panel_display
+    model: ST7789V
+    spi_id: lcd_spi
+    cs_pin: 15
+    dc_pin:
+      number: 2
+      ignore_strapping_warning: true
+    data_rate: 40MHz
+    auto_clear_enabled: false
+    update_interval: never
+
+touchscreen:
+  - platform: cst816
+    id: panel_touch
+    i2c_id: touch_i2c
+    reset_pin: 25
+    display: panel_display
+    transform:
+      swap_xy: ${touch_swap_xy}
+      mirror_x: ${touch_mirror_x}
+      mirror_y: ${touch_mirror_y}
+    on_release:
+      - script.execute: wake_screen
+
+lvgl:
+  buffer_size: 25%
+  rotation: ${rotation}

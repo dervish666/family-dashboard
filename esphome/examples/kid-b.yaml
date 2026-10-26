@@ -1,0 +1,12 @@
+# Kid B's room panel on a Guition JC2432W328C (2.8", capacitive touch).
+# Same as kid-a.yaml with a different board file.
+substitutions:
+  name: panel-kid-b
+  friendly_name: Kid B panel
+  child: kid_b
+  api_key: !secret panel_kid_b_api_key
+
+packages:
+  base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
+  board: github://dervish666/family-dashboard/esphome/boards/jc2432w328.yaml@main
+  profile: github://dervish666/family-dashboard/esphome/profiles/kid.yaml@main

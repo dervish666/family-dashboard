@@ -1,0 +1,307 @@
+# Kid profile: one child's letters, the clock and the family announcement.
+#
+# A letter is sent from any device through script.family_send_panel_letter
+# (homeassistant/panels.example.yaml). It lands in input_text.letter_<child>
+# as "from|text"; the panel shows an envelope with a red dot, a tap opens it
+# full screen, and Done tells Home Assistant it was read, which empties the
+# helper so the letter is gone from every screen at once.
+#
+# Substitutions the device file must set:
+#   child          the child's slug, as in input_text.letter_<child> (kid_a)
+#
+# The panel never calls a Home Assistant action, so "Allow the device to
+# perform Home Assistant actions" stays off. Done fires an esphome.* event,
+# which Home Assistant accepts from any adopted ESPHome device.
+
+substitutions:
+  letter_entity: input_text.letter_${child}
+  letter_sent_entity: input_datetime.letter_${child}_sent
+
+globals:
+  # 0 waiting for Home Assistant, 1 no letter, 2 a letter, 3 unavailable
+  - id: letter_kind
+    type: int
+    initial_value: "0"
+  - id: letter_from
+    type: std::string
+    initial_value: '""'
+  - id: letter_text
+    type: std::string
+    initial_value: '""'
+  # The raw helper value the child pressed Done on. Hidden locally until Home
+  # Assistant empties the helper, so an offline Done still feels done.
+  - id: read_raw
+    type: std::string
+    initial_value: '""'
+  - id: read_sent
+    type: std::string
+    initial_value: '""'
+  - id: read_pending
+    type: bool
+    initial_value: "false"
+
+text_sensor:
+  - platform: homeassistant
+    id: letter_raw
+    entity_id: ${letter_entity}
+    internal: true
+    on_value:
+      - lambda: |-
+          std::string from, text;
+          int kind = 1;
+          // BEGIN letter-parse (tests/panels/check.py compiles this block)
+          {
+            auto trim = [](std::string v) {
+              size_t a = v.find_first_not_of(" \t\r\n");
+              if (a == std::string::npos) return std::string();
+              size_t b = v.find_last_not_of(" \t\r\n");
+              return v.substr(a, b - a + 1);
+            };
+            std::string s = trim(x);
+            // "unknown" is a helper that has never held a letter: empty.
+            if (s == "unknown") s = "";
+            if (s == "unavailable") {
+              kind = 3;
+            } else {
+              size_t p = s.find('|');
+              if (p == std::string::npos) {
+                text = s;
+              } else {
+                from = trim(s.substr(0, p));
+                text = trim(s.substr(p + 1));
+              }
+              kind = text.empty() ? 1 : 2;
+            }
+          }
+          // END letter-parse
+          if (kind != 2) {
+            // Home Assistant emptied it: the read went through.
+            id(read_pending) = false;
+            id(read_raw) = "";
+          } else if (x == id(read_raw)) {
+            kind = 1;
+          }
+          bool fresh = kind == 2 && (id(letter_kind) != 2 || text != id(letter_text));
+          id(letter_kind) = kind;
+          id(letter_from) = from;
+          id(letter_text) = text;
+          id(show_letter_state).execute();
+          if (fresh && !id(is_night)) id(wake_screen).execute();
+
+  - platform: homeassistant
+    id: letter_sent
+    entity_id: ${letter_sent_entity}
+    internal: true
+
+script:
+  - id: show_letter_state
+    then:
+      - lambda: |-
+          int k = id(letter_kind);
+          const char *msg = k == 0 ? "Waiting for Home Assistant"
+                          : k == 1 ? "No letters"
+                          : k == 3 ? "Letters unavailable"
+                          : nullptr;
+          std::string line;
+          if (k == 2) line = id(letter_from).empty() ? std::string("A letter for you!")
+                                                     : "Letter from " + id(letter_from) + "!";
+          lv_label_set_text(id(letter_status), msg ? msg : line.c_str());
+          lv_obj_t *env = id(envelope);
+          lv_obj_set_style_bg_color(env, lv_color_hex(k == 2 ? 0xFFFFFF : 0xEDE6D8), LV_PART_MAIN);
+          lv_obj_set_style_border_color(env, lv_color_hex(k == 2 ? 0xC9594A : 0xB9B4AA), LV_PART_MAIN);
+          lv_obj_set_style_line_color(id(envelope_flap)->obj,lv_color_hex(k == 2 ? 0xC9594A : 0xB9B4AA), LV_PART_MAIN);
+          if (k == 2) lv_obj_clear_flag(id(unread_dot), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_add_flag(id(unread_dot), LV_OBJ_FLAG_HIDDEN);
+          if (k != 2 && lv_scr_act() == id(letter_page)->obj) id(go_home).execute();
+
+  - id: open_letter
+    then:
+      - if:
+          condition:
+            lambda: return id(letter_kind) == 2;
+          then:
+            - lvgl.label.update:
+                id: letter_heading
+                text: !lambda |-
+                  return id(letter_from).empty() ? std::string("A letter") : "From " + id(letter_from);
+            - lvgl.label.update:
+                id: letter_body
+                text: !lambda return id(letter_text);
+            - lvgl.page.show: letter_page
+
+  - id: go_home
+    then:
+      - lvgl.page.show: main_page
+
+  - id: letter_done
+    then:
+      - lambda: |-
+          id(read_raw) = id(letter_raw).state;
+          id(read_sent) = id(letter_sent).state;
+          id(read_pending) = true;
+          id(letter_kind) = 1;
+      - script.execute: show_letter_state
+      - script.execute: go_home
+      - script.execute: resend_pending
+
+  # Replaces the base no-op: tells Home Assistant about a read it has not
+  # heard yet. Runs on Done and again whenever the API reconnects.
+  - id: !extend resend_pending
+    then:
+      - if:
+          condition:
+            and:
+              - api.connected:
+              - lambda: return id(read_pending);
+          then:
+            - homeassistant.event:
+                event: esphome.family_letter_read
+                data:
+                  child: ${child}
+                  sent: !lambda return id(read_sent);
+
+lvgl:
+  pages:
+    - id: main_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      layout:
+        type: flex
+        flex_flow: column
+        flex_align_main: space_between
+        flex_align_cross: center
+        pad_row: 6
+      widgets:
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              flex_align_cross: center
+            widgets:
+              - label:
+                  id: clock_label
+                  text: "--:--"
+                  text_font: font_clock
+              - obj:
+                  width: SIZE_CONTENT
+                  height: SIZE_CONTENT
+                  bg_opa: TRANSP
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    flex_align_cross: end
+                  widgets:
+                    - label:
+                        id: date_label
+                        text: ""
+                        text_font: font_small
+                    - label:
+                        id: offline_label
+                        text: "offline"
+                        text_font: font_small
+                        text_color: 0xC9594A
+                        hidden: true
+        - button:
+            id: letter_button
+            width: 100%
+            flex_grow: 1
+            styles: card_style
+            bg_color: 0xFFFFFF
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: center
+              flex_align_cross: center
+              pad_column: 14
+            on_click:
+              - script.execute: open_letter
+            widgets:
+              - obj:
+                  id: envelope
+                  width: 84
+                  height: 58
+                  radius: 6
+                  border_width: 3
+                  border_color: 0xB9B4AA
+                  bg_color: 0xEDE6D8
+                  clickable: false
+                  scrollable: false
+                  widgets:
+                    - line:
+                        id: envelope_flap
+                        points: ["0,0", "39,30", "78,0"]
+                        line_width: 3
+                        line_color: 0xB9B4AA
+                        line_rounded: true
+                    - obj:
+                        id: unread_dot
+                        width: 18
+                        height: 18
+                        radius: 9
+                        bg_color: 0xC9594A
+                        border_width: 2
+                        border_color: 0xFFFFFF
+                        align: TOP_RIGHT
+                        x: 8
+                        y: -8
+                        hidden: true
+              - label:
+                  id: letter_status
+                  text: "Waiting for Home Assistant"
+                  text_font: font_big
+                  long_mode: wrap
+                  width: 55%
+        - obj:
+            id: announce_box
+            width: 100%
+            height: SIZE_CONTENT
+            styles: banner_style
+            hidden: true
+            widgets:
+              - label:
+                  id: announce_label
+                  width: 100%
+                  text: ""
+                  long_mode: scroll_circular
+
+    - id: letter_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      layout:
+        type: flex
+        flex_flow: column
+        pad_row: 6
+      widgets:
+        - label:
+            id: letter_heading
+            text: ""
+            text_font: font_small
+            text_color: 0xC9594A
+        - obj:
+            width: 100%
+            flex_grow: 1
+            styles: card_style
+            scrollbar_mode: AUTO
+            widgets:
+              - label:
+                  id: letter_body
+                  width: 100%
+                  text: ""
+                  text_font: font_big
+                  long_mode: wrap
+        - button:
+            id: done_button
+            width: 100%
+            height: SIZE_CONTENT
+            pad_all: 10
+            on_click:
+              - script.execute: letter_done
+            widgets:
+              - label:
+                  text: "Done"
+                  text_font: font_big
+                  align: CENTER

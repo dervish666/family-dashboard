@@ -1,0 +1,290 @@
+# Kitchen profile: the shared family view.
+#
+# The clock, the family announcement, today's calendar, a lunch and kit line,
+# what is due soon, and four preset announcements anyone in the kitchen can
+# send. Home Assistant does the formatting: the three text sensors come from
+# homeassistant/panels.example.yaml, built from the card's own sensors
+# (sensor.family_today, the lunch and kit sensors, sensor.due_times).
+#
+# Sending a preset fires an esphome.family_panel_broadcast event. An
+# automation in panels.example.yaml checks the message against its own list
+# and only then calls script.family_announce, so this panel cannot post
+# arbitrary text and needs no "allow actions" permission.
+#
+# The presets must match broadcast_presets in panels.example.yaml, word for
+# word. No double quotes in them.
+
+substitutions:
+  today_entity: sensor.panel_today
+  lunch_entity: sensor.panel_lunch_and_kit
+  due_entity: sensor.panel_due
+  preset_1: "Dinner's ready"
+  preset_2: "Shoes on, we're leaving"
+  preset_3: "Come downstairs please"
+  preset_4: "Bedtime in ten minutes"
+
+globals:
+  - id: pending_preset
+    type: std::string
+    initial_value: '""'
+
+text_sensor:
+  - platform: homeassistant
+    id: today_text
+    entity_id: ${today_entity}
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: today_label
+          text: !lambda |-
+            return (x == "unavailable" || x == "unknown") ? std::string("Calendar unavailable") : x;
+  - platform: homeassistant
+    id: lunch_text
+    entity_id: ${lunch_entity}
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lunch_label
+          text: !lambda |-
+            return (x == "unavailable" || x == "unknown") ? std::string("Lunch and kit unavailable") : x;
+  - platform: homeassistant
+    id: due_text
+    entity_id: ${due_entity}
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: due_label
+          text: !lambda |-
+            return (x == "unavailable" || x == "unknown") ? std::string("Due times unavailable") : x;
+
+script:
+  - id: ask_preset
+    parameters:
+      message: std::string
+    then:
+      - lambda: id(pending_preset) = message;
+      - lvgl.label.update:
+          id: confirm_label
+          text: !lambda return "Send to every panel?\n\n" + message;
+      - lvgl.widget.show: confirm_box
+
+  - id: send_preset
+    then:
+      - if:
+          condition: api.connected
+          then:
+            - homeassistant.event:
+                event: esphome.family_panel_broadcast
+                data:
+                  message: !lambda return id(pending_preset);
+            - lvgl.widget.hide: confirm_box
+          else:
+            - lvgl.label.update:
+                id: confirm_label
+                text: "Not connected to Home Assistant.\nNothing was sent."
+
+lvgl:
+  pages:
+    - id: main_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      layout:
+        type: flex
+        flex_flow: column
+        pad_row: 8
+      widgets:
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              flex_align_cross: center
+            widgets:
+              - label:
+                  id: clock_label
+                  text: "--:--"
+                  text_font: font_clock
+              - obj:
+                  width: SIZE_CONTENT
+                  height: SIZE_CONTENT
+                  bg_opa: TRANSP
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    flex_align_cross: end
+                  widgets:
+                    - label:
+                        id: date_label
+                        text: ""
+                    - label:
+                        id: offline_label
+                        text: "offline"
+                        text_font: font_small
+                        text_color: 0xC9594A
+                        hidden: true
+        - obj:
+            id: announce_box
+            width: 100%
+            height: SIZE_CONTENT
+            styles: banner_style
+            hidden: true
+            widgets:
+              - label:
+                  id: announce_label
+                  width: 100%
+                  text: ""
+                  text_font: font_big
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label:
+                  text: "Today"
+                  text_font: font_small
+                  text_color: 0x3F7A50
+              - label:
+                  id: today_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label:
+                  text: "Lunch and kit"
+                  text_font: font_small
+                  text_color: 0x3F7A50
+              - label:
+                  id: lunch_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label:
+                  text: "Due"
+                  text_font: font_small
+                  text_color: 0x3F7A50
+              - label:
+                  id: due_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row_wrap
+              flex_align_main: space_between
+              pad_row: 6
+            widgets:
+              - button:
+                  width: 49%
+                  height: SIZE_CONTENT
+                  pad_all: 8
+                  on_click:
+                    - script.execute: { id: ask_preset, message: "${preset_1}" }
+                  widgets:
+                    - label: { text: "${preset_1}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+              - button:
+                  width: 49%
+                  height: SIZE_CONTENT
+                  pad_all: 8
+                  on_click:
+                    - script.execute: { id: ask_preset, message: "${preset_2}" }
+                  widgets:
+                    - label: { text: "${preset_2}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+              - button:
+                  width: 49%
+                  height: SIZE_CONTENT
+                  pad_all: 8
+                  on_click:
+                    - script.execute: { id: ask_preset, message: "${preset_3}" }
+                  widgets:
+                    - label: { text: "${preset_3}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+              - button:
+                  width: 49%
+                  height: SIZE_CONTENT
+                  pad_all: 8
+                  on_click:
+                    - script.execute: { id: ask_preset, message: "${preset_4}" }
+                  widgets:
+                    - label: { text: "${preset_4}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+
+  # The confirm step, above whatever page is showing. A stray elbow on a
+  # preset button asks first instead of shouting at the whole house.
+  top_layer:
+    widgets:
+      - obj:
+          id: confirm_box
+          hidden: true
+          align: CENTER
+          width: 90%
+          height: SIZE_CONTENT
+          styles: card_style
+          border_color: 0x3F7A50
+          border_width: 3
+          shadow_width: 24
+          shadow_opa: 40%
+          layout:
+            type: flex
+            flex_flow: column
+            flex_align_cross: center
+            pad_row: 10
+          widgets:
+            - label:
+                id: confirm_label
+                width: 100%
+                text: ""
+                text_align: CENTER
+                long_mode: wrap
+            - obj:
+                width: 100%
+                height: SIZE_CONTENT
+                bg_opa: TRANSP
+                layout:
+                  type: flex
+                  flex_flow: row
+                  flex_align_main: space_between
+                widgets:
+                  - button:
+                      width: 47%
+                      height: SIZE_CONTENT
+                      pad_all: 10
+                      bg_color: 0xB9B4AA
+                      on_click:
+                        - lvgl.widget.hide: confirm_box
+                      widgets:
+                        - label: { text: "Cancel", align: CENTER }
+                  - button:
+                      width: 47%
+                      height: SIZE_CONTENT
+                      pad_all: 10
+                      on_click:
+                        - script.execute: send_preset
+                      widgets:
+                        - label: { text: "Send", align: CENTER }

@@ -1,0 +1,13 @@
+# Kid A's room panel, built from the files in a checkout of this repo. Use
+# this one while changing the packages; kid-a.yaml pulls the same files from
+# GitHub and is the one to copy for a normal install.
+substitutions:
+  name: panel-kid-a
+  friendly_name: Kid A panel
+  child: kid_a
+  api_key: !secret panel_kid_a_api_key
+
+packages:
+  base: !include ../packages/base.yaml
+  board: !include ../boards/esp32_2432s028.yaml
+  profile: !include ../profiles/kid.yaml

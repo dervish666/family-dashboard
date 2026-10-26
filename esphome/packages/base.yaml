@@ -1,0 +1,258 @@
+# Family Dashboard room panel: the parts every panel shares.
+#
+# Wi-Fi, the encrypted Home Assistant API, OTA updates, the clock, the
+# announcement banner, the backlight and the night schedule. A panel is this
+# file, one board file and one profile file, see esphome/README.md.
+#
+# Substitutions the device file must set:
+#   name, friendly_name     the ESPHome node name and its friendly name
+#   api_key                 32-byte base64 key, from !secret (one per panel).
+#                           It encrypts the API and OTA uploads both.
+#
+# What it deliberately leaves out: web_server, http_request, captive_portal and
+# the fallback access point. The panel talks to Home Assistant and nothing else.
+
+substitutions:
+  announcement_entity: input_text.family_announcement
+  # The night schedule. Between these the screen is off and a tap wakes it at
+  # night_brightness for idle_timeout. Set both to the same time to switch it off.
+  night_start: "21:00"
+  night_end: "07:00"
+  day_brightness: 80%
+  idle_brightness: 35%
+  night_brightness: 10%
+  idle_timeout: 90s
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.10.0
+  project:
+    name: dervish666.family-dashboard-panel
+    version: "0.1.0"
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: check_night
+
+logger:
+  # INFO keeps letter and announcement text out of the log stream.
+  level: INFO
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # No ap: block on purpose. A panel that cannot join Wi-Fi does not open a
+  # hotspot; plug it into USB and flash it again. See esphome/README.md.
+
+api:
+  encryption:
+    key: ${api_key}
+  on_client_connected:
+    # A letter marked read while Home Assistant was away: tell it now. The
+    # delay lets Home Assistant finish subscribing before the event goes.
+    - delay: 5s
+    - script.execute: resend_pending
+
+ota:
+  # Encrypted with the API key; no separate OTA password to manage.
+  - platform: esphome
+    encryption: {}
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - script.execute: update_clock
+      - script.execute: check_night
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_clock
+          - script.execute: check_night
+
+globals:
+  - id: is_night
+    type: bool
+    initial_value: "false"
+  # What the panel last heard from Home Assistant, kept so a missing or broken
+  # entity reads as "unavailable" instead of as a quiet day.
+  - id: announcement_text
+    type: std::string
+    initial_value: '""'
+
+script:
+  # A profile with letters replaces this with its own (see profiles/kid.yaml).
+  - id: resend_pending
+    then:
+      - logger.log: "Connected to Home Assistant"
+
+  - id: update_clock
+    then:
+      - lambda: |-
+          auto t = id(ha_time).now();
+          if (!t.is_valid()) return;
+          lv_label_set_text(id(clock_label), t.strftime("%H:%M").c_str());
+          lv_label_set_text(id(date_label), t.strftime("%a %d %b").c_str());
+
+  # Works out night or day from night_start and night_end, and switches the
+  # screen on the minute either one passes.
+  - id: check_night
+    then:
+      - lambda: |-
+          auto t = id(ha_time).now();
+          if (!t.is_valid()) return;
+          int sh = 0, sm = 0, eh = 0, em = 0;
+          sscanf("${night_start}", "%d:%d", &sh, &sm);
+          sscanf("${night_end}", "%d:%d", &eh, &em);
+          int now_m = t.hour * 60 + t.minute, start_m = sh * 60 + sm, end_m = eh * 60 + em;
+          bool night = start_m == end_m ? false
+                     : start_m < end_m ? (now_m >= start_m && now_m < end_m)
+                                       : (now_m >= start_m || now_m < end_m);
+          if (night == id(is_night)) return;
+          id(is_night) = night;
+          if (night) id(screen_off).execute(); else id(wake_screen).execute();
+
+  - id: screen_off
+    then:
+      - light.turn_off: backlight
+      - lvgl.pause:
+
+  # Boards call this on every touch release. At night it lights the screen
+  # dimly; by day it brings a dimmed screen back to full.
+  - id: wake_screen
+    then:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+      - if:
+          condition:
+            lambda: return id(is_night);
+          then:
+            - light.turn_on: { id: backlight, brightness: "${night_brightness}" }
+          else:
+            - light.turn_on: { id: backlight, brightness: "${day_brightness}" }
+
+text_sensor:
+  # The card's announcement helper. Same contract as the card: plain text,
+  # "Name: text", or "minutes|from|text" as script.family_announce writes it.
+  # Read-only here; no panel can change it except through Home Assistant.
+  - platform: homeassistant
+    id: announcement_raw
+    entity_id: ${announcement_entity}
+    internal: true
+    on_value:
+      - lambda: |-
+          std::string shown;
+          // BEGIN announcement-parse (tests/panels/check.py compiles this block)
+          {
+            std::string s = x;
+            auto trim = [](std::string v) {
+              size_t a = v.find_first_not_of(" \t\r\n");
+              if (a == std::string::npos) return std::string();
+              size_t b = v.find_last_not_of(" \t\r\n");
+              return v.substr(a, b - a + 1);
+            };
+            s = trim(s);
+            // "unknown" is a helper that was never set: no announcement.
+            if (s == "unknown") s = "";
+            if (s == "unavailable") {
+              shown = "Announcements unavailable";
+            } else if (!s.empty()) {
+              size_t p1 = s.find('|');
+              size_t p2 = p1 == std::string::npos ? std::string::npos : s.find('|', p1 + 1);
+              bool minutes = p1 != std::string::npos && p1 > 0 && p2 != std::string::npos &&
+                             s.find_first_not_of("0123456789") == p1;
+              if (minutes) {
+                std::string from = trim(s.substr(p1 + 1, p2 - p1 - 1));
+                std::string text = trim(s.substr(p2 + 1));
+                if (!text.empty()) shown = from.empty() ? text : from + ": " + text;
+              } else {
+                shown = s;
+              }
+            }
+          }
+          // END announcement-parse
+          id(announcement_text) = shown;
+          if (shown.empty()) {
+            lv_obj_add_flag(id(announce_box), LV_OBJ_FLAG_HIDDEN);
+          } else {
+            lv_label_set_text(id(announce_label), shown.c_str());
+            lv_obj_clear_flag(id(announce_box), LV_OBJ_FLAG_HIDDEN);
+          }
+
+interval:
+  # A small "offline" tag while Home Assistant is not connected, so stale
+  # text on the screen never passes for fresh.
+  - interval: 10s
+    then:
+      - if:
+          condition: api.connected
+          then:
+            - lvgl.widget.hide: offline_label
+          else:
+            - lvgl.widget.show: offline_label
+
+font:
+  # One Google font in four sizes, with the Latin set so letters can carry
+  # a pound sign, accents and curly quotes. Fetched at compile time only.
+  - file: "gfonts://Nunito@700"
+    id: font_small
+    size: ${font_small}
+    glyphsets: [GF_Latin_Kernel]
+    glyphs: "£€°’‘“”…–éèêëáàâäíìîïóòôöúùûüçñÉÁÓÚß"
+  - file: "gfonts://Nunito@700"
+    id: font_body
+    size: ${font_body}
+    glyphsets: [GF_Latin_Kernel]
+    glyphs: "£€°’‘“”…–éèêëáàâäíìîïóòôöúùûüçñÉÁÓÚß"
+  - file: "gfonts://Nunito@800"
+    id: font_big
+    size: ${font_big}
+    glyphsets: [GF_Latin_Kernel]
+    glyphs: "£€°’‘“”…–éèêëáàâäíìîïóòôöúùûüçñÉÁÓÚß"
+  - file: "gfonts://Nunito@800"
+    id: font_clock
+    size: ${font_clock}
+    glyphs: "0123456789:"
+
+lvgl:
+  default_font: font_body
+  on_idle:
+    timeout: ${idle_timeout}
+    then:
+      - if:
+          condition:
+            lambda: return id(is_night);
+          then:
+            - script.execute: screen_off
+          else:
+            - light.turn_on: { id: backlight, brightness: "${idle_brightness}" }
+  theme:
+    obj:
+      bg_color: 0xFFF8EC
+      text_color: 0x2E2A24
+      border_width: 0
+      radius: 0
+      pad_all: 0
+    label:
+      text_color: 0x2E2A24
+    button:
+      bg_color: 0x3F7A50
+      text_color: 0xFFFFFF
+      radius: 14
+      shadow_width: 0
+  style_definitions:
+    - id: card_style
+      bg_color: 0xFFFFFF
+      radius: 16
+      pad_all: 10
+      border_width: 2
+      border_color: 0xE8DCC4
+    - id: banner_style
+      bg_color: 0xFCE7B2
+      radius: 12
+      pad_all: 8
+      border_width: 0
