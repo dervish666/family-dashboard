@@ -1,7 +1,7 @@
 // Family Dashboard card. Built from src/ by esbuild: edit src/ and run npm run build, never this file.
 
 // src/version.js
-var VERSION = "1.2.0";
+var VERSION = "1.3.0";
 
 // src/engine/draw.js
 function rgb(h) {
