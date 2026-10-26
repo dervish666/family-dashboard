@@ -3220,20 +3220,44 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
         return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); })
       .catch(function (e) { console.warn("meadow: holidays", e); return null; });
   }
+  // The week, two ways. Calendar mode (a calendar on any person): ask Home Assistant's
+  // calendar API for each one, so no template sensor is needed. v1.0.0 mode: read the
+  // family_week template sensor. A calendar that fails is named on its owner's card
+  // and its events are left out; the rest of the week still draws.
+  function readWeek(tok) {
+    if (!CONFIG.calendarMode) return getState(SENSORS.week, tok).then(function (s) {
+      var wk = s.attributes || {};
+      if (!Array.isArray(wk.events)) throw new Error(SENSORS.week + " has no events list (state " + s.state + ")");
+      return { events: wk.events, at: wk.checked_at ? new Date(wk.checked_at) : null, failed: [] };
+    });
+    var range = weekRange(now()), jobs = [];
+    PEOPLE.forEach(function (p) { (p.calendars || []).forEach(function (id) {
+      jobs.push(tok.callApi("GET", calendarPath(id, range)).then(function (evs) { return { ok: true, rows: parseCalendarEvents(evs, p.name, range) }; })
+        .catch(function (e) { console.warn("meadow: " + id, e); return { ok: false, who: p.name, id: id, err: (e && (e.message || e.body && e.body.message)) || String(e) }; }));
+    }); });
+    return Promise.all(jobs).then(function (rs) {
+      var ok = rs.filter(function (r) { return r.ok; }), failed = rs.filter(function (r) { return !r.ok; });
+      if (!ok.length) throw new Error("no calendar answered (" + failed.map(function (f) { return f.id; }).join(", ") + ")");
+      return { events: [].concat.apply([], ok.map(function (r) { return r.rows; })), at: new Date(), failed: failed };
+    });
+  }
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null;
+    var schoolErr = null, extraErr = null;
     hassToken().then(function (tok) {
       // the school sensors are optional: a missing one blanks its part of the School card, nothing else
       function opt(id) { if (!id) return Promise.resolve(null);
         return getState(id, tok).catch(function (e) { console.warn("meadow: " + id, e); schoolErr = e.message || String(e); return null; }); }
-      return Promise.all([getState(SENSORS.week, tok), getState(SENSORS.extra, tok),
+      // sensors.extra is optional too, but a configured one that is missing says so on every card
+      var extra = !SENSORS.extra ? Promise.resolve(null) : getState(SENSORS.extra, tok)
+        .then(function (s) { if (/^(unavailable|unknown)$/.test(s.state) && !(s.attributes || {}).checked_at) throw new Error(SENSORS.extra + " is " + s.state); return s; })
+        .catch(function (e) { console.warn("meadow: extra", e); extraErr = e.message || String(e); return null; });
+      return Promise.all([readWeek(tok), extra,
         opt(SENSORS.timetable), opt(SENSORS.kit), opt(SENSORS.lunch),
         opt(SENSORS.sun), opt(SENSORS.weather), holidays(tok)]); })
       .then(function (s) {
-        var wk = s[0].attributes || {};
-        if (!Array.isArray(wk.events)) throw new Error(SENSORS.week + " has no events list (state " + s[0].state + ")");
-        DATA = { events: byStart(wk.events), weekAt: wk.checked_at ? new Date(wk.checked_at) : null, extra: s[1].attributes || null, error: null, gotAt: new Date(),
+        var wk = s[0];
+        DATA = { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, extra: s[1] ? s[1].attributes || null : null, extraErr: extraErr, error: null, gotAt: new Date(),
           school: { timetable: s[2] ? Object.assign({ state: s[2].state }, s[2].attributes) : null, kit: s[3] && s[3].attributes, lunch: s[4] && s[4].attributes, err: schoolErr },
           sun: s[5] && s[5].attributes, weather: s[6] ? { state: s[6].state, attributes: s[6].attributes } : null,
           holidays: s[7] || (DATA.holidays || []) };                                // a failed fetch keeps the last good list
@@ -3563,6 +3587,7 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var st = "";
     if (DATA.error) st = "Can't reach Home Assistant (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
+    else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
@@ -3577,6 +3602,13 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function row(when, what, chip, raw) {
     return '<div class="row"><div class="when">' + esc(when) + '</div><div class="what">' + (chip ? '<span class="chip">' + esc(chip) + "</span>" : "") + (raw ? what : esc(what)) + "</div></div>";
   }
+  // What to say about sensors.extra: nothing when it is off (null) or loaded, and a
+  // plain "unavailable" when it is configured but did not answer.
+  function extraState() {
+    if (!SENSORS.extra || DATA.extra) return "";
+    if (DATA.extraErr) return "School info unavailable (" + DATA.extraErr + ").";
+    return DATA.gotAt ? "School info unavailable." : "";
+  }
   function openCard(t) {
     var p = t.person, name = p.name, td = ymd(now()), html = "";
     var mine = DATA.events.filter(function (e) { return e.who === name; });
@@ -3587,7 +3619,8 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
     }
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
-      : '<div class="empty">' + (name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
+      : '<div class="empty">' + ((DATA.calFailed || []).some(function (f) { return f.who === name; }) ? "Calendar unavailable, so this card can't say what's on."
+        : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
     if (later.length) {
       html += "<h2>This week</h2>";
       later.forEach(function (e) { html += row(dayLabel(e.day) + (e.all_day ? "" : " " + e.at), e.what); });
@@ -3620,13 +3653,15 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var missing = ((ex.sources || {}).unavailable || []).filter(function (s) {
       return name === "House" || SOURCE_OWNER.some(function (m) { return m[0].test(s) && m[1] === name; }); });
     if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
-    if (!DATA.extra && !DEMO) foot.push('<span class="bad">No school info loaded.</span>');
+    var calBad = (DATA.calFailed || []).filter(function (f) { return f.who === name; });
+    if (calBad.length) foot.push('<span class="bad">Calendar unavailable: ' + calBad.map(function (f) { return esc(f.id); }).join(", ") + ". This week may be missing events.</span>");
+    if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
     if (LETTER.clearErr) foot.push('<span class="bad">Couldn\'t clear the letter in Home Assistant (' + esc(LETTER.clearErr) + ').</span>');
     html += '<div class="foot">' + foot.join(" ") + "</div>";
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;
     $("who").textContent = name;
-    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : "Free today";
+    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calBad.length ? "Calendar unavailable" : "Free today";
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");
     // portrait: the same creature, redrawn large rather than scaled up blurry
@@ -3719,7 +3754,7 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (ex.checked_at) { var xc = new Date(ex.checked_at); foot.push("School info checked " + DAYS[xc.getDay()] + " " + xc.getDate() + " " + MONTHS[xc.getMonth()] + "."); }
     var missing = (ex.sources || {}).unavailable || [];
     if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
-    if (!DATA.extra && !DEMO) foot.push('<span class="bad">No school info loaded.</span>');
+    if (!DEMO) { var xs2 = extraState(); if (xs2) foot.push('<span class="bad">' + esc(xs2) + "</span>"); }
     html += '<div class="foot">' + foot.join(" ") + "</div>";
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;
@@ -3942,24 +3977,155 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
   };
 }
 
-// ── The card ──────────────────────────────────────────────────────────────────
-// Card config over DEFAULTS: plain objects merge one level deep (sensors, view, dates,
-// schoolWho, rainStates), everything else replaces. sourceOwner pairs may come from YAML
-// as strings, so a string pattern becomes a case-insensitive RegExp.
-function merge(cfg) {
-  const out = {};
-  Object.keys(DEFAULTS).forEach(function (k) { out[k] = DEFAULTS[k]; });
-  Object.keys(cfg || {}).forEach(function (k) {
-    const d = DEFAULTS[k], v = cfg[k];
-    out[k] = d && v && typeof d === "object" && typeof v === "object" && !Array.isArray(d) && !Array.isArray(v)
-      ? Object.assign({}, d, v) : v;
+// ── Config ────────────────────────────────────────────────────────────────────
+// normalize() turns a card config into what the meadow runs on. Two shapes work:
+//   v1.0.0: people plus sensors.week (the family_week template sensor). Every default
+//           in DEFAULTS still applies, so a v1.0.0 config behaves exactly as before.
+//   v1.1.0: a calendar (or a list of them) on each person. The card reads those
+//           calendars itself, and every optional sensor and building tap starts off
+//           (null) unless the config names it, so a fresh install has nothing to set up.
+// Plain objects merge one level deep over the defaults, lists replace. Unknown keys are
+// ignored. Anything that would draw wrong throws an Error that says what to change.
+const LOOKS = ["crow", "capybara", "deer", "shark", "otter", "snail", "bear", "bunny", "fox", "phones", "curls", "flower"];
+const LOOK_TG = { crow: 2.25, capybara: 2.6, deer: 2.75, shark: 1.6, otter: 2.55, snail: 2.05 };
+const PALETTE = ["#7FC8D2", "#9A72C8", "#A3B0F2", "#D4A8F5", "#9EE0B4", "#E0A050", "#F2A0A0", "#E8D070"];
+const ACCESSORIES = ["glasses", "phones", "daisy", "bee"];
+// Scenes the card can draw. Only the meadow so far; a later scene adds an entry here.
+const SCENES = [{ id: "meadow", name: "Meadow" }];
+const CARD_KEYS = ["demo", "query", "height", "scene"];
+const OPTIONAL_SENSORS = ["extra", "timetable", "kit", "lunch", "printer", "letter", "music", "rain", "trips"];
+
+function cfgError(msg) { return new Error("family-dashboard-card: " + msg); }
+function hexColour(v, i) {
+  if (v == null || v === "") return PALETTE[i % PALETTE.length];
+  if (Array.isArray(v) && v.length === 3) return rgbHex(v);
+  const s = String(v).trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+  if (/^#[0-9a-f]{3}$/i.test(s)) return "#" + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+  throw cfgError("people[" + i + "].col must be a hex colour like \"#7FC8D2\", got " + JSON.stringify(v));
+}
+function rgbHex(a) {
+  return "#" + a.map(function (n) { const h = Math.max(0, Math.min(255, Math.round(+n || 0))).toString(16); return h.length < 2 ? "0" + h : h; }).join("");
+}
+function calendarsOf(p, i) {
+  const v = p.calendar != null ? p.calendar : p.calendars;
+  if (v == null || v === "") return [];
+  const list = Array.isArray(v) ? v : [v];
+  list.forEach(function (id) {
+    if (typeof id !== "string" || !/^calendar\.[a-z0-9_]+$/.test(id))
+      throw cfgError("people[" + i + "].calendar must be a calendar entity id like calendar.family, got " + JSON.stringify(id));
   });
-  out.sourceOwner = (out.sourceOwner || []).map(function (p) {
+  return list.filter(function (id, k) { return list.indexOf(id) === k; });
+}
+function normPerson(p, i) {
+  if (!p || typeof p !== "object" || Array.isArray(p)) throw cfgError("people[" + i + "] must be an object with at least a name");
+  const name = typeof p.name === "string" ? p.name.trim() : typeof p.name === "number" ? String(p.name) : "";
+  if (!name) throw cfgError("people[" + i + "] needs a name");
+  const look = p.look == null || p.look === "" ? LOOKS[i % 6] : String(p.look);
+  if (LOOKS.indexOf(look) < 0) throw cfgError(name + ": look must be one of " + LOOKS.join(", ") + ", got " + JSON.stringify(p.look));
+  const out = Object.assign({}, p);
+  out.name = name; out.look = look; out.col = hexColour(p.col, i);
+  if (p.role != null) {
+    if (p.role !== "adult" && p.role !== "kid") throw cfgError(name + ": role must be adult or kid, got " + JSON.stringify(p.role));
+    if (p.adult == null) out.adult = p.role === "adult";
+  }
+  out.adult = !!out.adult;
+  out.r = isFinite(+p.r) && +p.r > 0 ? +p.r : out.adult ? 37 : 34;
+  out.tg = isFinite(+p.tg) && +p.tg > 0 ? +p.tg : LOOK_TG[look] || 2.3;
+  out.calendars = calendarsOf(p, i);
+  delete out.calendar; delete out.role;
+  return out;
+}
+
+function normalize(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw cfgError("config must be an object");
+  if (raw.people != null && !Array.isArray(raw.people)) throw cfgError("people must be a list");
+  if (raw.people && !raw.people.length) throw cfgError("people needs at least one person (the last one is the household)");
+  ["sensors", "view", "dates", "schoolWho", "rainStates"].forEach(function (k) {
+    if (raw[k] != null && (typeof raw[k] !== "object" || Array.isArray(raw[k]))) throw cfgError(k + " must be a mapping of keys to values");
+  });
+  const people = (raw.people || DEFAULTS.people).map(normPerson);
+  const names = people.map(function (p) { return p.name; });
+  names.forEach(function (n, i) { if (names.indexOf(n) !== i) throw cfgError("two people are called " + JSON.stringify(n) + "; names must be unique"); });
+  const calendarMode = people.some(function (p) { return p.calendars.length; });
+
+  const out = {};
+  Object.keys(DEFAULTS).forEach(function (k) {
+    const d = DEFAULTS[k], v = raw[k];
+    if (v === undefined) out[k] = d;
+    else out[k] = d && v && typeof d === "object" && typeof v === "object" && !Array.isArray(d) && !Array.isArray(v) ? Object.assign({}, d, v) : v;
+  });
+  CARD_KEYS.forEach(function (k) { if (raw[k] !== undefined) out[k] = raw[k]; });
+  out.people = people;
+  out.demo = raw.demo === true;
+  out.calendarMode = calendarMode && !out.demo;
+
+  // New-style configs start with every optional part switched off: a fresh Home Assistant
+  // has none of the family_* sensors, and a tap must not open a view that is not there.
+  if (calendarMode) {
+    const s = Object.assign({}, DEFAULTS.sensors);
+    OPTIONAL_SENSORS.forEach(function (k) { s[k] = null; });
+    s.week = null;
+    out.sensors = Object.assign(s, raw.sensors || {});
+    out.view = Object.assign({ home: null, music: null, printer: null, office: null }, raw.view || {});
+    if (!raw.dates) out.dates = { birthdays: {}, fixed: DEFAULTS.dates.fixed };
+    if (!raw.anniversary) out.anniversary = names.slice(0, 2);
+  }
+  Object.keys(out.sensors).forEach(function (k) {
+    const v = out.sensors[k];
+    if (v === "" || v === undefined) out.sensors[k] = null;
+    else if (v !== null && typeof v !== "string") throw cfgError("sensors." + k + " must be an entity id or null, got " + JSON.stringify(v));
+  });
+  if (!out.demo && !calendarMode && !out.sensors.week)
+    throw cfgError("give at least one person a calendar (people[].calendar), or set sensors.week, or set demo: true");
+
+  out.scene = out.scene == null ? SCENES[0].id : out.scene;
+  if (!SCENES.some(function (s) { return s.id === out.scene; }))
+    throw cfgError("scene must be one of " + SCENES.map(function (s) { return s.id; }).join(", ") + ", got " + JSON.stringify(out.scene));
+
+  // The school door queue: keep the given order for names that exist, then any other
+  // school kid, so a renamed cast never stacks everyone on one spot.
+  const kids = people.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
+  const line = (Array.isArray(out.schoolLine) ? out.schoolLine : []).filter(function (n) { return kids.indexOf(n) >= 0; });
+  out.schoolLine = line.concat(kids.filter(function (n) { return line.indexOf(n) < 0; }));
+  out.sourceOwner = (Array.isArray(out.sourceOwner) ? out.sourceOwner : []).map(function (p) {
+    if (!Array.isArray(p) || p.length < 2) throw cfgError("sourceOwner entries must be [pattern, name] pairs");
     return [p[0] instanceof RegExp ? p[0] : new RegExp(String(p[0]), "i"), p[1]];
   });
   return out;
 }
 
+// ── Calendars ─────────────────────────────────────────────────────────────────
+// The seven days the card shows, as the [start, end) the calendar API is asked for:
+// local midnight today to local midnight seven days on.
+function weekRange(d) {
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return { start: a, end: new Date(a.getFullYear(), a.getMonth(), a.getDate() + 7) };
+}
+function calendarPath(id, range) {
+  return "calendars/" + id + "?start=" + encodeURIComponent(range.start.toISOString()) + "&end=" + encodeURIComponent(range.end.toISOString());
+}
+function localYmd(d) { return d.getFullYear() + "-" + (d.getMonth() < 9 ? "0" : "") + (d.getMonth() + 1) + "-" + (d.getDate() < 10 ? "0" : "") + d.getDate(); }
+// GET /api/calendars/<id> answers a list of {summary, start: {date} | {dateTime}, end}.
+// Each becomes a row in the shape the family_week template wrote: who, what, day (the
+// calendar's own date), all_day, start, at (HH:MM as the calendar wrote it). An all-day
+// event that began before the range and is still running shows on the first day.
+// Anything that is not a list throws, so a broken answer reads as unavailable, not empty.
+function parseCalendarEvents(evs, who, range) {
+  if (!Array.isArray(evs)) throw new Error("calendar answer is not a list");
+  const first = localYmd(range.start);
+  return evs.map(function (e) {
+    if (!e || !e.start) return null;
+    const allDay = !!e.start.date && !e.start.dateTime, s = String(allDay ? e.start.date : e.start.dateTime || "");
+    if (!/^\d{4}-\d\d-\d\d/.test(s)) return null;
+    let day = s.slice(0, 10);
+    if (day < first) day = first;
+    return { who: who, what: String(e.summary || "Busy"), day: day, all_day: allDay, start: allDay ? day : s,
+      at: allDay ? "" : s.slice(11, 16) };
+  }).filter(function (r) { return r; });
+}
+
+// ── The card ──────────────────────────────────────────────────────────────────
 class FamilyDashboardCard extends HTMLElement {
   constructor() {
     super();
@@ -3968,8 +4134,7 @@ class FamilyDashboardCard extends HTMLElement {
   }
   static getStubConfig() { return { demo: true }; }
   setConfig(config) {
-    if (!config || typeof config !== "object") throw new Error("family-dashboard-card: config must be an object");
-    if (config.people && !Array.isArray(config.people)) throw new Error("family-dashboard-card: people must be a list");
+    this._cfg = normalize(config);           // throws a readable error, which Home Assistant shows on the card
     this._config = config;
     this._stop(); this._run();
   }
@@ -3990,7 +4155,7 @@ class FamilyDashboardCard extends HTMLElement {
   // Starts once the card is on the page, has a config, has hass (or is a demo) and has a size.
   _run() {
     if (this._m || !this._config || !this.isConnected) return;
-    const cfg = merge(this._config);
+    const cfg = this._cfg;
     if (!cfg.demo && !this._hass) return;
     addFont();
     const sr = this.shadowRoot;
@@ -4031,3 +4196,6 @@ if (!window.customCards.some(function (c) { return c.type === "family-dashboard-
     documentationURL: "https://github.com/dervish666/family-dashboard"
   });
 console.info("family-dashboard-card " + VERSION);
+
+// For tests/check.mjs. Home Assistant loads this file as a module and ignores the exports.
+export { normalize, parseCalendarEvents, weekRange, calendarPath, SCENES, LOOKS };
