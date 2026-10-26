@@ -279,11 +279,28 @@ C.forEach(function (c) {
     ok(out && out.c && isFinite(out.ax) && isFinite(out.ay), who + ": sprite(" + e + ") returns an anchored canvas"); });
   ok(m.bakeRig({ r: 34, col: "#9EE0B4", look: c.id }) !== null, who + ": its rig bakes");
   const t = { x: 600, y: 500, r: 34, face: 1, phase: 1, gait: 0.5, wave: 1, idle: true, wait: 0, dipT: -1, startle: 0.5, person: { look: c.id } };
-  const M = { g: 0.5, ph: 1, air: 0.4, idle: 0.5, time: 2, spike: function () { return 0.5; }, wave: 1, stepL: -0.1, stepR: 0, stiff: 0 };
+  const M = { g: 0.5, ph: 1, air: 0.4, idle: 0.5, time: 2, spike: function () { return 0.5; }, wave: 1, stepL: -0.1, stepR: 0, stiff: 0, sleep: 0 };
   parts.forEach(function (p) { const a = c.anim(t, p, 2, M); ok(a === undefined || (Array.isArray(a) && a.length === 3 && a.every(isFinite)), who + ": anim(" + p + ") is [rot, dx, dy]"); });
+  // Behaviour, compared pose by pose on a still creature: walking moves something (feet, a
+  // waddle, ears on the hop); and an animal that says it sleeps also stirs when idle and has
+  // a sleeping pose of its own.
+  const t0 = { x: 0, y: 0, r: 34, face: 1, phase: 1, gait: 0, wave: 0, startle: 0, person: { look: c.id } };
+  const M0 = { g: 0, ph: 1.2, air: 0, idle: 1, time: 2, spike: function () { return 0.5; }, wave: 0, stepL: 0, stepR: 0, stiff: 0, sleep: 0 };
+  const pose = function (over) { const Mx = Object.assign({}, M0, over); return JSON.stringify(parts.map(function (p) { return c.anim(t0, p, Mx.time, Mx) || [0, 0, 0]; })); };
+  ok(pose({}) !== pose({ g: 1, idle: 0, air: 0.9, stepL: -0.13 }), who + ": walking moves a piece");
+  ok(c.sleeps == null || typeof c.sleeps === "boolean", who + ": sleeps is true or false");
+  if (c.sleeps) {
+    ok(pose({}) !== pose({ time: 3.1 }), who + ": standing idle, something stirs over time");
+    ok(pose({}) !== pose({ sleep: 1 }), who + ": asleep, it has its own pose");
+    ok(pose({ sleep: 1 }) !== pose({ sleep: 1, time: 3.1 }), who + ": asleep, it still breathes");
+  }
   const A = { rand: function (a, b) { return (a + b) / 2; }, puff: function () {}, water: { x: 600, y: 600, rx: 100, ry: 30 } };
   for (let i = 0; i < 90; i++) { if (c.life) c.life(t, 1 / 30, true, A); if (c.habits) c.habits(t, 1 / 30, A); }
 });
+// The v1.4.0 animals are rigged, in the editor, and sleep in a pose of their own.
+["owl", "rabbit", "frog", "cat"].forEach(function (id) { const c = C.filter(function (x) { return x.id === id; })[0];
+  ok(!!c && !!c.rig && c.editor === true && c.sleeps === true, "creature " + id + ": registered, rigged, in the editor, with a sleep pose"); });
+eq(C.filter(function (x) { return x.id === "bunny"; }).map(function (x) { return !!x.rig; }), [false], "look: bunny stays the classic whole sprite v1.3.0 configs use");
 // Drift: every module in src/creatures is registered, and every rigged look has a module.
 const helpers = m.CREATURE_HELPERS, files = fs.readdirSync(path.join(src, "creatures")).filter(function (f) { return /\.js$/.test(f) && helpers.indexOf(f) < 0; });
 const fileIds = [];

@@ -30,11 +30,15 @@ import otter from "./otter.js";
 import snail from "./snail.js";
 import fox from "./fox.js";
 import hedgehog from "./hedgehog.js";
+import owl from "./owl.js";
+import rabbit from "./rabbit.js";
+import frog from "./frog.js";
+import cat from "./cat.js";
 
 function classic(id, label, editor) { return { id: id, label: label, editor: editor, sprite: classicSprite }; }
 
-export const CREATURES = [crow, capybara, deer, shark, otter, snail, fox, hedgehog,
-  classic("bear", "Bear", true), classic("bunny", "Bunny", true),
+export const CREATURES = [crow, capybara, deer, shark, otter, snail, fox, hedgehog, owl, rabbit, frog, cat,
+  classic("bear", "Bear", true), classic("bunny", "Bunny (classic)", true),
   classic("phones", "Phones", false), classic("curls", "Curls", false), classic("flower", "Flower", false)];
 
 export const CREATURE = {};

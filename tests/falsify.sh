@@ -2,8 +2,9 @@
 # Proves tests/check.mjs can fail. Breaks the card in known ways on temp copies and expects
 # the check to exit non-zero each time: two breaks in the built file (calendar parsing,
 # calendar mode), then the source ones below, each rebuilt with esbuild (creature and scene
-# registries and their landmarks, the school timetable and lunch parsers, the per-child school
-# config). Exits 1
+# registries and their landmarks, the animals' walk, idle and sleep, a scene's exit and the
+# duty walks round its obstacles, the school timetable and lunch parsers, the per-child
+# school config). Exits 1
 # if any broken copy passes. Needs npm ci first.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -32,7 +33,14 @@ while IFS='|' read -r f expr what; do
   n=$((n + 1))
 done <<'EOF'
 creatures/fox.js|s/^  anim: function (t, p, time, M) {/  move: function (t, p, time, M) {/|the fox loses anim()
-creatures/owl.js|s/id: "hedgehog", label: "Hedgehog"/id: "owl", label: "Owl"/|an owl module nobody registered
+creatures/badger.js|s/id: "hedgehog", label: "Hedgehog"/id: "badger", label: "Badger"/|a badger module nobody registered
+creatures/index.js|s/owl, rabbit, frog, cat,/owl, frog, cat,/|the bunny dropped from the registry
+creatures/index.js|s/classic("bunny", "Bunny (classic)", true)/Object.assign({}, rabbit, { id: "bunny" })/|look: bunny becomes the rig, changing v1.3.0 configs
+creatures/owl.js|s/var sl = M.sleep .. 0, aw = 1 - sl;/var sl = 0, aw = 1 - sl;/|the owl has no sleeping pose
+creatures/cat.js|s/editor: true, sleeps: true,/editor: true,/|the cat does not say it sleeps
+creatures/cat.js|s/sl \* (0.04 + 0.012 \* Math.sin(time \* 1.5))/sl * 0.04/|the sleeping cat stops breathing
+creatures/frog.js|s/^  anim: function (t, p, time, M) {/  anim: function (t, p, time, M) { return;/|the frog stands stock still, walking or not
+creatures/frog.js|s/var breathe = aw \* 0.01 \* Math.sin(time \* 3.2) \* M.idle;/var breathe = 0;/|the idle frog never stirs
 scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside\];/export const SCENE_LIST = [meadow];/|the seaside dropped from the registry
 scenes/seaside.js|s/    ground: function (ctx, S, WX) {/    floor: function (ctx, S, WX) {/|the seaside loses weather.ground()
 scenes/seaside.js|s/    music:   { box: function () { var p = G.pav;/    musik:   { box: function () { var p = G.pav;/|the seaside's band on the pier loses its tap
