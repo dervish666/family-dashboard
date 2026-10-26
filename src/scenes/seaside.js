@@ -11,7 +11,7 @@
 //
 // Everything is a fraction of the card, so it survives another resolution. Day and night
 // come from the engine's darkness; this scene only adds its own lights over the dusk.
-import { rand, pick, rr, rimmed, canvas, K } from "../engine/draw.js";
+import { rand, pick, rr, rimmed, canvas, K, prng, aoShadow } from "../engine/draw.js";
 
 // ── Geometry, worked out once per size in layout() ─────────────────────────────
 var G = null;
@@ -113,18 +113,29 @@ function bake(g, S) {
   S.place(L);
   // a soft grey-blue sky, paler and greyer towards the horizon, with a bank of cloud on it
   var sky = g.createLinearGradient(0, 0, 0, HZ);
-  sky.addColorStop(0, "#B4CAD6"); sky.addColorStop(0.7, "#D5DEDF"); sky.addColorStop(1, "#E4E7E1");
+  sky.addColorStop(0, "#9FBDD4"); sky.addColorStop(0.55, "#C9D9DF"); sky.addColorStop(1, "#E9EBE3");
   g.fillStyle = sky; g.fillRect(0, 0, W, HZ + 2);
-  for (i = 0; i < 26; i++) { x = (i / 25) * W * 1.1 - W * 0.05; y = HZ - 12 - Math.abs(Math.sin(i * 1.7)) * 16;
-    g.fillStyle = i % 3 ? "rgba(214,221,224,.55)" : "rgba(196,205,212,.45)"; g.beginPath(); g.ellipse(x, y, 60 + (i % 4) * 18, 14 + (i % 3) * 5, 0, 0, 7); g.fill(); }
+  var sun = g.createRadialGradient(W * 0.42, 30, 0, W * 0.42, 30, HZ * 0.85);                 // a watery sun behind the haze
+  sun.addColorStop(0, "rgba(255,250,225,.6)"); sun.addColorStop(0.45, "rgba(255,248,220,.18)"); sun.addColorStop(1, "rgba(255,248,220,0)");
+  g.fillStyle = sun; g.fillRect(0, 0, W, HZ + 2);
+  for (i = 0; i < 26; i++) { x = (i / 25) * W * 1.1 - W * 0.05; y = HZ - 12 - Math.abs(Math.sin(i * 1.7)) * 16; var cw = 60 + (i % 4) * 18, ch = 14 + (i % 3) * 5;
+    g.fillStyle = i % 3 ? "rgba(206,215,222,.48)" : "rgba(190,202,212,.42)"; g.beginPath(); g.ellipse(x, y + 3, cw, ch, 0, 0, 7); g.fill();          // the bank's shaded underside
+    g.fillStyle = i % 3 ? "rgba(232,237,240,.6)" : "rgba(220,228,234,.55)"; g.beginPath(); g.ellipse(x - cw * 0.1, y - ch * 0.3, cw * 0.8, ch * 0.75, 0, 0, 7); g.fill(); }   // lit on top
+  var hh = g.createLinearGradient(0, HZ - 40, 0, HZ); hh.addColorStop(0, "rgba(236,238,232,0)"); hh.addColorStop(1, "rgba(236,238,232,.5)");
+  g.fillStyle = hh; g.fillRect(0, HZ - 40, W, 40);
   // a faint far headland
   g.fillStyle = "rgba(120,146,148,.45)"; g.beginPath(); g.moveTo(W * 0.42, HZ);
   g.quadraticCurveTo(W * 0.47, HZ - 13, W * 0.51, HZ - 8); g.quadraticCurveTo(W * 0.54, HZ - 11, W * 0.58, HZ); g.closePath(); g.fill();
   cliffs(g);
   // the sea, horizon to shore: grey-green, greener in the shallows
   var sea = g.createLinearGradient(0, HZ, 0, G.shoreY + 20);
-  sea.addColorStop(0, "#9DB8B1"); sea.addColorStop(0.3, "#79A29A"); sea.addColorStop(0.8, "#7FAE9F"); sea.addColorStop(1, "#A6C9B5");
+  sea.addColorStop(0, "#A3BCB8"); sea.addColorStop(0.12, "#7FA6A2"); sea.addColorStop(0.4, "#6E9D96"); sea.addColorStop(0.8, "#7FB0A0"); sea.addColorStop(1, "#AFCFBA");
   g.fillStyle = sea; g.fillRect(0, HZ, W, G.shoreY + 30 - HZ);
+  var sg = g.createLinearGradient(0, HZ, 0, HZ + 70); sg.addColorStop(0, "rgba(225,232,230,.45)"); sg.addColorStop(1, "rgba(225,232,230,0)");   // the haze lying on the far water
+  g.fillStyle = sg; g.fillRect(0, HZ, W, 70);
+  var ss = g.createRadialGradient(W * 0.46, HZ + 30, 0, W * 0.46, HZ + 30, W * 0.22);                                                             // the sun on the water
+  ss.addColorStop(0, "rgba(255,255,235,.28)"); ss.addColorStop(1, "rgba(255,255,235,0)");
+  g.fillStyle = ss; g.fillRect(0, HZ, W, G.shoreY - HZ);
   g.fillStyle = "rgba(255,255,255,.45)"; g.fillRect(0, HZ, W, 1.5);                       // the horizon's bright edge
   g.fillStyle = "rgba(255,255,255,.08)"; for (i = 0; i < 9; i++) g.fillRect(0, HZ + 14 + i * i * 3.4, W, 1.2);   // long swells
   // the beach: wet sand at the tideline, dry sand behind
@@ -159,6 +170,20 @@ function bake(g, S) {
   pier(g);
   boatShed(g);
   beachThings(g);
+  footprints(g, S);
+  var vg = g.createRadialGradient(W * 0.55, H * 0.7, H * 0.2, W * 0.55, H * 0.7, W * 0.7);        // the light falls off at the edges
+  vg.addColorStop(0, "rgba(90,70,40,0)"); vg.addColorStop(1, "rgba(90,70,40,.14)");
+  g.fillStyle = vg; g.beginPath(); g.moveTo(0, H);
+  for (x = 0; x <= W; x += 16) g.lineTo(x, shore(x) + 30);
+  g.lineTo(W, H); g.closePath(); g.fill();
+}
+// A trail of footprints from the slipway towards the deckchairs, from the scene's own numbers.
+function footprints(g, S) {
+  var R = prng(31 + S.W), a = G.slipFoot, b = G.chairs[0], n = 16, i;
+  for (i = 2; i < n; i++) { var k = i / n, x = a.x + (b.x - a.x) * k + Math.sin(k * 9) * 10, y = a.y + 30 + (b.y - 40 - a.y - 30) * k + (R() - 0.5) * 6, side = i % 2 ? 5 : -5;
+    if (S.inZone(x, y, 10) || onLand(x, y)) continue;
+    g.fillStyle = "rgba(120,100,60,.2)"; g.beginPath(); g.ellipse(x + side, y, 2.6, 4, -0.3, 0, 7); g.fill();
+    g.beginPath(); g.ellipse(x + side, y - 5.5, 1.6, 1.4, 0, 0, 7); g.fill(); }
 }
 
 // The right headland: chalk cliffs with a cap of grass, and the lighthouse on top.
@@ -171,6 +196,10 @@ function cliffs(g) {
   g.strokeStyle = "rgba(150,150,140,.45)"; g.lineWidth = 1.2;                         // the chalk's streaks
   for (var i = 0; i < 16; i++) { var x = x0 + 30 + i * (W - x0 - 20) / 16; g.beginPath(); g.moveTo(x, HZ - 22 + Math.abs(x - W * 0.9) * 0.05); g.lineTo(x - 3, HZ - 2); g.stroke(); }
   g.fillStyle = "rgba(120,140,140,.35)"; g.fillRect(x0, HZ - 3, W - x0, 3);
+  var cg = g.createLinearGradient(0, HZ - 30, 0, HZ); cg.addColorStop(0, "rgba(120,120,110,0)"); cg.addColorStop(1, "rgba(120,120,110,.22)");   // the chalk's damp foot
+  g.fillStyle = cg; g.beginPath(); g.moveTo(x0, HZ + 1); g.quadraticCurveTo(W * 0.86, HZ - 32, lh.x - 34, HZ - 30); g.lineTo(W + 10, HZ - 37); g.lineTo(W + 10, HZ + 1); g.closePath(); g.fill();
+  g.fillStyle = "rgba(255,255,255,.18)"; g.beginPath(); g.moveTo(x0 - 10, HZ + 1); g.quadraticCurveTo(W * 0.86, HZ - 40, lh.x - 34, HZ - 36); g.lineTo(W + 10, HZ - 44); g.lineTo(W + 10, HZ - 40); g.lineTo(lh.x - 34, HZ - 32); g.quadraticCurveTo(W * 0.86, HZ - 36, x0 - 6, HZ + 1); g.closePath(); g.fill();   // sun on the grass cap
+  aoShadow(g, lh.x + 4, HZ - 34, 30, 5, 0.2, "90,90,80");
   lighthouse(g, lh.x, lh.y);
 }
 function lighthouse(g, x, y) {
@@ -269,8 +298,13 @@ function hut(g, h) {
   g.fillStyle = "rgba(90,80,60,.22)"; g.fillRect(x - w / 2 + 2, y - 2, w + 4, 4);
   rimmed(g, "rgba(70,60,60,.55)", h.col, 1.2, function (e) { g.fillRect(x - w / 2 - e, y - bh - e, w + 2 * e, bh + 2 * e); });
   g.fillStyle = "rgba(255,255,255,.28)"; for (var i = 1; i < 6; i++) g.fillRect(x - w / 2, y - bh + i * bh / 6, w, 0.9);   // weatherboards
+  var sg = g.createLinearGradient(x, 0, x + w / 2, 0); sg.addColorStop(0, "rgba(50,35,35,0)"); sg.addColorStop(1, "rgba(50,35,35,.16)");   // shaded on the right
+  g.fillStyle = sg; g.fillRect(x, y - bh, w / 2, bh);
+  var ug = g.createLinearGradient(0, y - bh, 0, y - bh + 8 * s); ug.addColorStop(0, "rgba(50,35,35,.2)"); ug.addColorStop(1, "rgba(50,35,35,0)");   // under the eaves
+  g.fillStyle = ug; g.fillRect(x - w / 2, y - bh, w, 8 * s);
   g.fillStyle = "#FBF7EE"; g.beginPath(); g.moveTo(x - w / 2 - 3 * s, y - bh + 1); g.lineTo(x, y - bh - rh); g.lineTo(x + w / 2 + 3 * s, y - bh + 1); g.closePath(); g.fill();
   g.fillStyle = h.no ? "#3E6E9E" : "#7A6A68"; g.beginPath(); g.moveTo(x - w / 2 - 1 * s, y - bh); g.lineTo(x, y - bh - rh + 3 * s); g.lineTo(x + w / 2 + 1 * s, y - bh); g.closePath(); g.fill();
+  g.fillStyle = "rgba(255,255,255,.16)"; g.beginPath(); g.moveTo(x - w / 2 - 1 * s, y - bh); g.lineTo(x, y - bh - rh + 3 * s); g.lineTo(x, y - bh); g.closePath(); g.fill();
   g.fillStyle = "#FBF7EE"; g.fillRect(x - w * 0.26, y - bh * 0.78, w * 0.52, bh * 0.78);   // the doors
   g.fillStyle = h.col; g.fillRect(x - w * 0.22, y - bh * 0.72, w * 0.2, bh * 0.72); g.fillRect(x + w * 0.02, y - bh * 0.72, w * 0.2, bh * 0.72);
   g.fillStyle = "rgba(255,255,255,.4)"; g.fillRect(x - w * 0.01, y - bh * 0.72, w * 0.02, bh * 0.72);
@@ -363,6 +397,7 @@ function pier(g) {
   var P = G.pier, i, y, s, s0 = pierSpan(P.y0), s1 = pierSpan(P.y1);
   function legs(x, yTop, len, w) { g.fillStyle = "#4E5A5E"; g.fillRect(x - w / 2, yTop, w, len);
     g.fillStyle = "rgba(255,255,255,.55)"; g.beginPath(); g.ellipse(x, yTop + len, w * 1.3, w * 0.35, 0, 0, 7); g.fill(); }
+  g.fillStyle = "rgba(40,60,60,.16)"; g.beginPath(); g.moveTo(s0[0] + 10, P.y0 + 14); g.lineTo(s0[1] + 14, P.y0 + 14); g.lineTo(s1[1] + 22, P.y1 + 26); g.lineTo(s1[0] + 10, P.y1 + 26); g.closePath(); g.fill();   // the deck's shadow on the water and sand
   for (i = 0; i <= 5; i++) legs(s0[0] + 6 + (s0[1] - s0[0] - 12) * i / 5, P.y0 + 4, 22, 4);
   for (y = P.y0 + 30; y < P.y1 - 10; y += 34) {
     var k = (y - P.y0) / (P.y1 - P.y0), len = 14 + 14 * k, w = 4 + 2 * k; s = pierSpan(y);
@@ -582,6 +617,13 @@ function under(ctx, time, S) {
   var sh = G.shed;                                                                   // the boat shed's roof stands against the sea too
   ctx.moveTo(sh.x - 40, sh.y); ctx.lineTo(sh.x - 40, sh.y - 92); ctx.lineTo(sh.x, sh.y - 124); ctx.lineTo(sh.x + 40, sh.y - 92); ctx.lineTo(sh.x + 40, sh.y); ctx.closePath();
   ctx.clip("evenodd");
+  var D0 = S.DARK || 0;
+  if (D0 > 0 && D0 < 1) {                                                           // the sunset on the sky and the water
+    var sa = Math.sin(D0 * Math.PI) * 0.36, sg = ctx.createLinearGradient(0, G.HZ - 130, 0, G.HZ + 90);
+    sg.addColorStop(0, "rgba(255,150,80,0)"); sg.addColorStop(0.55, "rgba(255,140,70," + sa.toFixed(3) + ")"); sg.addColorStop(1, "rgba(255,170,110,0)");
+    ctx.fillStyle = sg; ctx.fillRect(0, G.HZ - 130, W, 220);
+  }
+  if (D0 > 0) { ctx.fillStyle = "rgba(6,14,44," + (0.3 * D0).toFixed(3) + ")"; ctx.fillRect(0, G.HZ, W, G.shoreY + 30 - G.HZ); }   // the sea goes dark
   // crests and glints, more and whiter with the wind
   ctx.strokeStyle = "rgba(255,255,255," + (0.3 + 0.45 * wind).toFixed(2) + ")"; ctx.lineCap = "round"; ctx.lineWidth = 1.6; ctx.beginPath();
   var n = Math.round(A.crests.length * (0.45 + 0.55 * wind));
@@ -722,10 +764,15 @@ function light(ctx, time, S) {
   if (!A) return;
   var D = S.DARK, i, W = G.W;
   if (D <= 0.02) return;
+  var ng = ctx.createLinearGradient(0, 0, 0, G.HZ); ng.addColorStop(0, "rgba(6,10,40,.55)"); ng.addColorStop(0.7, "rgba(10,16,50,.3)"); ng.addColorStop(1, "rgba(20,24,60,0)");   // the sky goes deep blue
+  ctx.globalAlpha = D; ctx.fillStyle = ng; ctx.fillRect(0, 0, W, G.HZ);
   ctx.fillStyle = "#FFFFFF";
-  for (i = 0; i < A.stars.length; i++) { var st = A.stars[i], tw = 0.55 + 0.45 * Math.sin(time * 1.4 + st.ph);
-    ctx.globalAlpha = D * tw * 0.8; ctx.fillRect(st.x, st.y, st.s, st.s); }
+  for (i = 0; i < A.stars.length; i++) { var st = A.stars[i], tw = 0.55 + 0.45 * Math.sin(time * 1.4 + st.ph), ss = st.s * 1.3;
+    ctx.globalAlpha = D * tw * 0.9; ctx.fillRect(st.x - ss / 2, st.y - ss / 2, ss, ss);
+    if (st.s > 1.9) { ctx.globalAlpha = D * tw * 0.4; ctx.fillRect(st.x - ss * 1.6, st.y - 0.5, ss * 3.2, 1); ctx.fillRect(st.x - 0.5, st.y - ss * 1.6, 1, ss * 3.2); } }
   var mx = W * 0.56, my = 112;
+  var halo = ctx.createRadialGradient(mx, my, 14, mx, my, 70); halo.addColorStop(0, "rgba(255,245,210,.4)"); halo.addColorStop(1, "rgba(255,245,210,0)");
+  ctx.globalAlpha = D; ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(mx, my, 70, 0, 7); ctx.fill();
   ctx.globalAlpha = D; ctx.fillStyle = "#FFF8DC"; ctx.beginPath(); ctx.arc(mx, my, 17, 0, 7); ctx.fill();
   ctx.fillStyle = "rgba(230,222,190,.7)"; ctx.beginPath(); ctx.arc(mx - 5, my - 3, 3.5, 0, 7); ctx.arc(mx + 6, my + 5, 2.5, 0, 7); ctx.fill();
   ctx.fillStyle = "#FFF3C4";
@@ -734,7 +781,7 @@ function light(ctx, time, S) {
   var lh = G.lighthouse, lx = lh.x, ly = lh.y - 65, a = time * 0.7, face = Math.cos(a), len = 460 * Math.abs(Math.sin(a)) + 30, dir = Math.sin(a) > 0 ? -1 : 1;
   ctx.globalCompositeOperation = "lighter";
   var bg = ctx.createLinearGradient(lx, 0, lx + dir * len, 0);
-  bg.addColorStop(0, "rgba(255,240,190,.42)"); bg.addColorStop(1, "rgba(255,240,190,0)");
+  bg.addColorStop(0, "rgba(255,240,190,.55)"); bg.addColorStop(1, "rgba(255,240,190,0)");
   ctx.globalAlpha = D * (0.35 + 0.45 * Math.max(0, face)); ctx.fillStyle = bg;
   ctx.beginPath(); ctx.moveTo(lx, ly - 2); ctx.lineTo(lx + dir * len, ly - 16); ctx.lineTo(lx + dir * len, ly + 12); ctx.closePath(); ctx.fill();
   ctx.globalAlpha = D * (0.7 + 0.3 * Math.max(0, face)); ctx.drawImage(A.glow, lx - 20, ly - 20, 40, 40);
