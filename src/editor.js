@@ -14,14 +14,14 @@ const ACCESSORY_LABELS = { glasses: "Glasses", phones: "Headphones", daisy: "Dai
 const SENSOR_FIELDS = [
   ["weather", "weather", "Weather"],
   ["music", "media_player", "Music speaker (the meadow dances)"],
-  ["letter", "input_text", "Letter helper (the postie)"],
+  ["letter", "input_text", "Letter helper for everyone (the postie, \"Name: text\")"],
   ["trips", "calendar", "Trips calendar (Holiday events become countdowns)"],
   ["printer", null, "3D printer sensor prefix (Bambu Lab)"],
   ["extra", "sensor", "School data (family_extra)"],
   ["kit", "sensor", "School kit"]
 ];
 const LABELS = { name: "Name", role: "Role", look: "Animal", col: "Colour", calendar: "Calendar", accessories: "Accessories",
-  school: "Goes to school", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
+  school: "Goes to school", person_letter: "Own letter helper (room panel letters)", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
 SENSOR_FIELDS.forEach(function (f) { LABELS[f[0]] = f[2]; });
 Object.assign(LABELS, { announcement: "Announcement entity (input_text or sensor)", announcement_title: "Announcement heading (optional)", due: "Due times sensor",
   announcement_crier: "Town crier for a new announcement", announcement_sound: "Ring a bell sound", announcement_clear: "A tap empties the entity (input_text or text)",
@@ -57,6 +57,8 @@ const PERSON_BASE = [
     { name: "look", required: true, selector: { select: { mode: "dropdown", options: EDITOR_LOOKS.map(function (l) { return { value: l, label: CREATURE[l].label }; }) } } },
     { name: "col", selector: { color_rgb: {} } }] },
   { name: "calendar", selector: { entity: { multiple: true, filter: { domain: "calendar" } } } },
+  // v1.8.0: people[].letter. Named person_letter here because LABELS.letter is the shared helper's.
+  entityField("person_letter", ["input_text", "text"]),
   { name: "accessories", selector: { select: { multiple: true, mode: "list", options: ACCESSORIES.map(function (a) { return { value: a, label: ACCESSORY_LABELS[a] }; }) } } },
   { name: "school", selector: { boolean: {} } }
 ];
@@ -205,7 +207,7 @@ class FamilyDashboardCardEditor extends HTMLElement {
       self._shown[i] = shown;
       self._forms.people[i].set({ timetable: shown.timetable, lunch: shown.lunch, name: p.name == null ? "" : String(p.name), role: p.adult || p.role === "adult" ? "adult" : "kid",
         look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || "crow", col: hexRgb(/^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length]),
-        calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school });
+        person_letter: typeof p.letter === "string" ? p.letter : "", calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school });
       self._forms.heads[i].querySelector(".dot").style.background = /^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length];
       self._forms.heads[i].querySelector("b").textContent = (p.name || "Unnamed") + (i === people.length - 1 && people.length > 1 ? " (household)" : "");
     });
@@ -282,6 +284,8 @@ class FamilyDashboardCardEditor extends HTMLElement {
     ACCESSORIES.forEach(function (a) { if (acc.indexOf(a) >= 0) p[a] = true; else delete p[a]; });
     if (p.bee) people.forEach(function (q, k) { if (k !== i) delete q.bee; });
     if (d.school) p.school = true; else delete p.school;
+    if ("person_letter" in d) { const v = (d.person_letter || "").trim(), cur = typeof p.letter === "string" ? p.letter : "";
+      if (v !== cur) { if (v) p.letter = v; else delete p.letter; } }
     // Only a field the user changed is written, so a v1.1.0 sensor shown here stays where it is.
     const shown = (this._shown && this._shown[i]) || {};
     ["timetable", "lunch"].forEach(function (k) {
