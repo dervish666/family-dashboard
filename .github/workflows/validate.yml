@@ -17,3 +17,14 @@ jobs:
         uses: hacs/action@main
         with:
           category: plugin
+
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Config and calendar checks
+        run: node tests/check.mjs
+      - name: Prove the checks can fail
+        run: sh tests/falsify.sh
