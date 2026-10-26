@@ -719,6 +719,12 @@ export default {
   // someone on a duty walks round the pond, the cottage and the snowmen, not across them
   via: function (t, dest, S) { if (!t.pass) return null;
     return around(t, dest, G.big, 30, function (x, y) { return x > 20 && x < G.W - 20 && y > G.B + 30 && y < G.H - 10 && !S.inZone(x, y, 4); }); },
+  // The village has no hall, so the crier uses the church: out of its door, through the
+  // lychgate on to the lane and down on to the green, with the scroll to his right.
+  crier: function () {
+    var d = G.churchDoor;
+    return { path: [{ x: d.x, y: d.y }, { x: d.x, y: G.B + 30 }, { x: Math.round(G.W * 0.3), y: Math.round(G.H * 0.6) }], face: 1 };
+  },
   hotspots: {
     school:  { box: function () { var s = G.school; return [s.x - 84, s.y - 132, s.x + 84, s.y + 10]; },
                tap: function (S) { var s = G.school; S.say("ding!", s.x, s.y - 136); } },

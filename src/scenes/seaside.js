@@ -833,6 +833,13 @@ export default {
   },
   swimSpot: function (S) { var p = G.pool; void S; return { x: p.x + rand(-p.rx * 0.5, p.rx * 0.5), y: p.y - p.ry - 48 }; },
   via: function (t, dest) { return via(t, dest); },
+  // The town crier comes out of beach hut No. 7, along the promenade to the slipway, down it
+  // on to the sand, and stands at its foot with the scroll to his right over the beach.
+  crier: function () {
+    var h = G.home, a = top(h.u), b = top(0.3), st = G.slipTop, sf = G.slipFoot;
+    return { path: [{ x: h.x, y: h.y + 2 }, { x: a.x - promW(h.u) * 0.42, y: a.y + 4 }, { x: b.x - promW(0.3) * 0.5, y: b.y + 3 },
+      { x: st.x, y: st.y }, { x: sf.x, y: sf.y }, { x: Math.round(sf.x + 30), y: Math.round(sf.y + 18) }], face: 1 };
+  },
   // The landmarks a tap opens: the fingerpost up the lane to school, the boat shed (the
   // workshop), the band in the pier's pavilion, beach hut No. 7 (home) and the lighthouse
   // (the office, where someone keeps watch).

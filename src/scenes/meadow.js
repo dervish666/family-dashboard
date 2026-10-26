@@ -20,6 +20,12 @@ export default {
   swimSpot: function (S) { return { x: rand(S.W * 0.72, S.W * 0.83), y: S.H - 172 }; },
   // The landmarks a tap opens (scenes/index.js has the ids): the school, the workshop plot,
   // the bandstand (and the now-playing sign over it), the blue cottage, and the office robot.
+  // The town crier comes out of the cottage, down to the road, along it and down the
+  // woodcutter's lane, and stands on the grass above the pond with the scroll to his left.
+  crier: function (S) {
+    var d = S.layout.doors.cottage, R = S.lay.R, lx = Math.round(S.W * 0.855), spot = { x: Math.round(S.W * 0.83), y: S.H - 150 };
+    return { path: [{ x: d.x, y: d.y }, { x: d.x, y: R }, { x: lx, y: R }, { x: lx, y: spot.y - 24 }, spot], face: -1, top: R + 12 };
+  },
   hotspots: {
     school:  { box: function (S) { var s = S.lay.school; return [s.x - 90, s.y - 145, s.x + 90, s.y + 8]; },
                tap: function (S) { var s = S.lay.school; S.say("ding!", s.x + 22, s.y - 150); } },

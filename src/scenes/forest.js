@@ -619,6 +619,12 @@ export default {
   // The landmarks a tap opens: the fingerpost up the trail to school, the woodpile (the
   // workshop), the campfire (the sing-song), the bell tent (home) and the lookout in the oak
   // (the office).
+  // The crier ducks out of the bell tent and walks down to the front of the camp, with the
+  // scroll to the right over the clearing.
+  crier: function () {
+    var d = G.tentDoor || { x: G.tent.x + 4, y: G.tent.y - 30 };
+    return { path: [{ x: d.x, y: G.tent.y }, { x: d.x - 20, y: G.tent.y + 44 }, { x: Math.round(G.W * 0.13), y: Math.round(G.H * 0.8) }], face: 1 };
+  },
   hotspots: {
     school:  { box: function () { var p = G.post; return [p.x - 48, p.y - 70, p.x + 48, p.y + 14]; },
                tap: function (S) { var p = G.post; S.say("ding!", p.x, p.y - 76); } },

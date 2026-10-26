@@ -1,10 +1,11 @@
 import { weekRange, calendarPath, parseCalendarEvents } from "../calendar.js";
-import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat } from "./draw.js";
+import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat, prng } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
 import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
+import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -559,6 +560,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       t.x = Math.max(-60, Math.min(W + 60, t.x));
     }
 
+    if (CRIER) updateCrier(dt);
     for (i = parts.length - 1; i >= 0; i--) { var p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; }
       p.x += p.vx * dt; p.y += p.vy * dt; if (p.kind !== "text" && p.kind !== "z" && p.kind !== "smoke" && p.kind !== "note" && p.kind !== "leaf" && p.kind !== "hat") p.vy += 120 * dt;
       if (p.kind === "leaf" || p.kind === "hat") { p.ph += dt * 6; p.vy += Math.sin(p.ph) * 40 * dt; } }
@@ -2147,6 +2149,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (AMB && AMB.front) AMB.front(ctx, time, SV);              // in front of the family
     for (i = 0; i < VILLAGE.length; i++) if (VILLAGE[i].layer === "front") VILLAGE[i].draw(time, asleep);
     drawPartyFront(time);
+    if (CRIER) drawCrier(time);
     // The bee, in a lazy figure of eight around whoever has bee: true
     var bh = BEE_HOST; if (bh && !offStage(bh)) { var bx = bh.x + Math.sin(time * 1.3) * 44, by = bh.y - bh.r * 1.4 - hopOf(bh) + Math.sin(time * 2.6) * 12;
       if (nightness > 0.6) { bx = bh.x - bh.face * bh.r * 0.3; by = bh.y - bh.r * 1.28; }   // asleep on the sleeper's back
@@ -2201,6 +2204,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       ctx.drawImage(tag.c, t.x - tag.w / 2, top - tag.h, tag.w, tag.h); t.tagBox = [t.x - tag.w / 2, top - tag.h, tag.w, tag.h];
       if (t.letter) blit(ICON.letter, t.x, top - tag.h - 6 + Math.sin(time * 2.4 + t.phase) * 2.5, 1, 1, 1, 2, Math.sin(time * 1.8) * 0.12); }
     drawRobotBubble(time);                                   // the office robot's line, above the night like the tags
+    if (CRIER) drawScroll();                                 // the crier's scroll, over everything
   }
 
   // ── Time of day ─────────────────────────────────────────────────────────────
@@ -2687,7 +2691,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // A configured entity that is missing or unavailable says so in grey rather than vanishing.
   // The demo makes up a state for each configured entity (demoExtra).
   var ANN_CONF = CONFIG.announcement || null, DUE_CONF = CONFIG.due || null, TILE_CONF = CONFIG.status_tiles || [];
-  var XS = { ann: null, annKey: null, hidden: null, due: null, dueKey: null, tiles: [], tileKey: null, taps: [] };
+  var XS = { ann: null, annKey: null, hidden: null, due: null, dueKey: null, tiles: [], tileKey: null, taps: [], hook: null, crier: null, dismissed: [], clears: [], clearErr: null };
   var XNAMES = [], XCANON = {};
   PEOPLE.forEach(function (p) { [p.name].concat(p.aliases || []).forEach(function (a) { XNAMES.push(String(a)); XCANON[String(a).toLowerCase()] = p.name; }); });
   var XICON = {
@@ -2744,6 +2748,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   // The state of a configured entity, null when Home Assistant does not have it, undefined before hass arrives.
   function xState(id) {
+    if (ANN_CONF && ANN_CONF.hook && id === ANN_CONF.entity) return XS.hook || { state: "", attributes: {} };   // ?announce= with no entity configured
     if (DEMO) return demoExtra(id);
     var h = HA.hass(); return h && h.states ? h.states[id] || null : undefined;
   }
@@ -2754,7 +2759,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     function el(id, parent) { var e = document.createElement("div"); e.id = id; if (parent) parent.appendChild(e); else WRAP.insertBefore(e, before); return e; }
     if (DUE_CONF) el("due");
     if (ANN_CONF) { var an = el("announce"); if (DUE_CONF) an.style.top = "124px";
-      an.addEventListener("pointerdown", function () { activity(); var a = XS.ann; if (a && a.status === "show") { XS.hidden = a.key; XS.annKey = null; extrasHud(now()); } }); }
+      an.addEventListener("pointerdown", function () { activity(); var a = XS.ann; if (a && a.status === "show") annTap(a.key); }); }
     if (TILE_CONF.length) { var tl = el("tiles", $("corner"));
       tl.addEventListener("pointerdown", function (e) { activity();
         var t = e.target && e.target.closest ? e.target.closest(".tile") : null, k = t ? +t.getAttribute("data-i") : -1;
@@ -2768,13 +2773,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function renderAnn(d) {
     var st = xState(ANN_CONF.entity); if (st === undefined) return;
-    var a = parseAnnouncement(st, d, XNAMES), key = a.status === "unavailable" ? "u|" + a.reason : a.status === "show" && XS.hidden !== a.key ? "s|" + a.key : "-";
+    if (CRY) crierRead(st, d);
+    if (XS.hook) st = XS.hook;
+    var a = parseAnnouncement(st, d, XNAMES), key = a.status === "unavailable" ? "u|" + a.reason : a.status === "show" && XS.hidden !== a.key ? (crierShowing(CRIER, a.key) ? "c|" : "s|") + a.key : "-";
     if (a.from) a.from = xPerson(a.from);
     XS.ann = a;
     if (key === XS.annKey) return; XS.annKey = key;
     var el = $("announce"), head = (ANN_CONF.title || "") + (a.from ? (ANN_CONF.title ? ", from " : "From ") + a.from : "");
     if (a.status === "unavailable") el.innerHTML = '<div class="ann na">' + xIcon("bell") + '<div class="ax">' + esc((ANN_CONF.title || "Announcements") + " unavailable") + "</div></div>";
-    else if (key !== "-") el.innerHTML = '<div class="ann">' + xIcon("bell") + '<div class="ab">' + (head ? '<div class="at">' + esc(head) + "</div>" : "") + '<div class="ax">' + esc(a.text) + "</div></div></div>";
+    else if (key !== "-" && key.charAt(0) !== "c") el.innerHTML = '<div class="ann">' + xIcon("bell") + '<div class="ab">' + (head ? '<div class="at">' + esc(head) + "</div>" : "") + '<div class="ax">' + esc(a.text) + "</div></div></div>";
     else el.innerHTML = "";
   }
   function dueCol(it) { var p = PEOPLE.filter(function (q) { return q.name === it.person; })[0] || PEOPLE[PEOPLE.length - 1]; return p.col; }
@@ -2823,6 +2830,228 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       return row(it.when, esc(it.label) + ' <span class="soft' + (it.kind === "overdue" ? " late" : "") + '">' + esc(it.rel) + "</span>", "", true); }).join("") : "";
     return { html: html, foot: due.bad ? due.bad + (due.bad === 1 ? " due item" : " due items") + " in " + DUE_CONF.entity + " could not be read." : "" };
   }
+  // ── The town crier (v1.7.0) ─────────────────────────────────────────────────
+  // With announcement set and announcement_crier not false, a new message brings a crier out of
+  // a building in the scene (scene.crier(SV): the door, the walk and where to stand, see
+  // scenes/index.js). It rings a handbell, unrolls a scroll with the message, holds it
+  // (crier.js holdFor), rolls it up and walks home; the banner shows from then until the
+  // message ends. A tap on the scroll or the crier takes it down, and the banner with it.
+  // The pure half (what counts as new, late, the steps) is crier.js; here are the walk and the
+  // drawing. Nothing here runs, draws or draws random numbers until a crier is out: the crier
+  // has its own prng, so the family walks exactly where it would have.
+  //   late   a message older than announcement_late minutes when first seen (at load, or after
+  //          a dropped connection) gets the banner only, like the old wall page
+  //   clear  announcement_clear: true empties the entity on a tap (input_text or text); never in
+  //          the demo or for the ?announce= hook
+  //   sound  announcement_sound: true rings a WebAudio bell too (off by default)
+  // Test hook ?announce=<text> delivers <text> 2.5 s after boot as a new message ("45|Name|text",
+  // "Name: text" or plain), over the configured entity or, with none configured, a made-up one.
+  var AFORCE = (Q.match(/[?&]announce=([^&]*)/) || [])[1];
+  if (AFORCE != null && !ANN_CONF) ANN_CONF = { entity: "input_text.announcement", title: "", hook: true };
+  var CRY = !ANN_CONF ? null : CONFIG.crier || { on: true, sound: false, clear: false, late: 1 };
+  if (CRY && !CRY.on) CRY = null;
+  var CRIER = null, CSEEN = {}, CWANT = null, CSPR = {}, CROLLER = null, CBELL = null, CAUDIO = null, CRAND = prng(20261026);
+  var REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  // The scene's crier: { path: [door, ..., spot], face, look: { col, hat }, say, style, top }.
+  // A scene without one gets a walk from its home landmark.
+  function crierGeom() {
+    var g = SCENE.crier ? SCENE.crier(SV) : null;
+    if (!g || !g.path || g.path.length < 2) {
+      var hb = SCENE.hotspots && SCENE.hotspots.home ? SCENE.hotspots.home.box(SV) : [W * 0.7, H * 0.5, W * 0.8, H * 0.6];
+      var d = { x: (hb[0] + hb[2]) / 2, y: hb[3] }; g = { path: [d, { x: d.x, y: Math.min(H - 120, d.y + 60) }] };
+    }
+    var spot = g.path[g.path.length - 1];
+    return { path: g.path, spot: spot, face: g.face || (spot.x > W / 2 ? -1 : 1), look: g.look || { col: "#D9534F", hat: "tricorn" },
+      say: g.say || "Hear ye!", head: g.head || "Hear ye! Hear ye!", style: g.style || "parchment", top: g.top };
+  }
+  // Where the scroll hangs: beside the crier, on the side it faces, below the clock and the corner.
+  function scrollGeom(G) {
+    var top = Math.round(G.top != null ? G.top : Math.max(H < 640 ? 112 : 184, TOP + 74)), m = 36, gap = 40, s = G.spot, w, x;
+    if (G.face < 0) { w = Math.min(860, s.x - gap - m); x = s.x - gap - w; } else { w = Math.min(860, W - m - s.x - gap); x = s.x + gap; }
+    if (w < 380) { w = Math.min(860, W - m * 2); x = (W - w) / 2; }
+    return { x: Math.round(x), w: Math.round(w), top: top, maxH: Math.max(140, H - 34 - top) };
+  }
+  function crierSprite(look) {
+    var k = look.col + look.hat;
+    return CSPR[k] || (CSPR[k] = makeSprites({ r: 28, col: look.col, look: "villager", hat: look.hat }, classicSprite));
+  }
+  function spawnCrier() {
+    var G = crierGeom(), d = G.path[0];
+    CRIER = newCrier(CWANT);
+    CRIER.G = G; CRIER.i = 1; CRIER.age = 0;
+    CRIER.v = { spr: crierSprite(G.look), r: 28, x: d.x, y: d.y, face: G.face, phase: 0, moving: false, going: false, gait: 0, happy: 0, blink: 2 + CRAND() * 3, blinkT: 0, _seed: 0 };
+  }
+  // Once a second, from renderAnn: what the crier should be showing.
+  function crierRead(st, d) {
+    if (XS.hook) st = XS.hook;
+    var r = annStep(CSEEN, st, d, { late: CRY.late, names: XNAMES });
+    if (r.act === "start") {
+      r.a.from = xPerson(r.a.from);
+      CWANT = r.late || REDUCED ? null : r.a;
+      XS.crier = { act: r.late ? "late" : "walk", key: r.a.key, first: r.first };
+      if (CWANT && !CRIER) spawnCrier();
+    } else if (r.act === "end") CWANT = null;
+    if (CWANT && (XS.hidden === CWANT.key || (CWANT.until != null && d.getTime() >= CWANT.until))) CWANT = null;
+  }
+  function crierWalk(C, dt) {
+    var v = C.v, P = C.G.path, home = C.st === "home", speed = home ? 80 : 110;
+    if (C.st !== "out" && !home) return;
+    var target = home ? P[C.i] : P[C.i];
+    if (walkV(v, target.x, target.y, speed, dt)) {
+      if (home) { if (C.i <= 0) C.arrived = true; else C.i--; }
+      else if (C.i >= P.length - 1) { C.arrived = true; v.face = C.G.face; } else C.i++;
+    }
+  }
+  function updateCrier(dt) {
+    var C = CRIER, v = C.v, was = C.st, rings = C.rings;
+    v.gait += ((v.moving ? 1 : 0) - v.gait) * Math.min(1, dt * 10); v.moving = false; v.happy -= dt;
+    v.blink -= dt; if (v.blink < 0) { v.blinkT = 0.14; v.blink = 2 + CRAND() * 4; } v.blinkT -= dt;
+    C.age += dt;
+    crierStep(C, dt, CWANT);
+    if (C.st === "home" && was !== "home") C.i = Math.max(0, C.i - 1);   // back the way it came, from the last point it passed
+    if (C.st === "out" && was === "home") C.i = Math.min(C.i + 1, C.G.path.length - 1);
+    crierWalk(C, dt);
+    if (C.rings > rings) { v.happy = C.bell; if (CRY.sound) bellSound(C.bell > 1.2 ? 3 : 2); }
+    if (C.st === "gone") {
+      for (var k = 0; k < 5; k++) parts.push({ kind: "poof", x: v.x, y: v.y - 20, vx: (CRAND() - 0.5) * 80, vy: -20 - CRAND() * 50, life: 1, max: 0.6 + CRAND() * 0.5 });
+      CRIER = null; XS.annKey = null;
+    } else if (was !== C.st) XS.annKey = null;          // the banner hides or comes back with the crier
+  }
+  // The handbell: pivot at the top of the handle.
+  function bakeBell() {
+    var c = canvas(20 * K, 31 * K), g = c.getContext("2d");
+    g.scale(K, K);
+    g.fillStyle = "#7A5238"; rr(g, 8, 0, 4, 12, 2); g.fill();
+    rimmed(g, "#9C7A2E", "#E8C66A", 1.2, function (e) { g.beginPath(); g.moveTo(6 - e, 11 - e); g.quadraticCurveTo(3.5 - e, 20, 2 - e, 26 + e);
+      g.lineTo(18 + e, 26 + e); g.quadraticCurveTo(16.5 + e, 20, 14 + e, 11 - e); g.closePath(); g.fill(); });
+    g.fillStyle = "rgba(255,255,255,.55)"; g.fillRect(7, 14, 2, 8);
+    g.fillStyle = "#6B5A4E"; g.beginPath(); g.arc(10, 28, 2.4, 0, 7); g.fill();
+    return { c: c, ax: 10 * K, ay: 0, k: K };
+  }
+  function bakeShout(text, holo) {
+    var f = "600 " + 21 * K + "px Fredoka", g0 = canvas(10, 10).getContext("2d"); g0.font = f;
+    var w = g0.measureText(text).width + 26 * K, h = 36 * K, c = canvas(w + 4 * K, h + 12 * K), g = c.getContext("2d"), x = 2 * K, y = 2 * K;
+    g.fillStyle = holo ? "rgba(16,30,58,.94)" : "rgba(255,255,255,.96)"; g.strokeStyle = holo ? "#6FE3F0" : "#A8431F"; g.lineWidth = 2.5 * K;
+    rr(g, x, y, w, h, h / 2); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(x + w / 2 - 7 * K, y + h - 1); g.lineTo(x + w / 2, y + h + 8 * K); g.lineTo(x + w / 2 + 7 * K, y + h - 1); g.fill();
+    g.fillStyle = holo ? "#BFF6FB" : "#A8431F"; g.font = f; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, x + w / 2, y + h / 2 + K);
+    return { c: c, w: c.width / K, h: c.height / K };
+  }
+  function bakeRoller(w, holo) {
+    var ow = w + 36, c = canvas(ow * K, 22 * K), g = c.getContext("2d");
+    g.scale(K, K);
+    g.fillStyle = holo ? "#2B3A5E" : "#7A5238"; rr(g, 8, 4, ow - 16, 14, 7); g.fill();
+    g.fillStyle = holo ? "rgba(111,227,240,.7)" : "rgba(255,255,255,.22)"; g.fillRect(14, 7, ow - 28, 3);
+    [9, ow - 9].forEach(function (x) { g.fillStyle = holo ? "#6FE3F0" : "#E8C66A"; g.beginPath(); g.arc(x, 11, 9, 0, 7); g.fill();
+      g.fillStyle = holo ? "#2B3A5E" : "#B8923F"; g.beginPath(); g.arc(x, 11, 4, 0, 7); g.fill(); });
+    return { c: c, w: ow, h: 22, key: w + (holo ? "h" : "p") };
+  }
+  // The scroll, baked once per message: the heading, the words as big as they fit, who it is
+  // from and when, and how to take it down.
+  function bakeScroll(a, G) {
+    var R = scrollGeom(G), s = DPR, w = R.w, padX = 50, padY = 22, headH = 44, footH = 46, holo = G.style === "holo";
+    var g0 = canvas(10, 10).getContext("2d"), big = Math.max(48, Math.min(112, Math.round(H * 0.14)));
+    var fit = fitWords(a.text, w - padX * 2, R.maxH - padY * 2 - headH - footH, big, 28, function (t, fs) { g0.font = "600 " + fs + "px Fredoka"; return g0.measureText(t).width; });
+    var h = padY * 2 + headH + fit.lines.length * fit.lh + footH, c = canvas(w * s, h * s), g = c.getContext("2d");
+    g.scale(s, s);
+    if (holo) {
+      g.fillStyle = "rgba(14,26,52,.93)"; g.fillRect(0, 0, w, h);
+      g.fillStyle = "rgba(111,227,240,.06)"; for (var y = 0; y < h; y += 6) g.fillRect(0, y, w, 2);
+      g.strokeStyle = "rgba(111,227,240,.55)"; g.lineWidth = 2; g.strokeRect(14, 10, w - 28, h - 20);
+    } else {
+      var gr = g.createLinearGradient(0, 0, w, 0);                              // parchment, browner at the curl
+      gr.addColorStop(0, "#E6CD98"); gr.addColorStop(0.07, "#F8EBCB"); gr.addColorStop(0.93, "#F8EBCB"); gr.addColorStop(1, "#E6CD98");
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.strokeStyle = "rgba(168,67,31,.35)"; g.lineWidth = 2; g.strokeRect(18, 12, w - 36, h - 24);
+    }
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillStyle = holo ? "#6FE3F0" : "#A8431F"; g.font = "600 28px Fredoka"; g.fillText(G.head, w / 2, padY + headH / 2 + 2);
+    g.fillStyle = holo ? "#EAFBFF" : "#3B2A1E"; g.font = "600 " + fit.fs + "px Fredoka";
+    fit.lines.forEach(function (ln, i) { g.fillText(ln, w / 2, padY + headH + fit.lh * (i + 0.5)); });
+    var d = new Date(a.at || now().getTime()), fy = h - padY - footH / 2 + 2;
+    g.font = "500 22px Fredoka"; g.fillStyle = holo ? "#9FD8E6" : "#7A5A3C";
+    g.textAlign = "left"; g.fillText((a.from ? "From " + a.from + ", " : "") + pad2(d.getHours()) + ":" + pad2(d.getMinutes()), padX, fy);
+    g.textAlign = "right"; g.fillText("Tap to take it down", w - padX, fy);
+    return { c: c, s: s, x: R.x, y: R.top, w: w, h: h, fs: fit.fs, lines: fit.lines.length, cut: fit.cut, key: a.key, holo: holo };
+  }
+  // The crier, in the scene (night darkens it like anyone else).
+  function drawCrier(time) {
+    var C = CRIER, v = C.v, sc = depth(v.y), hv = hopV(v), holo = C.G.style === "holo";
+    ctx.globalAlpha = Math.min(1, C.age / 0.35);
+    drawV(v, false, false);
+    if (!CBELL) CBELL = bakeBell();
+    var k = C.bell > 0 ? C.bell / C.bellMax : 0;
+    var bx = v.x - v.face * v.r * 1.05 * sc, by = v.y - hv - v.r * (k > 0 ? 1.6 : 1.25) * sc;
+    blit(CBELL, bx, by, 1, 1, 1, sc * 1.3, k > 0 ? Math.sin(time * 18) * 0.75 * Math.min(1, k * 3) : -v.face * 0.15);
+    if (k > 0 && Math.sin(time * 18) > 0.2) {
+      ctx.strokeStyle = holo ? "#6FE3F0" : "#E8A93C"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
+      [-1, 1].forEach(function (s2) { ctx.beginPath(); ctx.arc(bx, by + 24 * sc, 24 * sc, s2 < 0 ? Math.PI * 0.85 : -Math.PI * 0.15, s2 < 0 ? Math.PI * 1.15 : Math.PI * 0.15); ctx.stroke(); });
+    }
+    ctx.globalAlpha = 1;
+  }
+  // The scroll and the shout, over everything, night included, like the name tags.
+  function drawScroll() {
+    var C = CRIER, v = C.v, sc = depth(v.y), holo = C.G.style === "holo";
+    if (C.ann && (!C.scroll || C.scroll.key !== C.ann.key)) C.scroll = bakeScroll(C.ann, C.G);
+    var S = C.scroll;
+    C.box = null;
+    if (S && C.roll > 0) {
+      var vis = Math.max(1, S.h * (1 - Math.pow(1 - C.roll, 3)));
+      if (!CROLLER || CROLLER.key !== S.w + (holo ? "h" : "p")) CROLLER = bakeRoller(S.w, holo);
+      ctx.fillStyle = "rgba(40,30,20,.2)"; ctx.fillRect(S.x + 8, S.y + 10, S.w, vis);
+      ctx.drawImage(S.c, 0, 0, S.c.width, Math.min(S.c.height, vis * S.s), S.x, S.y, S.w, vis);
+      ctx.drawImage(CROLLER.c, S.x - 18, S.y - 11, CROLLER.w, CROLLER.h);
+      ctx.drawImage(CROLLER.c, S.x - 18, S.y + vis - 11, CROLLER.w, CROLLER.h);
+      C.box = [S.x - 18, S.y - 11, S.w + 36, vis + 22];
+    }
+    if (C.say > 0) {
+      if (!C.shout) C.shout = bakeShout(C.G.say, holo);
+      var b = C.shout, hv = hopV(v); ctx.globalAlpha = Math.min(1, C.say * 3);
+      ctx.drawImage(b.c, clamp(v.x - b.w / 2, 8, W - b.w - 8), v.y - hv - v.r * 2.7 * sc - b.h, b.w, b.h); ctx.globalAlpha = 1;
+    }
+  }
+  // The scroll, or the crier once there is enough scroll to have been read.
+  function crierHit(x, y) {
+    var C = CRIER; if (!C || !C.ann || C.roll < 0.3) return false;
+    var b = C.box, v = C.v;
+    return !!(b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10) ||
+      (Math.abs(x - v.x) < 44 && y > v.y - 90 && y < v.y + 16);
+  }
+  // A tap on the scroll or the banner: down it comes, here, and in Home Assistant when
+  // announcement_clear says so.
+  function annTap(key) {
+    if (!key) return;
+    XS.hidden = key; XS.annKey = null; CWANT = null; XS.dismissed.push(key);
+    if (CRIER) CRIER.v.happy = 2;
+    clearAnnouncement(key);
+    extrasHud(now());
+  }
+  function clearAnnouncement(key) {
+    if (!CRY || !CRY.clear || DEMO || XS.hook) return;
+    var h = HA.hass(), id = ANN_CONF.entity, s = h && h.states && h.states[id];
+    if (!s || String(s.state == null ? "" : s.state).trim() + "|" + (s.last_changed || "") !== key) return;   // a newer one has landed: leave it be
+    XS.clears.push(id);
+    Promise.resolve().then(function () { return h.callService(id.split(".")[0], "set_value", { entity_id: id, value: "" }); })
+      .then(function () { XS.clearErr = null; })
+      .catch(function (e) { console.warn("family-dashboard-card: could not clear " + id, e); XS.clearErr = e && e.message || String(e); });
+  }
+  // announcement_sound: a handbell's ding, n times. Browsers may hold sound until the page has
+  // been touched once; the card asks again on every tap.
+  function bellSound(n) {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      if (!CAUDIO) CAUDIO = new AC();
+      if (CAUDIO.state === "suspended") CAUDIO.resume().catch(function (e) { console.warn("family-dashboard-card: the bell is waiting for a tap", e); });
+      var t0 = CAUDIO.currentTime + 0.02;
+      for (var i = 0; i < n; i++) [[1318.5, 0.16], [2637, 0.05], [3951, 0.025]].forEach(function (p) {
+        var t = t0 + i * 0.34, o = CAUDIO.createOscillator(), gn = CAUDIO.createGain();
+        o.type = "sine"; o.frequency.value = p[0];
+        gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(p[1], t + 0.008); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+        o.connect(gn); gn.connect(CAUDIO.destination); o.start(t); o.stop(t + 0.95);
+      });
+    } catch (e) { console.warn("family-dashboard-card: the bell could not sound", e); }
+  }
+
   function activity() { try { document.dispatchEvent(new Event("panel-activity")); } catch (err) { console.warn("meadow: activity event failed", err); } }
 
   // ── HUD ─────────────────────────────────────────────────────────────────────
@@ -2844,6 +3073,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
+    else if (XS.clearErr) st = "Couldn't clear the announcement in Home Assistant";
     $("status").textContent = st;
     $("next").style.opacity = FLIGHT ? 0 : 1;
     extrasHud(d);
@@ -3246,6 +3476,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   cv.addEventListener("pointerdown", function (e) {
     if (openThing) return;
     var bx0 = cv.getBoundingClientRect(), x = e.clientX - bx0.left, y = e.clientY - bx0.top, best = null, bd = 1e9, i, t;
+    // The crier's scroll covers the scene while it is up: a tap on it takes it down
+    if (CRIER && crierHit(x, y)) { annTap(CRIER.ann.key); return; }
     for (i = 0; i < fam.length; i++) { t = fam[i]; var b = t.tagBox, sc = depth(t.y);
       var d = Math.sqrt(Math.pow(x - t.x, 2) + Math.pow(y - (t.y + (t.dy || 0) - t.r * sc * 0.9 - hopOf(t)), 2));
       if (b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10) d = 0;
@@ -3278,6 +3510,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
   // Tell any idle or backlight timer on the page that the panel is in use.
   cv.addEventListener("pointerdown", function () {
+    if (CAUDIO && CAUDIO.state === "suspended") CAUDIO.resume().catch(function (e) { console.warn("family-dashboard-card: the bell is still waiting", e); });
     try { document.dispatchEvent(new Event("panel-activity")); }
     catch (err) { console.warn("meadow: activity event failed", err); }
   });
@@ -3306,6 +3539,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     size(); setup(); refreshTags(); load(); extrasSetup(); nightness = sleepCurve(now(), 20.5); DARK = darkness(now()); hud();
     loadMusic();                                                                   // before the warm-up, so ?music=on is seen by it
     if (WARM) { nightness = sleepCurve(now(), PARTY ? 21.5 : 20.5); for (var wi = 0; wi < Math.min(WARM, 120) * 30; wi++) update(1 / 30); }
+    if (AFORCE != null) setTimeout(function () { XS.hook = { state: decodeURIComponent(AFORCE.replace(/\+/g, " ")), last_changed: now().toISOString(), attributes: {} }; extrasHud(now()); }, 2500);
     setInterval(load, 5 * 60000);
     setTimeout(loadLive, DEMO ? 2500 : 1500); setInterval(loadLive, 45000);      // the printer and the letters
     setInterval(loadMusic, 10000);                                                 // the speaker, for the dancing
@@ -3314,7 +3548,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
       office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone,
-      extras: function () { return { ann: XS.ann, due: XS.due, tiles: XS.tiles, taps: XS.taps, hidden: XS.hidden }; } };
+      extras: function () { return { ann: XS.ann, due: XS.due, tiles: XS.tiles, taps: XS.taps, hidden: XS.hidden }; },
+      crier: function () { var C = CRIER; return { on: !!CRY, read: XS.crier, want: CWANT && CWANT.key, dismissed: XS.dismissed, clears: XS.clears, err: XS.clearErr, banner: XS.annKey,
+        st: C && C.st, roll: C && C.roll, box: C && C.box, at: C && { x: C.v.x, y: C.v.y }, path: C && C.G.path, rings: C && C.rings,
+        scroll: C && C.scroll && { x: C.scroll.x, y: C.scroll.y, w: C.scroll.w, h: C.scroll.h, fs: C.scroll.fs, lines: C.scroll.lines, cut: C.scroll.cut } }; },
+      geom: function () { var G = crierGeom(); return { path: G.path, scroll: scrollGeom(G), face: G.face }; } };
     if (OPEN === "school") { if (SCENE.hotspots && SCENE.hotspots.school) setTimeout(openSchool, 900); }
     else if (OPEN === "workshop") setTimeout(openShop, 900);
     else if (OPEN) setTimeout(function () { var t = fam.filter(function (f) { return f.person.name.toLowerCase() === OPEN.toLowerCase(); })[0]; if (t) openCard(t); }, 900);

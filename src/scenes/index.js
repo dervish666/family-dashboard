@@ -30,6 +30,12 @@
 //                    the scene's own life, drawn under the weather, behind the family, in
 //                    front of it, and as lights over the dusk. S.music and S.party say how far
 //                    the speaker's music and a party have faded in (0 to 1)
+//   crier(S)         the town crier's walk for a new announcement (v1.7.0): { path, face, top?, look?,
+//                    say?, head?, style? }. path runs from the door it comes out of to the spot it
+//                    stands on (two points or more, inside the card); face is the side the scroll
+//                    hangs (1 right, -1 left); top the scroll's top edge (default below the back
+//                    row); look { col, hat } its colour and hat; say the shout ("Hear ye!"), head
+//                    the scroll's heading, style "parchment" or "holo". It walks the path back home.
 //   hotspots         the landmarks a tap opens, one for every id in HOTSPOT_IDS below:
 //                    { box(S) -> [x0, y0, x1, y1], tap(S) } where tap() makes the puff or the
 //                    "ding!". school opens the School card; home, music, printer and office

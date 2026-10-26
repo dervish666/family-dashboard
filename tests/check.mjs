@@ -585,6 +585,18 @@ SL.forEach(function (sc) {
       ok(!crossed && k > 20 && k < 3000, who + ": a duty walk across the " + zn + " goes round it and arrives");
     });
   }
+  // the town crier (v1.7.0): a walk from a door to a spot on the ground, inside the card, out of
+  // the water, with room for the scroll on the side it faces, and a look the villager sprite has
+  ok(isFn(sc.crier), who + ": has crier()");
+  const cw = sc.crier(S), cp = cw && cw.path, spot = cp && cp[cp.length - 1];
+  ok(Array.isArray(cp) && cp.length >= 2 && cp.every(function (p) { return isFinite(p.x) && isFinite(p.y) && p.x >= 0 && p.x <= S.W && p.y >= S.HZ && p.y <= S.H; }), who + ": the crier's path runs on the card, below the horizon");
+  ok(spot.y > S.TOP + 60 && spot.y < S.H - 40, who + ": the crier stands on the ground, clear of the back row and the bottom edge");
+  ok(cw.face === 1 || cw.face === -1, who + ": the crier faces left or right");
+  ok((cw.face < 0 ? spot.x - 76 : S.W - 76 - spot.x) >= 600, who + ": there is room for the scroll on the side the crier faces");
+  ok(!L.water || cp.every(function (p) { const dx = (p.x - L.water.x) / L.water.rx, dy = (p.y - L.water.y) / L.water.ry; return dx * dx + dy * dy > 1; }), who + ": the crier never walks through the water");
+  ok(!cw.look || (/^#[0-9a-f]{6}$/i.test(cw.look.col) && ["tricorn", "antennae"].indexOf(cw.look.hat) >= 0), who + ": the crier's look is a colour and a crier's hat");
+  ok(!cw.style || cw.style === "parchment" || cw.style === "holo", who + ": the scroll is parchment or holo");
+  ok(cw.top == null || (cw.top >= 112 && cw.top < S.H - 200), who + ": the scroll's top leaves the clock alone and room below");
   if (sc.flyer) { ok(isFn(sc.flyer), who + ": flyer is a function"); sc.flyer(g, 600, 160, 1, 2, S); sc.flyer(g, 600, 160, -1, 2.5, S); }
   if (sc.disco) { const dz = sc.disco(S); ok(dz && isFinite(dz.x) && isFinite(dz.top) && dz.y > dz.top + 26 && dz.y < S.H && dz.top >= (sc.indoor ? S.HZ : 0), who + ": the glitter ball hangs on the card, indoors under the roof"); }
   if (L.lay && L.lay.school) ok(isFinite(L.lay.school.x) && isFinite(L.lay.school.y) && (!L.lay.school.cut || (L.lay.school.cut.length === 4 && L.lay.school.cut.every(isFinite))), who + ": the School tag's spot is a point");

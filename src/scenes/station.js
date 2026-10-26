@@ -1028,6 +1028,13 @@ export default {
     return around(t, dest, G.big, 30, function (x, y) { return x > 20 && x < G.W - 20 && y > G.B + 20 && y < G.H - 10 && !S.inZone(x, y, 4); }); },
   // The landmarks a tap opens: the airlock (the School card), the comms console (music), the
   // fabricator (the printer), the hab pod (home) and the bridge (the office).
+  // An alien herald steps out of the airlock, round the crates and down to the front of the
+  // deck; its "scroll" is a holo sheet.
+  crier: function () {
+    var l = G.lock;
+    return { path: [{ x: l.x, y: l.y + 4 }, { x: l.x - 30, y: l.y + 60 }, { x: l.x - 24, y: G.crates.y + 50 }, { x: Math.round(Math.max(110, G.W * 0.09)), y: Math.round(G.H * 0.8) }],
+      face: 1, look: { col: "#9BE3C8", hat: "antennae" }, say: "Attention!", head: "Attention, all crew", style: "holo" };
+  },
   hotspots: {
     school:  { box: function () { var l = G.lock; return [l.x - 66, l.y - 116, l.x + 66, l.y + 20]; },
                tap: function (S) { var l = G.lock; S.say("whoosh!", l.x, l.y - 124); } },

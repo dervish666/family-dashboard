@@ -106,6 +106,18 @@ export function hat(g, kind, cx, cy, r, grow) {
     rimmed(g, shade(bc, 0.6), bc, grow, function (e) { g.beginPath(); g.arc(cx, top + r * 0.2, r * 0.7 + e, Math.PI, 0); g.fill();
       g.fillRect(cx - r * 0.74 - e, top + r * 0.08 - e, r * 1.48 + e * 2, r * 0.2 + e * 2); });
     rimmed(g, "#B9B4AA", "#FFFFFF", grow, function (e) { g.beginPath(); g.arc(cx, top - r * 0.52, r * 0.16 + e, 0, 7); g.fill(); });
+  } else if (kind === "tricorn") {                                  // the town crier's
+    rimmed(g, "#1E2438", "#33405F", grow, function (e) { g.beginPath(); g.moveTo(cx - r * 1.0 - e, top + r * 0.14);
+      g.quadraticCurveTo(cx - r * 0.72, top - r * 0.64 - e, cx, top - r * 0.4 - e); g.quadraticCurveTo(cx + r * 0.72, top - r * 0.64 - e, cx + r * 1.0 + e, top + r * 0.14);
+      g.quadraticCurveTo(cx, top + r * 0.36 + e, cx - r * 1.0 - e, top + r * 0.14); g.closePath(); g.fill(); });
+    g.strokeStyle = "#E8C66A"; g.lineWidth = r * 0.08; g.lineCap = "round";
+    g.beginPath(); g.moveTo(cx - r * 0.92, top + r * 0.14); g.quadraticCurveTo(cx, top + r * 0.32, cx + r * 0.92, top + r * 0.14); g.stroke();
+    g.fillStyle = "#D9433A"; g.beginPath(); g.arc(cx + r * 0.34, top - r * 0.06, r * 0.11, 0, 7); g.fill();
+  } else if (kind === "antennae") {                                 // the station's herald
+    g.strokeStyle = "#3C4A7A"; g.lineWidth = r * 0.09; g.lineCap = "round";
+    [-1, 1].forEach(function (s) { g.beginPath(); g.moveTo(cx + s * r * 0.22, top + r * 0.2); g.quadraticCurveTo(cx + s * r * 0.5, top - r * 0.3, cx + s * r * 0.42, top - r * 0.62); g.stroke(); });
+    [-1, 1].forEach(function (s) { rimmed(g, "#B8433A", "#FF8A5C", grow, function (e) { g.beginPath(); g.arc(cx + s * r * 0.42, top - r * 0.66, r * 0.16 + e, 0, 7); g.fill(); }); });
+    g.fillStyle = "rgba(255,255,255,.75)"; g.beginPath(); g.arc(cx - r * 0.46, top - r * 0.71, r * 0.05, 0, 7); g.fill();
   } else if (kind === "bucket") {
     rimmed(g, "#3D6E6C", "#5E9C9A", grow, function (e) { g.beginPath(); g.ellipse(cx, top + r * 0.14, r * 0.86 + e, r * 0.18 + e, 0, 0, 7); g.fill();
       g.beginPath(); g.moveTo(cx - r * 0.55 - e, top + r * 0.12); g.lineTo(cx - r * 0.4 - e, top - r * 0.36 - e);

@@ -118,5 +118,10 @@ crier.js|s/    if (lines.length \* lh > maxH) continue;//|a long message runs of
 crier.js|s/    while (w.length > 1 \&\& measure(w) > maxW) {/    while (false) {/|a long word runs off the side of the scroll
 crier.js|s/return !!C \&\& C.key === key \&\& C.done !== key/return !!C \&\& C.key === key/|the banner stays hidden after the crier has read it out
 config.js|s/out.crier = normCrier(raw, out.announcement);/out.crier = normCrier(raw, { entity: "input_text.x", title: "" });/|a config with no announcement grows a crier
+scenes/meadow.js|s/face: -1, top: R + 12/face: 1, top: R + 12/|the meadow's scroll hangs off the right edge
+scenes/seaside.js|s/{ x: Math.round(sf.x + 30), y: Math.round(sf.y + 18) }\], face: 1/{ x: G.pool.x, y: G.pool.y }], face: 1/|the seaside crier stands in the rock pool
+scenes/station.js|s/look: { col: "#9BE3C8", hat: "antennae" }/look: { col: "#9BE3C8", hat: "helmet" }/|the herald wears a hat the sprite cannot draw
+scenes/forest.js|s/y: Math.round(G.H \* 0.8) }\], face: 1 };/y: Math.round(G.H * 1.2) }], face: 1 };/|the forest crier walks off the bottom of the card
+scenes/winter.js|s/  crier: function () {/  krier: function () {/|the winter village has no crier
 EOF
 echo "ok: all $n sabotaged copies failed the check"
