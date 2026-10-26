@@ -32,6 +32,39 @@ printer_pause_resume:
 # writes input_text.family_letter; the music scripts need Music Assistant and
 # input_select.music_target. Both helpers are in configuration.example.yaml.
 # Change the recipient list to the names in the meadow card's people option.
+family_announce:
+  alias: 'Family: announce on the wall'
+  description: 'Shows a message in the Family Dashboard card''s announcement banner
+    (announcement: input_text.family_announcement) for a set time, then clears it.
+    Empties the helper first, so the same words twice still count as new.'
+  mode: restart
+  fields:
+    message:
+      description: What to say
+      required: true
+      selector:
+        text: {}
+    sender:
+      description: Who it is from, a name in the card's people (optional)
+      selector:
+        text: {}
+    minutes:
+      description: How long it stays up
+      default: 30
+      selector:
+        number: { min: 1, max: 1440 }
+  sequence:
+  - action: input_text.set_value
+    target: { entity_id: input_text.family_announcement }
+    data: { value: '' }
+  - action: input_text.set_value
+    target: { entity_id: input_text.family_announcement }
+    data:
+      value: "{{ (minutes | default(30) | int) ~ '|' ~ (sender | default('')) ~ '|' ~ message }}"
+  - delay: { minutes: "{{ minutes | default(30) | int }}" }
+  - action: input_text.set_value
+    target: { entity_id: input_text.family_announcement }
+    data: { value: '' }
 family_send_letter:
   alias: 'Meadow: send a letter'
   description: Pick who, type the note, press Run. The postie on the wall panel carries

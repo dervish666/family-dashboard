@@ -11,13 +11,22 @@
 <!-- The card on its built-in demo cast, no Home Assistant needed. Serve the repo root over
      HTTP (python3 -m http.server) and open /demo/. The page's own query string is passed
      to the card as its test hooks, so /demo/?hour=21.5&weather=snow works, and scene=seaside picks
-     the scene. -->
+     the scene. ?extras adds the v1.6.0 announcement, due-time row and status tiles on made-up
+     states. -->
 <family-dashboard-card></family-dashboard-card>
 <script type="module">
 import "../dist/family-dashboard.js";
 const card = document.querySelector("family-dashboard-card");
-const scene = new URLSearchParams(location.search).get("scene");     // /demo/?scene=seaside
-card.setConfig(Object.assign({ demo: true, height: "100vh", query: location.search }, scene ? { scene: scene } : {}));
+const q = new URLSearchParams(location.search), scene = q.get("scene");     // /demo/?scene=seaside
+const extras = !q.has("extras") ? {} : {                                     // /demo/?extras
+  announcement: "input_text.announcement", announcement_title: "Announcement", due: "sensor.due_times",
+  status_tiles: [
+    { entity: "sensor.fridge_temperature", label: "Fridge", icon: "flask", min: 4, max: 18,
+      thresholds: [{ from: 0, color: "#5B7FD6" }, { from: 10, color: "#3FA34D" }, { from: 15, color: "#C9594A" }] },
+    { entity: "sensor.lounge_temperature", label: "Lounge", icon: "thermometer", min: 10, max: 30 },
+    { entity: "binary_sensor.back_door", label: "Back door", icon: "door", on_color: "#C9594A", off_color: "#3FA34D" },
+    { entity: "light.porch", label: "Porch light", icon: "bulb" }] };
+card.setConfig(Object.assign({ demo: true, height: "100vh", query: location.search }, scene ? { scene: scene } : {}, extras));
 </script>
 </body>
 </html>

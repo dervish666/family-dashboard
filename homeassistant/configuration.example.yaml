@@ -107,6 +107,15 @@ input_text:
     name: Kid 1 timetable week this week
     icon: mdi:calendar-week
     max: 8
+  # The card's announcement banner (v1.6.0): announcement: input_text.family_announcement.
+  # Type anything and it shows until emptied, or run script.family_announce
+  # (scripts.example.yaml), which writes "minutes|from|text" and clears it after.
+  # initial "" so a restart, which kills the script's timer, also ends the announcement.
+  family_announcement:
+    name: Family announcement
+    icon: mdi:bullhorn
+    max: 255
+    initial: ""
 
 # ── Today's family agenda ──────────────────────────────────────────────────
 # One trigger-based template sensor calls calendar.get_events across every
@@ -408,6 +417,48 @@ sensor:
       {% if t > ns.t %}{% set ns.t = t %}{% set ns.url = i.enclosure['@url'] %}{% endif %}
       {% endfor %}
       {{ ns.url[:255] if ns.url else 'unknown' }}
+
+# ── Due times (the card's due row, v1.6.0) ──────────────────────────────────
+# Card: due: sensor.due_times. The items attribute is a list of
+# { label, due, person }: due is "HH:MM" (today), "YYYY-MM-DD" (that day) or a
+# date and time; person is a name from the card's people, or empty for the
+# household. This one merges two sources: the open items with a due date on a
+# to-do list (the description may name the person), and a fixed weekly time
+# someone has to be in by, today's only and gone once it has passed. Every
+# minute, so a time that has passed drops off; the card counts down itself.
+# (Add the "- trigger:" entry under the template: key above.)
+#
+#  - trigger:
+#      - trigger: homeassistant
+#        event: start
+#      - trigger: time_pattern
+#        minutes: "/1"
+#    action:
+#      - action: todo.get_items
+#        target: { entity_id: todo.family }
+#        data: { status: needs_action }
+#        response_variable: todo
+#      - variables:
+#          in_by: { mon: "09:10", tue: "08:40", wed: "08:40", thu: "08:40", fri: "08:40" }
+#          rows: >-
+#            {% set people = ['Parent 1', 'Parent 2', 'Kid 1', 'Kid 2', 'Kid 3'] %}
+#            {% set ns = namespace(r=[]) %}
+#            {% for i in todo['todo.family']['items'] if i.due is defined %}
+#              {% set who = i.description if i.description in people else '' %}
+#              {% set ns.r = ns.r + [{'label': i.summary, 'due': i.due, 'person': who}] %}
+#            {% endfor %}
+#            {% set t = in_by.get(now().strftime('%a') | lower) %}
+#            {% if t and now().strftime('%H:%M') < t %}
+#              {% set ns.r = ns.r + [{'label': 'In at school', 'due': t, 'person': 'Kid 1'}] %}
+#            {% endif %}
+#            {{ ns.r }}
+#    sensor:
+#      - name: Due Times
+#        unique_id: due_times
+#        icon: mdi:clock-alert-outline
+#        state: "{{ rows | count }}"
+#        attributes:
+#          items: "{{ rows }}"
 
 # ── Rain (optional, the Meadow) ────────────────────────────────────────────
 # The Meadow takes its weather from weather.forecast_home, and a rain sensor

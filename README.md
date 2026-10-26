@@ -8,7 +8,8 @@ Assistant calendars.
 ![The meadow by day, with the band playing and a print on the go](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/meadow.png)
 
 Kids walk to school, the workshop builds whatever the 3D printer is printing, a postie
-delivers notes typed on a phone, and everyone dances when music plays. The scene follows the
+delivers notes typed on a phone, and everyone dances when music plays. Optional extras put
+an announcement, what is due when, and a few status tiles in the sky. The scene follows the
 weather entity, goes to sleep at night and throws a party on birthdays and the big days.
 
 | A person's week | Christmas Eve, snowing, bedtime |
@@ -51,6 +52,10 @@ The editor covers:
 - **Scene**: the meadow, the seaside, the winter village or the forest camp, from a
   drop-down. Under it the editor lists the animals that suit the scene you picked. See
   [Scenes](#scenes).
+- **Announcements and due times**: the announcement entity and its heading, and the due-times
+  sensor. See [Announcements, due times and status tiles](#announcements-due-times-and-status-tiles).
+- **Status tiles**: up to four, each with an entity, a label, an icon, a unit, where the icon
+  is empty and full, the colour thresholds and the on and off colours.
 - **Demo cast**: made-up data, no Home Assistant needed.
 
 The same thing in YAML:
@@ -386,6 +391,84 @@ itself; you can then delete the `family_week` template sensor if nothing else us
 Opening a v1.0.0 card in the visual editor shows a **Week template sensor** field so the old
 setup stays editable.
 
+## Announcements, due times and status tiles
+
+![The meadow with an announcement, two due-time chips and four status tiles](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/extras.png)
+
+Three optional things that sit in the sky over any scene, new in v1.6.0. Each one is off
+until you name its entity, and a card without them draws exactly as v1.5.1 did.
+
+**An announcement.** A banner under the countdowns while an `input_text` (or `text`,
+`input_select` or `sensor`) holds some text. Set it from a phone, an automation or a script;
+empty it and the banner goes. A tap hides it on that screen until the text changes.
+
+```yaml
+announcement: input_text.announcement
+announcement_title: Announcement     # optional heading
+```
+
+The text can carry who it is from and how long it lasts. `"45|Parent 2|Dinner's at six"`
+shows "From Parent 2" and goes 45 minutes after the helper changed, which is what a script
+wants to write. `"Parent 2: Dinner's at six"` names the sender when that name is in `people`.
+Anything else stays up until it is cleared. The helper and a script that announces for a set
+time are in [`configuration.example.yaml`](homeassistant/configuration.example.yaml) and
+[`scripts.example.yaml`](homeassistant/scripts.example.yaml).
+
+**Due times.** Chips under the countdowns for things with a time on them: library books back
+at 15:15, bins out by 7, homework due tomorrow. Anything overdue and anything due in the next
+18 hours shows, soonest first, as many as fit, with a badge that counts down (`25m`, `7h`,
+`late`). Each person's card lists all of theirs under **Due** ("15:15 Library books back, due in
+25 min"); items with no person go on the household's card.
+
+```yaml
+due: sensor.due_times                # or { entity: sensor.x, attribute: my_list }
+```
+
+The sensor's `items` attribute is a list:
+
+```yaml
+items:
+  - { label: Library books back, due: "15:15", person: Kid 1 }       # today at 15:15
+  - { label: Maths homework, due: "2026-11-03T09:00", person: Kid 2 }
+  - { label: Trip form, due: "2026-11-05" }                          # due that day, the household's
+```
+
+`person` matches a name or alias in `people`. A template sensor that builds the list is in
+`configuration.example.yaml`; it can come from anywhere (a to-do list, a calendar, a school
+timetable). An item that does not parse is left out and the cards say how many were skipped.
+
+**Status tiles.** Up to four small tiles under the corner hint, each an icon that shows one
+entity: a flask or a thermometer that fills to the reading in its threshold colour, a bulb
+that lights, a door that opens, a plug. A tap opens Home Assistant's more-info dialog for the
+entity, history and all.
+
+```yaml
+status_tiles:
+  - entity: sensor.fridge_temperature
+    label: Fridge
+    icon: flask              # flask, thermometer, bulb, door or plug
+    min: 4                   # empty at 4, full at 18
+    max: 18
+    thresholds:              # the highest one reached sets the colour
+      - { from: 0, color: "#5B7FD6" }
+      - { from: 10, color: "#3FA34D" }
+      - { from: 15, color: "#C9594A" }
+  - entity: binary_sensor.back_door
+    icon: door
+    on_color: "#C9594A"      # open
+    off_color: "#3FA34D"     # closed
+  - light.porch              # just the entity: a bulb, named after the light
+```
+
+`label` defaults to the friendly name, `unit` to the unit of measurement, the icon to one that
+suits the domain. `decimals` (0 to 3) fixes the rounding; `color` is the colour below every
+threshold.
+
+None of the three goes blank when it cannot read its entity. A missing or unavailable one shows
+a grey dashed "Announcements unavailable", "Due times unavailable" or a tile that reads
+"unavailable", so a broken sensor never passes for a quiet day. Try them with the demo:
+`/demo/?extras` (see [Try it without Home Assistant](#try-it-without-home-assistant)).
+
 ## Options
 
 | Option | Default | What it does |
@@ -397,6 +480,9 @@ setup stays editable.
 | `anniversary` | the first two people | who gets the party on an "Anniversary" event |
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
+| `announcement`, `announcement_title` | none | a banner while the entity holds text, with an optional heading. See [Announcements, due times and status tiles](#announcements-due-times-and-status-tiles) |
+| `due` | none | a sensor whose `items` attribute lists `{ label, due, person }`: chips in the sky and a **Due** list on each card |
+| `status_tiles` | none | up to four `{ entity, label, icon, unit, min, max, thresholds, on_color, off_color }` tiles under the corner hint |
 | `demo` | `false` | run on the built-in demo cast |
 | `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter`, `forest` or `station` |
 | `query` | none | test hooks, for example `hour=21.5&weather=snow` |
@@ -432,7 +518,8 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000/demo/`. The page's query string goes to the card as test
 hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night, and `/demo/?scene=seaside`
-shows the seaside (`scene=winter` and `scene=forest` the other two).
+shows the seaside (`scene=winter` and `scene=forest` the other two). Add `extras` for the
+announcement, due times and status tiles on made-up states: `/demo/?extras&scene=station`.
 
 ## Working on the card
 
@@ -466,6 +553,10 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 - Birthday parties need `dates.birthdays` in YAML. The editor does not edit dates yet.
 - The editor sets a child's timetable and lunch sensor ids. `choice`, and an attribute other
   than `timetable` or `menu`, are YAML only.
+- A tap on the announcement hides it on that screen only. It does not empty the helper, so
+  phones and other panels keep showing it until the text changes, is cleared or runs out.
+- The HUD (clock, countdowns, announcement, due times, tiles) is laid out in fixed pixels for
+  1280x800. On a narrow card the announcement and the tiles can overlap.
 - The 3D printer workshop speaks the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)'s
   sensor names only.
 

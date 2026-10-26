@@ -234,6 +234,45 @@ and send CORS headers that allow Home Assistant's origin. The comment above `OFF
 `dist/family-dashboard.js` says what the robot makes of each state. It never invents a line: no bubble
 unless the server said it in the last 45 seconds.
 
+**`announcement`**, **`due`** and **`status_tiles`** (v1.6.0) put three optional things in the
+sky over the scene. Each is off until the config names its entity. They are drawn in the HUD,
+over the canvas, so the scene and the creatures behave exactly as without them. README,
+"Announcements, due times and status tiles", has worked examples and the template sensors.
+
+| Key | Example | Shows |
+|---|---|---|
+| `announcement` | `input_text.announcement` | a banner under the countdowns while the entity holds text. `input_text`, `text`, `input_select` or `sensor`. `"30\|Parent 2\|Dinner's ready"` lasts 30 minutes and says who it is from; `"Parent 2: Dinner's ready"` names the sender when the name is in `people`; anything else stays until the entity is emptied. A tap hides it on this screen until the text changes |
+| `announcement_title` | `Announcement` | an optional heading over the text |
+| `due` | `sensor.due_times`, or `{ entity, attribute }` | a row of chips under the countdowns, soonest first: anything overdue and anything due in the next 18 hours, as many as fit. Each person's card lists all of their items under **Due**; items with no person go on the household's card. The attribute (default `items`) is a list of `{ label, due, person }` where `due` is `"15:30"` (today), `"2026-11-02"` (that day) or `"2026-11-02T08:00"` |
+| `status_tiles` | see below | up to four small tiles under the corner hint, one entity each. A tap opens Home Assistant's more-info dialog, history included |
+
+```yaml
+status_tiles:
+  - entity: sensor.fridge_temperature
+    label: Fridge
+    icon: flask             # flask, thermometer, bulb, door or plug
+    min: 4                  # the icon is empty at min and full at max
+    max: 18
+    thresholds:             # the highest one reached sets the colour
+      - { from: 0, color: "#5B7FD6" }
+      - { from: 10, color: "#3FA34D" }
+      - { from: 15, color: "#C9594A" }
+  - entity: binary_sensor.back_door
+    icon: door
+    on_color: "#C9594A"     # open
+    off_color: "#3FA34D"    # closed
+```
+
+A tile's `label` defaults to the entity's friendly name and `unit` to its
+`unit_of_measurement`; `decimals` (0 to 3) fixes the rounding and `color` is the colour below
+every threshold. A door, window or opening binary sensor reads open or closed, other on/off
+entities on or off, a number its value, any other word itself.
+
+None of the three goes quiet when it cannot read its entity: a missing or unavailable entity
+shows a grey dashed "Announcements unavailable", "Due times unavailable" or a tile reading
+"unavailable", and each card's footer names the due sensor that failed. An announcement entity
+whose state is empty or `unknown` has nothing to say and shows nothing.
+
 HACS adds a version to the resource URL on every update, so there is no cache to bust.
 
 ## Today (optional)
