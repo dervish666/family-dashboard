@@ -67,7 +67,13 @@ scenes/station.js|s/return \[p.x - 104, p.y - 172, p.x + 104, p.y + 10\];/return
 scenes/station.js|s/off: { x: -60, y: B + 12 }/off: { x: 60, y: B + 12 }/|the airlock leads nowhere: the school run ends on the card
 scenes/station.js|s/return around(t, dest, G.big, 30,/return null; void around(t, dest, G.big, 30,/|duty walks go straight through the holo table
 scenes/station.js|s/  indoor: true, darkSky: true,/  darkSky: true,/|the station gets the sky's clouds and rain
-scenes/station.js|s/id: "station", label: "Space station (draft)", experimental: true,/id: "station", label: "Space station",/|the draft station passes for finished
+scenes/station.js|s/  id: "station", label: "Space station",/  id: "station", label: "Space station", experimental: true,/|a draft scene passes for finished
+scenes/station.js|s/  disco: function () { return { x: Math.round(G.W \* 0.475), y: G.WT + 52, top: G.WT + 3 }; },/  disco: function () { return { x: G.W \/ 2, y: 92, top: 0 }; },/|the glitter ball floats outside the window again
+scenes/station.js|s/"alien_bloom", "alien_dome"\],/"alien_bloom", "alien_bloom"],/|two demo characters share a species
+creatures/index.js|s/alienRock, alienBloom, alienDome,/alienRock, alienBloom,/|Domo dropped from the registry
+creatures/alien_bloom.js|s/var sl = M.sleep .. 0, aw = 1 - sl;/var sl = 0, aw = 1 - sl;/|Bloom has no sleeping pose
+creatures/alien_dome.js|s/^  anim: function (t, p, time, M) {/  anim: function (t, p, time, M) { return;/|Domo stands stock still, scuttling or not
+creatures/alien_tetra.js|s/BOW = ownCol(o, "#F4C95D")/BOW = ownCol({}, "#F4C95D"), BAD = o.col.x/|an alien breaks without an owner colour
 scenes/station.js|s/  demoCast: \[/  castDemo: [/|the station's demo cast stay animals
 config.js|s/const cast = !raw.people \&\& /const cast = /|a cast someone chose is recast as aliens
 creatures/index.js|s/  alienGloop, alienTetra, alienZib, alienRock,/  alienGloop, alienTetra, alienRock,/|Zib dropped from the registry

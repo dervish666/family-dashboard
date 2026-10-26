@@ -21,6 +21,7 @@
 //                    snow, mist, lightning and blown leaves stay off; the scene draws its weather
 //   darkSky          true when the top of the card is always dark: the clock and corner go light
 //   flyer(ctx, x, y, dir, time, S)  draws the craft that tows the next-event banner (the plane)
+//   disco(S)         { x, y, top }: where a party's glitter ball hangs and its cord starts
 //   demoCast         looks for the default cast, by position, when the config names no people
 //   experimental     true for a draft: the editor says so
 //   start(i, S)      where person i starts; swimSpot(S) where the swimmers go for a dip

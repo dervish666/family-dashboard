@@ -1,18 +1,18 @@
 // Tetra, an alien for the space station: tall, thin and very polite, with four arms and a
-// cup of tea always on the go. A long bean of a body in the person's colour with a pale front
-// and a bow tie, a round head on a slim neck, two droopy antennae with bobbles, two big eyes
+// cup of tea always on the go. A long lilac bean of a body with a pale front and a bow
+// tie in the person's colour, a round head on a slim neck, two droopy antennae with bobbles, two big eyes
 // and a small third one above them. The top pair of arms swing as it walks; the bottom pair
 // hold the saucer and the cup, and now and then it lifts the cup for a sip. Asleep it nods off
 // with its head on one side and the cup lowered (never spilled). Adults wear round glasses.
 import { rig, on, rimmed, shade, mix, INK, phonesAcc, daisyAcc } from "../engine/draw.js";
 import { pawWave } from "./front.js";
-import { alienCanvas, bigEye, cheeks, smile, hold } from "./alien.js";
+import { alienCanvas, bigEye, cheeks, smile, hold, ownCol } from "./alien.js";
 
-var CUP = "#F7F3EA", CUP_RIM = "#B9AE9A", TEA = "#B5703E", BOW = "#F4C95D";
+var CUP = "#F7F3EA", CUP_RIM = "#B9AE9A", TEA = "#B5703E", SKIN = "#A3B0F2", BOBBLE = "#F4C95D";
 
 function sprite(o, eyes, k) {
   var r = o.r * k, P = alienCanvas(r, 3.2, 3.6, 0.3), g = P.g, ad = !!o.adult, hy = ad ? 1.08 : 1;
-  var col = /^#[0-9a-f]{6}$/i.test(o.col || "") ? o.col : "#A3B0F2", rim = shade(col, 0.58), grow = 1.6 * k, lw = 0.13 * r;
+  var col = SKIN, BOW = ownCol(o, "#F4C95D"), rim = shade(col, 0.58), grow = 1.6 * k, lw = 0.13 * r;
   var hx = 0, hcy = -2.42 * r * hy, hr = 0.5 * r;
   function limb(x0, y0, cx, cy, x1, y1, c) { g.lineCap = "round"; g.strokeStyle = rim; g.lineWidth = lw + grow * 2; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(cx, cy, x1, y1); g.stroke();
     g.strokeStyle = c || col; g.lineWidth = lw; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(cx, cy, x1, y1); g.stroke(); }
@@ -60,7 +60,7 @@ function sprite(o, eyes, k) {
     var bx = hx + s * 0.2 * r, by = hcy - 0.42 * r, tx = hx + s * 0.62 * r, ty = hcy - 0.86 * r;
     g.lineCap = "round"; g.strokeStyle = rim; g.lineWidth = 0.06 * r + grow * 2; g.beginPath(); g.moveTo(bx, by); g.quadraticCurveTo(hx + s * 0.3 * r, hcy - 1.0 * r, tx, ty); g.stroke();
     g.strokeStyle = col; g.lineWidth = 0.06 * r; g.beginPath(); g.moveTo(bx, by); g.quadraticCurveTo(hx + s * 0.3 * r, hcy - 1.0 * r, tx, ty); g.stroke();
-    rimmed(g, rim, mix(col, BOW, 0.6), grow, function (e) { g.beginPath(); g.arc(tx, ty, 0.1 * r + e, 0, 7); g.fill(); }); });
+    rimmed(g, rim, mix(col, BOBBLE, 0.6), grow, function (e) { g.beginPath(); g.arc(tx, ty, 0.1 * r + e, 0, 7); g.fill(); }); });
   if (on("head") && o.daisy) daisyAcc(g, hx - 0.15 * r, hcy + 0.2 * r, 0.55 * r, k);
   // the cup, held in front on the right
   if (on("cup")) { limb(0.34 * r, -1.4 * r * hy, 0.32 * r, -1.1 * r * hy, 0.2 * r, -1.08 * r * hy);

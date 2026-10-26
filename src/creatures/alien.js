@@ -20,6 +20,8 @@ export function bigEye(g, x, y, s, eyes, adult, iris) {
   g.beginPath(); g.arc(x + s * 0.3, y + ry * 0.36, s * 0.1, 0, 7); g.fill();
   if (adult) { g.strokeStyle = INK; g.lineWidth = s * 0.16; g.beginPath(); g.moveTo(x - s * 0.8, y - ry * 1.2); g.quadraticCurveTo(x, y - ry * 1.5, x + s * 0.8, y - ry * 1.15); g.stroke(); }
 }
+// The owner's colour, for the one thing each alien wears or grows in it, else a default.
+export function ownCol(o, dflt) { return /^#[0-9a-f]{6}$/i.test(o.col || "") ? o.col : dflt; }
 export function cheeks(g, x, y, dx, s) {
   g.fillStyle = "rgba(255,120,150,.42)";
   [-1, 1].forEach(function (k) { g.beginPath(); g.ellipse(x + k * dx, y, s, s * 0.6, 0, 0, 7); g.fill(); });

@@ -1,4 +1,4 @@
-// The space station (DRAFT): the observation deck of a friendly little station. The whole back
+// The space station: the observation deck of a friendly little station. The whole back
 // of the room is one big window onto space: stars, a pink and teal nebula, a ringed planet
 // rising over the sill, a moon, and ships going about their day. Under the window the hull
 // wall carries the airlock to the shuttle bay on the far left, the comms console with its dish
@@ -1000,14 +1000,14 @@ function flyer(ctx, x, y, dir, time) {
 }
 
 export default {
-  id: "station", label: "Space station (draft)", experimental: true,
+  id: "station", label: "Space station",
   blurb: "the space station has the airlock to the shuttles, the comms console, the fabricator, the bridge, your hab pod, the holo table and the hydroponics pool, under a big window onto space",
   shadow: "40,40,90",
   depth: [0.7, 0.32],
   indoor: true, darkSky: true,
   // the default cast are aliens here (a config with its own people keeps their looks)
-  demoCast: ["alien_tetra", "alien_rock", "alien_zib", "alien_gloop", "alien_zib", "alien_rock"],
-  creatures: ["alien_gloop", "alien_tetra", "alien_zib", "alien_rock", "cat", "owl", "frog", "shark", "otter", "snail"],
+  demoCast: ["alien_tetra", "alien_rock", "alien_zib", "alien_gloop", "alien_bloom", "alien_dome"],
+  creatures: ["alien_gloop", "alien_tetra", "alien_zib", "alien_rock", "alien_bloom", "alien_dome", "cat", "owl", "frog", "shark", "otter", "snail"],
   bake: function (g, S) { bake(g, S); },
   // round the holo table, by the pod, near the plants
   start: function (i, S) {
@@ -1037,5 +1037,7 @@ export default {
     ground: function (ctx, S, WX) { void ctx; void S; void WX; }
   },
   flyer: function (ctx, x, y, dir, time) { flyer(ctx, x, y, dir, time); },
+  // a party's glitter ball hangs indoors, from the window sill over the deck, not out in space
+  disco: function () { return { x: Math.round(G.W * 0.475), y: G.WT + 52, top: G.WT + 3 }; },
   ambient: { setup: setup, update: update, under: under, back: back, front: front, light: light }
 };

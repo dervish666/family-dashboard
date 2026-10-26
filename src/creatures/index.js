@@ -39,11 +39,13 @@ import alienGloop from "./alien_gloop.js";
 import alienTetra from "./alien_tetra.js";
 import alienZib from "./alien_zib.js";
 import alienRock from "./alien_rock.js";
+import alienBloom from "./alien_bloom.js";
+import alienDome from "./alien_dome.js";
 
 function classic(id, label, editor) { return { id: id, label: label, editor: editor, sprite: classicSprite }; }
 
 export const CREATURES = [crow, capybara, deer, shark, otter, snail, fox, hedgehog, owl, rabbit, frog, cat,
-  alienGloop, alienTetra, alienZib, alienRock,
+  alienGloop, alienTetra, alienZib, alienRock, alienBloom, alienDome,
   classic("bear", "Bear", true), classic("bunny", "Bunny (classic)", true),
   classic("phones", "Phones", false), classic("curls", "Curls", false), classic("flower", "Flower", false)];
 

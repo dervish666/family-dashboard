@@ -1,15 +1,17 @@
-// Gloop, an alien for the space station: a one-eyed jelly. A wobbly gumdrop in the person's
-// colour you can half see through (a darker nucleus and a few bubbles inside), a curl of jelly
-// on top, two little stub feet, two nubby arms, one big eye and a small smile. Walking is a
+// Gloop, an alien for the space station: a one-eyed jelly. A wobbly mint gumdrop you can
+// half see through (a darker nucleus and a few bubbles inside), a curl of jelly
+// on top with a bow in the person's colour, two little stub feet, two nubby arms, one big eye and a small smile. Walking is a
 // bouncy squish; standing it wobbles, and now and then it gives itself a good jiggle. Asleep it
 // settles into a puddle with its curl flopped over. Adults wear glasses as a monocle.
 import { rig, on, rimmed, shade, mix, phonesAcc, daisyAcc } from "../engine/draw.js";
 import { pawWave } from "./front.js";
-import { alienCanvas, bigEye, cheeks, smile } from "./alien.js";
+import { alienCanvas, bigEye, cheeks, smile, ownCol } from "./alien.js";
+
+const JELLY = "#8FDDB5";
 
 function sprite(o, eyes, k) {
   var r = o.r * k, P = alienCanvas(r, 3.4, 2.5, 0.3), g = P.g, ad = !!o.adult, hy = ad ? 1.12 : 1, wx = ad ? 0.94 : 1;
-  var col = /^#[0-9a-f]{6}$/i.test(o.col || "") ? o.col : "#9EE0B4", rim = shade(col, 0.58), grow = 1.7 * k;
+  var col = JELLY, own = ownCol(o, "#F08A7E"), rim = shade(col, 0.58), grow = 1.7 * k;
   var top = -1.72 * r * hy, ey = -1.02 * r * hy;
   // the stub feet
   [["footL", -1], ["footR", 1]].forEach(function (f) { if (!on(f[0])) return; var s = f[1];
@@ -41,7 +43,11 @@ function sprite(o, eyes, k) {
   }
   // the curl on top
   if (on("curl")) { var cp = function () { g.beginPath(); g.moveTo(-0.04 * r, top + 0.08 * r); g.quadraticCurveTo(-0.06 * r, top - 0.3 * r, 0.16 * r, top - 0.32 * r); g.quadraticCurveTo(0.32 * r, top - 0.3 * r, 0.24 * r, top - 0.16 * r); };
-    g.lineCap = "round"; g.strokeStyle = rim; g.lineWidth = 0.16 * r + grow * 2; cp(); g.stroke(); g.strokeStyle = mix(col, "#ffffff", 0.25); g.lineWidth = 0.16 * r; cp(); g.stroke(); }
+    g.lineCap = "round"; g.strokeStyle = rim; g.lineWidth = 0.16 * r + grow * 2; cp(); g.stroke(); g.strokeStyle = mix(col, "#ffffff", 0.25); g.lineWidth = 0.16 * r; cp(); g.stroke();
+    // a bow at the foot of the curl, in the owner's colour
+    var bx = -0.04 * r, by = top + 0.06 * r;
+    rimmed(g, shade(own, 0.6), own, grow * 0.8, function (e) { [-1, 1].forEach(function (s) { g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + s * (0.26 * r + e), by - 0.13 * r - e); g.lineTo(bx + s * (0.26 * r + e), by + 0.13 * r + e); g.closePath(); g.fill(); }); });
+    g.fillStyle = shade(own, 0.75); g.beginPath(); g.arc(bx, by, 0.06 * r, 0, 7); g.fill(); }
   // the eye: one, big
   if (on("eyes")) {
     bigEye(g, 0.06 * r, ey, 0.34 * r * (ad ? 0.86 : 1), eyes, ad, "#5B3FA6");

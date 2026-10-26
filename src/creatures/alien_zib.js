@@ -1,18 +1,18 @@
-// Zib, an alien for the space station: a small floater. A round onion of a body in the
-// person's colour with paler spots, hovering a hand's width off the deck over its shadow, four
+// Zib, an alien for the space station: a small floater. A round violet onion of a body with
+// paler spots, hovering a hand's width off the deck over its shadow, four
 // short tentacles dangling under it, two little fins it paddles the air with, two big teal eyes
-// and an antenna with a glowing bulb. It bobs all the time; moving, it leans in and its
+// and an antenna with a glowing bulb in the person's colour. It bobs all the time; moving, it leans in and its
 // tentacles trail; now and then it does a happy boing, or its antenna twitches at something.
 // Asleep it settles down onto its tentacles with the antenna drooped over.
 import { rig, on, rimmed, shade, mix, phonesAcc, daisyAcc } from "../engine/draw.js";
 import { pawWave } from "./front.js";
-import { alienCanvas, bigEye, cheeks, smile } from "./alien.js";
+import { alienCanvas, bigEye, cheeks, smile, ownCol } from "./alien.js";
 
-var BULB = "#F4E26A";
+var SKIN = "#C9A6F2";
 
 function sprite(o, eyes, k) {
   var r = o.r * k, P = alienCanvas(r, 3.2, 2.7, 0.3), g = P.g, ad = !!o.adult, sz = ad ? 1.08 : 1;
-  var col = /^#[0-9a-f]{6}$/i.test(o.col || "") ? o.col : "#D4A8F5", rim = shade(col, 0.58), grow = 1.6 * k;
+  var col = SKIN, BULB = ownCol(o, "#F4E26A"), rim = shade(col, 0.58), grow = 1.6 * k;
   var cy = -1.25 * r, br = 0.62 * r * sz;
   function tent(x, len, curl) { var x1 = x + curl * 0.1 * r, y0 = cy + br * 0.6, y1 = y0 + len * r;
     var path = function () { g.beginPath(); g.moveTo(x, y0); g.bezierCurveTo(x - curl * 0.12 * r, y0 + len * r * 0.4, x1 + curl * 0.14 * r, y1 - len * r * 0.3, x1, y1); };
@@ -31,8 +31,8 @@ function sprite(o, eyes, k) {
   if (on("antenna")) { var ax = 0.14 * r, ay = cy - br - 0.5 * r;
     g.lineCap = "round"; g.strokeStyle = rim; g.lineWidth = 0.06 * r + grow * 2; g.beginPath(); g.moveTo(0, cy - br + 0.04 * r); g.quadraticCurveTo(-0.12 * r, cy - br - 0.3 * r, ax, ay); g.stroke();
     g.strokeStyle = col; g.lineWidth = 0.06 * r; g.beginPath(); g.moveTo(0, cy - br + 0.04 * r); g.quadraticCurveTo(-0.12 * r, cy - br - 0.3 * r, ax, ay); g.stroke();
-    g.fillStyle = "rgba(244,226,106,.35)"; g.beginPath(); g.arc(ax, ay, 0.2 * r, 0, 7); g.fill();
-    rimmed(g, "#B89A2A", BULB, grow, function (e) { g.beginPath(); g.arc(ax, ay, 0.11 * r + e, 0, 7); g.fill(); });
+    g.globalAlpha = 0.35; g.fillStyle = BULB; g.beginPath(); g.arc(ax, ay, 0.2 * r, 0, 7); g.fill(); g.globalAlpha = 1;
+    rimmed(g, shade(BULB, 0.6), BULB, grow, function (e) { g.beginPath(); g.arc(ax, ay, 0.11 * r + e, 0, 7); g.fill(); });
     g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(ax - 0.035 * r, ay - 0.035 * r, 0.035 * r, 0, 7); g.fill(); }
   if (on("body")) {
     var body = function (e) { g.beginPath(); g.moveTo(0, cy - br - e);

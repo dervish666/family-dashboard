@@ -298,9 +298,14 @@ C.forEach(function (c) {
   for (let i = 0; i < 90; i++) { if (c.life) c.life(t, 1 / 30, true, A); if (c.habits) c.habits(t, 1 / 30, A); }
 });
 // The space station's aliens: rigged, in the editor, with a sleep pose, and alien_ ids that no animal uses.
-["alien_gloop", "alien_tetra", "alien_zib", "alien_rock"].forEach(function (id) { const c = C.filter(function (x) { return x.id === id; })[0];
-  ok(!!c && !!c.rig && c.editor === true && c.sleeps === true, "creature " + id + ": registered, rigged, in the editor, with a sleep pose"); });
-ok(ids.filter(function (id) { return /^alien_/.test(id); }).length === 4, "four aliens, and only aliens take the alien_ prefix");
+const ALIENS = ["alien_gloop", "alien_tetra", "alien_zib", "alien_rock", "alien_bloom", "alien_dome"];
+ALIENS.forEach(function (id) { const c = C.filter(function (x) { return x.id === id; })[0];
+  ok(!!c && !!c.rig && c.editor === true && c.sleeps === true, "creature " + id + ": registered, rigged, in the editor, with a sleep pose");
+  // a species colour of its own: it draws with no colour given, or a bad one, for the owner's accessory
+  ["open", "shut"].forEach(function (e) { let out = null, bad = null;
+    try { out = c.sprite({ r: 34, look: id }, e, 2); bad = c.sprite({ r: 34, col: "teal", look: id }, e, 2); } catch (err) { out = null; }
+    ok(out && out.c && isFinite(out.ax) && bad && bad.c, "creature " + id + ": draws without an owner colour"); }); });
+eq(ids.filter(function (id) { return /^alien_/.test(id); }), ALIENS, "six aliens, and only aliens take the alien_ prefix");
 // The v1.4.0 animals are rigged, in the editor, and sleep in a pose of their own.
 ["owl", "rabbit", "frog", "cat"].forEach(function (id) { const c = C.filter(function (x) { return x.id === id; })[0];
   ok(!!c && !!c.rig && c.editor === true && c.sleeps === true, "creature " + id + ": registered, rigged, in the editor, with a sleep pose"); });
@@ -333,12 +338,12 @@ eq(m.HOTSPOT_IDS, ["school", "printer", "music", "home", "office"], "the landmar
 ["seaside", "winter", "forest", "station"].forEach(function (id) { let got = null; try { got = m.normalize({ demo: true, scene: id }).scene; } catch (e) { got = e.message; }
   eq(got, id, "the " + id + " is a valid scene"); });
 eq(sids.slice(0, 5), ["meadow", "seaside", "winter", "forest", "station"], "the scenes, in the editor's order");
-// The space station is a draft: marked experimental, labelled so, under a roof, light HUD text,
-// its own banner tug, and the default cast recast as its aliens (a cast someone chose keeps its looks).
+// The space station: under a roof, light HUD text, its own banner tug, the party's glitter ball
+// hung indoors, and the default cast recast as six different aliens (a cast someone chose keeps its looks).
 const ST = SL.filter(function (s) { return s.id === "station"; })[0] || {};
-ok(ST.experimental === true && /draft/i.test(ST.label || ""), "scene station: marked experimental and labelled a draft");
 ok(ST.indoor === true && ST.darkSky === true && isFn(ST.flyer), "scene station: indoor, dark sky, its own flyer");
 eq(m.normalize({ demo: true, scene: "station" }).people.map(function (p) { return p.look; }), ST.demoCast, "the station's demo cast are its aliens");
+ok(Array.isArray(ST.demoCast) && ST.demoCast.length === 6 && new Set(ST.demoCast).size === 6 && ST.demoCast.every(function (id) { return /^alien_/.test(id); }), "six demo characters, six different alien species");
 eq(m.normalize({ demo: true, scene: "station" }).people.map(function (p) { return p.tg; }), (ST.demoCast || []).map(function (id) { return m.CREATURES.filter(function (c) { return c.id === id; })[0].tg; }), "and their tags sit at the aliens' heights");
 eq(m.normalize({ demo: true, scene: "station", people: [{ name: "A", look: "fox" }, { name: "H" }] }).people.map(function (p) { return p.look; }), ["fox", "capybara"], "a cast someone chose keeps its looks on the station");
 eq(m.normalize({ demo: true, scene: "forest" }).people.map(function (p) { return p.look; }), m.normalize({}).people.map(function (p) { return p.look; }), "other scenes keep the default cast's animals");
@@ -346,6 +351,7 @@ SL.forEach(function (sc) {
   const who = "scene " + (sc && sc.id);
   ok(sc && typeof sc.id === "string" && /^[a-z]+$/.test(sc.id), who + ": id is a lower-case word");
   ok(typeof sc.label === "string" && sc.label.length > 0, who + ": has a label");
+  ok(!sc.experimental || /draft/i.test(sc.label), who + ": a scene marked experimental says draft in its label");
   ok(isFn(sc.bake), who + ": has bake()");
   ok(sc.weather && isFn(sc.weather.ground), who + ": has weather.ground()");
   ok(Array.isArray(sc.creatures) && sc.creatures.length > 0 && sc.creatures.every(function (id) { return ids.indexOf(id) >= 0; }), who + ": the creatures that suit it are all in the registry");
@@ -406,6 +412,7 @@ SL.forEach(function (sc) {
     });
   }
   if (sc.flyer) { ok(isFn(sc.flyer), who + ": flyer is a function"); sc.flyer(g, 600, 160, 1, 2, S); sc.flyer(g, 600, 160, -1, 2.5, S); }
+  if (sc.disco) { const dz = sc.disco(S); ok(dz && isFinite(dz.x) && isFinite(dz.top) && dz.y > dz.top + 26 && dz.y < S.H && dz.top >= (sc.indoor ? S.HZ : 0), who + ": the glitter ball hangs on the card, indoors under the roof"); }
   if (L.lay && L.lay.school) ok(isFinite(L.lay.school.x) && isFinite(L.lay.school.y) && (!L.lay.school.cut || (L.lay.school.cut.length === 4 && L.lay.school.cut.every(isFinite))), who + ": the School tag's spot is a point");
   if (sc.start) for (let i = 0; i < 8; i++) { const p = sc.start(i, S); ok(p && (p.x === null || (isFinite(p.x) && isFinite(p.y))), who + ": start(" + i + ") is a point"); }
   if (sc.ambient) {

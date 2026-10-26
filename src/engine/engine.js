@@ -1899,8 +1899,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + Math.tan(th) * len, -30); ctx.stroke(); } }
     ctx.globalCompositeOperation = "source-over";
     // the glitter ball, hung over the road above the plane's lane, with its glints on the sky
-    var cx = W / 2, cy = 92, R = 26;
-    ctx.globalAlpha = a; ctx.strokeStyle = "rgba(60,60,70,.7)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, cy - R); ctx.stroke();
+    // (a scene with a roof hangs it where it says: SCENE.disco(SV) -> { x, y, top })
+    var dz = SCENE.disco ? SCENE.disco(SV) : null, cx = dz ? dz.x : W / 2, cy = dz ? dz.y : 92, R = 26;
+    ctx.globalAlpha = a; ctx.strokeStyle = "rgba(60,60,70,.7)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, dz ? dz.top : 0); ctx.lineTo(cx, cy - R); ctx.stroke();
     ctx.save(); ctx.translate(cx, cy); ctx.scale(1 / K, 1 / K); ctx.drawImage(DISCO.c, -30 * K, -30 * K); ctx.restore();
     ctx.fillStyle = "#FFFFFF";
     for (i = 0; i < 7; i++) { var ga = time * 1.4 + i * 0.9, gx = Math.cos(ga) * R * 0.78, gy = Math.sin(i * 2.3) * R * 0.6, gl = Math.max(0, Math.cos(ga));
