@@ -141,21 +141,12 @@ def esphome_subs(text: str) -> dict:
 # ── The contract ────────────────────────────────────────────────────────────
 # (raw helper value) -> (kind, from, text). kind 1 none, 2 letter, 3 unavailable.
 
-LETTER_CASES = [
-    ("", (1, "", "")),
-    ("   ", (1, "", "")),
-    ("Parent 1|Tea's at six", (2, "Parent 1", "Tea's at six")),
-    ("|Tea's at six", (2, "", "Tea's at six")),
-    ("Tea's at six", (2, "", "Tea's at six")),
-    ("Parent 1|", (1, "Parent 1", "")),
-    ("Parent 1|   ", (1, "Parent 1", "")),
-    ("Parent 1|left|right", (2, "Parent 1", "left|right")),
-    ("  Parent 2  |  Hello  ", (2, "Parent 2", "Hello")),
-    ("Gran|£2 for the trip, café on Friday", (2, "Gran", "£2 for the trip, café on Friday")),
-    ("unavailable", (3, "", "")),
-    # A helper that has never held a value reads "unknown": an empty mailbox.
-    ("unknown", (1, "", "")),
-]
+# The table lives in letters.json so the card's tests (tests/check.mjs) run the same one.
+FIXTURES = json.loads((Path(__file__).resolve().parent / "letters.json").read_text(encoding="utf-8"))
+LETTER_CASES = [(raw, (kind, frm, text)) for raw, kind, frm, text in FIXTURES["letters"]]
+# (to, sender, text) -> what the script stores and what it copies to the postie. The card
+# drops a postie value equal to the copy of a per-person letter it has, so the two must agree.
+MIRROR_CASES = FIXTURES["mirrors"]
 
 # What the send script must do. (to, sender, text) -> (ok, slug, stored value)
 SEND_CASES = [
@@ -312,6 +303,15 @@ int main() {{
         r.check(got == want, f"panel announcement {raw!r}: got {got!r}, want {want!r}")
 
 
+def check_mirrors(r: Report, ha: dict):
+    env = ha_env()
+    script = ha["script"]["family_send_panel_letter"]
+    r.check(len(MIRROR_CASES) >= 5, "letters.json: expected at least five postie copies")
+    for to, sender, text, stored, postie in MIRROR_CASES:
+        ctx = render_vars(env, script["variables"], {"to": to, "sender": sender, "text": text})
+        r.check(ctx["value"] == stored, f"letters.json {to!r}/{sender!r}: script stores {ctx['value']!r}, fixture says {stored!r}")
+        r.check(ctx["postie_value"] == postie, f"letters.json {to!r}/{sender!r}: script copies {ctx['postie_value']!r}, fixture says {postie!r}")
+
 def check_consistency(r: Report, ha: dict, kitchen_src: str):
     script_vars = ha["script"]["family_send_panel_letter"]["variables"]
     recipients = script_vars["recipients"]
@@ -356,6 +356,7 @@ def run(ha_text: str, kid_src: str, base_src: str, kitchen_src: str, quiet=False
     cxx = shutil.which("c++")
     check_send_script(r, ha)
     check_parsers(r, ha, kid_src, base_src, cxx)
+    check_mirrors(r, ha)
     check_consistency(r, ha, kitchen_src)
     if not quiet:
         for f in r.fails:
