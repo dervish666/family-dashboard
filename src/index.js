@@ -20,3 +20,5 @@ import "./card.js";
 // For tests/check.mjs. Home Assistant loads this file as a module and ignores the exports.
 export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
 export { parseCalendarEvents, weekRange, calendarPath } from "./calendar.js";
+export { CREATURES, HELPERS as CREATURE_HELPERS, bakeRig } from "./creatures/index.js";
+export { SCENE_LIST } from "./scenes/index.js";

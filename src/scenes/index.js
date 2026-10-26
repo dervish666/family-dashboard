@@ -23,7 +23,8 @@
 //                    front of it, and as lights over the dusk
 // tests/check.mjs fails if an entry breaks this shape or a module in this folder is not listed.
 import meadow from "./meadow.js";
+import seaside from "./seaside.js";
 
-export const SCENE_LIST = [meadow];
+export const SCENE_LIST = [meadow, seaside];
 export const SCENE_BY_ID = {};
 SCENE_LIST.forEach(function (s) { SCENE_BY_ID[s.id] = s; });

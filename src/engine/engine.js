@@ -67,8 +67,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
 
   function shadowSprite() {
-    var c = canvas(64, 64), g = c.getContext("2d"), gr = g.createRadialGradient(32, 32, 2, 32, 32, 32);
-    gr.addColorStop(0, "rgba(30,70,40,.32)"); gr.addColorStop(1, "rgba(30,70,40,0)");
+    var c = canvas(64, 64), g = c.getContext("2d"), gr = g.createRadialGradient(32, 32, 2, 32, 32, 32), sh = SCENE.shadow || "30,70,40";
+    gr.addColorStop(0, "rgba(" + sh + ",.32)"); gr.addColorStop(1, "rgba(" + sh + ",0)");
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return c;
   }
   function glowSprite() {
@@ -104,6 +104,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     puff: function (kind, x, y, n, col) { puff(kind, x, y, n, col); },
     say: function (txt, x, y) { say(txt, x, y); },
     depth: function (y) { return depth(y); },
+    now: function () { return now(); }, rand: rand,
     sprites: {}, fam: [], WX: null, DARK: 0, nightness: 0, time: 0
   };
 
@@ -145,7 +146,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return { x: HOME.x, y: HOME.y };
   }
 
-  function depth(y) { return 0.8 + 0.2 * Math.max(0, Math.min(1, (y - TOP) / (H - TOP))); }
+  // How big something stands at y: [near-horizon scale, how much it grows to the bottom edge].
+  var DEPTH = SCENE.depth || [0.8, 0.2];
+  function depth(y) { return DEPTH[0] + DEPTH[1] * Math.max(0, Math.min(1, (y - TOP) / (H - TOP))); }
 
   // ── Creatures ───────────────────────────────────────────────────────────────
   var SHADOW, GLOW, CLOUDS = [], FOOD_SPR, PUFF_LOOKS = [];
@@ -263,7 +266,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var bus = { x: EXIT.x, y: EXIT.y };
       if (t.gone) return { x: t.x, y: t.y };                                  // out, and staying out until it is over
       if (Math.abs(t.x - bus.x) < 30 && Math.abs(t.y - bus.y) < 20) { t.gone = true; return { x: EXIT.off.x, y: EXIT.off.y }; }
-      return bus;                                                             // first the road, then the stop
+      return (SCENE.via && SCENE.via(t, bus, SV)) || bus;                     // first the road, then the stop
     }
     if (t.gone) { t.gone = false; t.pass = true; return { x: EXIT.x, y: EXIT.y }; }   // back off the bus
     t.pass = false;
