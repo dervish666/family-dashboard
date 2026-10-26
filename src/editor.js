@@ -1,11 +1,13 @@
 import { DEFAULTS, LOOK_TG, PALETTE, ACCESSORIES, SCENES, normalize, rgbHex, clone } from "./config.js";
+import { CREATURES, CREATURE } from "./creatures/index.js";
 
 // ── The visual editor ─────────────────────────────────────────────────────────
 // <family-dashboard-card-editor>: the cast, each person's calendar, the optional sensors,
 // the scene and the demo switch. It uses Home Assistant's own ha-form where the frontend
 // has it and falls back to plain inputs where it does not. It writes only the keys a
 // change touches, so YAML it does not know about (aliases, dates, sourceOwner) survives.
-const EDITOR_LOOKS = ["crow", "capybara", "deer", "shark", "otter", "snail", "bear", "bunny", "fox"];
+// The animals the editor offers: every creature in the registry marked editor: true.
+const EDITOR_LOOKS = CREATURES.filter(function (c) { return c.editor; }).map(function (c) { return c.id; });
 const ACCESSORY_LABELS = { glasses: "Glasses", phones: "Headphones", daisy: "Daisy", bee: "Bee (one person only)" };
 const SENSOR_FIELDS = [
   ["weather", "weather", "Weather"],
@@ -33,7 +35,7 @@ const PERSON_SCHEMA = [
   { type: "grid", name: "", schema: [{ name: "name", required: true, selector: { text: {} } },
     { name: "role", required: true, selector: { select: { mode: "dropdown", options: [{ value: "adult", label: "Adult" }, { value: "kid", label: "Kid" }] } } }] },
   { type: "grid", name: "", schema: [
-    { name: "look", required: true, selector: { select: { mode: "dropdown", options: EDITOR_LOOKS.map(function (l) { return { value: l, label: l[0].toUpperCase() + l.slice(1) }; }) } } },
+    { name: "look", required: true, selector: { select: { mode: "dropdown", options: EDITOR_LOOKS.map(function (l) { return { value: l, label: CREATURE[l].label }; }) } } },
     { name: "col", selector: { color_rgb: {} } }] },
   { name: "calendar", selector: { entity: { multiple: true, filter: { domain: "calendar" } } } },
   { name: "accessories", selector: { select: { multiple: true, mode: "list", options: ACCESSORIES.map(function (a) { return { value: a, label: ACCESSORY_LABELS[a] }; }) } } },

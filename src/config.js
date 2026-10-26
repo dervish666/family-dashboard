@@ -1,4 +1,5 @@
 // Card config: the defaults, normalize() and the first-install stub.
+import { CREATURES } from "./creatures/index.js";
 
 // ══ CONFIG ═══════════════════════════════════════════════════════════════════
 // Everything household-specific lives in this one object. Edit it and nothing else.
@@ -88,8 +89,11 @@ export const DEFAULTS = {
 //           (null) unless the config names it, so a fresh install has nothing to set up.
 // Plain objects merge one level deep over the defaults, lists replace. Unknown keys are
 // ignored. Anything that would draw wrong throws an Error that says what to change.
-export const LOOKS = ["crow", "capybara", "deer", "shark", "otter", "snail", "bear", "bunny", "fox", "phones", "curls", "flower"];
-export const LOOK_TG = { crow: 2.25, capybara: 2.6, deer: 2.75, shark: 1.6, otter: 2.55, snail: 2.05 };
+// The looks come from the creature registry (creatures/index.js), in its order: the first
+// six are the default cast's and a person with no look gets one of them by position.
+export const LOOKS = CREATURES.map(function (c) { return c.id; });
+export const LOOK_TG = {};
+CREATURES.forEach(function (c) { if (c.tg) LOOK_TG[c.id] = c.tg; });
 export const PALETTE = ["#7FC8D2", "#9A72C8", "#A3B0F2", "#D4A8F5", "#9EE0B4", "#E0A050", "#F2A0A0", "#E8D070"];
 export const ACCESSORIES = ["glasses", "phones", "daisy", "bee"];
 // Scenes the card can draw. Only the meadow so far; a later scene adds an entry here.
