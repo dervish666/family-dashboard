@@ -26,6 +26,8 @@ import { normCrier } from "./crier.js";
 //            when the data is not in the default attribute (timetable / menu). See school.js.
 //   choice   packed lunch or school dinner: "packed", "school", a weekday map
 //            ({ fri: packed }) or an entity whose state says it (input_select.kid_lunch).
+//   letter   v1.8.0: this person's own letter helper, an input_text or text entity holding
+//            "from|text" (the room panels' contract, letters.js). Opening their card empties it.
 // The last entry, "House", is the household: bin day, window cleaner, anything nobody owns.
 // Swapping someone's animal is changing their look (and tg if the tag sits wrong).
 export const DEFAULTS = {
@@ -151,8 +153,16 @@ function normPerson(p, i) {
   out.timetable = schoolSource(p.timetable, TIMETABLE_ATTR, name, "timetable");
   out.lunch = schoolSource(p.lunch, LUNCH_ATTR, name, "lunch");
   out.choice = lunchChoiceConf(p.choice, name);
+  out.letter = letterConf(p.letter, name);
   delete out.calendar; delete out.role;
   return out;
+}
+// people[].letter: an input_text or text entity id, or null.
+function letterConf(v, name) {
+  if (v == null || v === "") return null;
+  const id = typeof v === "string" ? v.trim() : "";
+  if (!/^(input_text|text)\.[a-z0-9_]+$/.test(id)) throw cfgError(name + ": letter must be an input_text or text entity id like input_text.letter_kid_a, got " + JSON.stringify(v));
+  return id;
 }
 // people[].timetable and .lunch: a sensor id, or { entity, attribute } for data kept in an
 // attribute with another name. Normalised to { entity, attribute } or null.
@@ -196,6 +206,9 @@ export function normalize(raw) {
   const names = people.map(function (p) { return p.name; });
   names.forEach(function (n, i) { if (names.indexOf(n) !== i) throw cfgError("two people are called " + JSON.stringify(n) + "; names must be unique"); });
   const calendarMode = people.some(function (p) { return p.calendars.length; });
+  people.forEach(function (p, i) { if (!p.letter) return;
+    const twin = people.filter(function (q, k) { return k < i && q.letter === p.letter; })[0];
+    if (twin) throw cfgError(twin.name + " and " + p.name + " both read " + p.letter + "; each person's letter needs its own helper"); });
 
   const out = {};
   Object.keys(DEFAULTS).forEach(function (k) {
@@ -245,6 +258,9 @@ export function normalize(raw) {
       warnOnce("sensors." + k + " (" + id + ") belongs to schoolWho." + k + " = " + JSON.stringify(who) + ", who is not in people. Set people[]." + k + " on the child instead.");
       out.schoolOrphans.push({ key: k, entity: id, who: who == null ? null : String(who) });
     }
+  });
+  people.forEach(function (p) {
+    if (p.letter && p.letter === out.sensors.letter) throw cfgError(p.name + ": letter is " + p.letter + ", which is also sensors.letter (the postie for everyone). Give " + p.name + " a helper of their own");
   });
   if (!out.demo && !calendarMode && !out.sensors.week)
     throw cfgError("give at least one person a calendar (people[].calendar), or set sensors.week, or set demo: true");

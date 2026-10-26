@@ -5,9 +5,11 @@
 # the animals' walk, idle and sleep, a scene's exit and the duty walks round its obstacles,
 # the school timetable and lunch parsers, the per-child school config, v1.6.0's
 # announcement, due-time and status-tile parsers and config, and v1.7.0's town crier: its
-# config, what counts as new or late, its steps, the scroll's words and each scene's walk). The breaks go in
-# src/, not dist/, because dist/ is minified and its names change with every build. Exits 1
-# if any broken copy passes. Needs npm ci first.
+# config, what counts as new or late, its steps, the scroll's words and each scene's walk,
+# and v1.8.0's per-person letters: the from|text parser, the copy it matches against the
+# postie, the dedupe and their config). The breaks go in src/, not dist/, because dist/ is
+# minified and its names change with every build. Exits 1 if any broken copy passes. Needs
+# npm ci first.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 esbuild="$here/node_modules/.bin/esbuild"
@@ -123,5 +125,22 @@ scenes/seaside.js|s/{ x: Math.round(sf.x + 30), y: Math.round(sf.y + 18) }\], fa
 scenes/station.js|s/look: { col: "#9BE3C8", hat: "antennae" }/look: { col: "#9BE3C8", hat: "helmet" }/|the herald wears a hat the sprite cannot draw
 scenes/forest.js|s/y: Math.round(G.H \* 0.8) }\], face: 1 };/y: Math.round(G.H * 1.2) }], face: 1 };/|the forest crier walks off the bottom of the card
 scenes/winter.js|s/  crier: function () {/  krier: function () {/|the winter village has no crier
+letters.js|s/const p = s.indexOf(/const p = s.lastIndexOf(/|a per-person letter splits on the last bar
+letters.js|s/  if (s === "unknown") s = "";//|a helper that never held a letter reads as a letter
+letters.js|s/  if (s === "unavailable") return/  if (false) return/|an unavailable helper reads as a letter
+letters.js|s/function trim(s) { return String(s).replace(EDGE, ""); }/function trim(s) { return String(s).trim(); }/|the card trims more than the panels do
+letters.js|s/"From " + from + ": "/"from " + from + ": "/|the card's copy drifts from the script's
+letters.js|s/const a = Array.from(s);/const a = s.split("");/|the copy is cut by UTF-16 units, not characters
+letters.js|s/return book.mirrors.indexOf(trim(text)) >= 0;/return false;/|the bridge's copy shows as a second letter
+letters.js|s/const into = cur .. twin;/const into = cur;/|a copy seen first stays as a second envelope
+letters.js|s/if (cur) { drop(book, cur); out.drop.push(cur); }//|a letter read on a panel stays on the wall
+letters.js|s/if (cur .. twin) { drop(book, twin); out.drop.push(twin); }//|a stale copy stays out next to the new letter
+letters.js|s/if (book.seen\[o.entity\] === key) return;//|the same letter arrives again every poll
+letters.js|s/  if (sharedId .. sharedState/  if (false \&\& sharedState/|reading leaves the copy in the shared helper
+letters.js|s/if (h .. h !== L .. (L.src .. h.src)) continue;//|a second per-person letter is handed over on top of the first
+letters.js|s/if (p.kind === "unavailable") { out.bad.push/if (p.kind === "unavailable") { out.bad.slice/|an unavailable helper is not reported
+config.js|s/  if (!\/^(input_text/  if (false \&\& !\/^(input_text/|a sensor is accepted as a letter helper
+config.js|s/if (twin) throw/if (false) throw/|two people share one letter helper
+config.js|s/if (p.letter .. p.letter === out.sensors.letter)/if (false)/|a person's helper can be the postie's
 EOF
 echo "ok: all $n sabotaged copies failed the check"

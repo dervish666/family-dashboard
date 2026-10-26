@@ -6,6 +6,7 @@ import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
 import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
+import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -29,6 +30,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var PFORCE = (Q.match(/[?&]party=([^&]+)/) || [])[1];         // test hook: a name from PEOPLE (any case), or halloween|bonfire|christmas|anniversary for the rave, friend or friend:Pat for the house party, comma-joined for both
   var PRFORCE = (Q.match(/[?&]printer=([\w:.]+)/) || [])[1];    // test hook: running:45 | pause:45 | prepare | finish | failed | idle | offline
   var LFORCE = (Q.match(/[?&]letter=([^&]+)/) || [])[1];        // test hook: Kid%203:hello (url-encoded), delivered a few seconds after boot
+  var PLFORCE = (Q.match(/[?&]pletter=([^&]+)/) || [])[1];      // test hook: Kid%203|Parent%201|hello, a per-person letter (people[].letter) for Kid 3; never written back
   var FPS = /[?&]fps\b/.test(Q);                               // test hook: frame rate and per-frame JS time, bottom right
   var MFORCE = (Q.match(/[?&]music=(\w+)/) || [])[1];          // test hook: on | off, overrides the speaker
   var OFORCE = (Q.match(/[?&]office=([^&]+)/) || [])[1];         // test hook: off (unreachable) | quiet | ask:Name | Name:what it is doing (url-encoded), overrides the office poll
@@ -984,11 +986,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
             var w = run.w, t = run.t;
             if (run.st === "road") return;                                     // on a leg; its callback moves us on
             if (run.st === "walk") {
-              if (asleep || nightness > 0.6) { run.st = "back"; w.q = null; leg(w, fromHere(w, DOORS.post), function () { POSTIE.busy = false; run = null; }); LETTER.queue.unshift(run.letter); return; }
+              if (asleep || nightness > 0.6) { run.st = "back"; w.q = null; leg(w, fromHere(w, DOORS.post), function () { POSTIE.busy = false; run = null; }); if (!run.letter.gone) LETTER.queue.unshift(run.letter); return; }
               var gx = t.x - t.face * t.r * 1.2, gy = t.y + 4;
               if (walkV(w.v, gx, gy, 36, dt) || Math.abs(w.v.x - t.x) + Math.abs(w.v.y - t.y) < t.r * 1.6) {
-                t.letter = run.letter; t.happy = 2.2; t.jump = 0.6; say("!", t.x, t.y - t.r * 2.6);
-                parts.push({ kind: "icon", icon: ICON.letter, x: w.v.x, y: w.v.y - 40, vx: (t.x - w.v.x) * 1.5, vy: -50, life: 0.7, max: 0.7 });
+                if (!run.letter.gone) { t.letter = run.letter; t.happy = 2.2; t.jump = 0.6; say("!", t.x, t.y - t.r * 2.6);   // gone: read on a panel while on the road
+                parts.push({ kind: "icon", icon: ICON.letter, x: w.v.x, y: w.v.y - 40, vx: (t.x - w.v.x) * 1.5, vy: -50, life: 0.7, max: 0.7 }); }
                 w.v.happy = 1.5; w.v.face = t.x > w.v.x ? 1 : -1; w.carry = null; w.q = null; run.st = "back";
                 leg(w, fromHere(w, DOORS.post), function () { POSTIE.busy = false; run = null; });
               }
@@ -996,9 +998,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
             return;
           }
           if (!LETTER.queue.length || asleep || nightness > 0.35 || POSTIE.busy) return;
-          var L1 = LETTER.queue[0], to = fam.filter(function (f) { return f.person.name === L1.to; })[0];
+          var L1 = nextLetter(LETTER.queue, wornBy), to = L1 && fam.filter(function (f) { return f.person.name === L1.to; })[0];
           if (!to || offStage(to)) return;                                     // out: it waits
-          LETTER.queue.shift(); POSTIE.busy = true;
+          LETTER.queue.splice(LETTER.queue.indexOf(L1), 1); POSTIE.busy = true;
           var w2 = walker(DOORS.post, { col: "#F6C28B", hat: "postcap", speed: 34 });
           run = { w: w2, t: to, letter: L1, st: "road" };
           leg(w2, route(DOORS.post, { x: to.x, y: R, lane: [] }), function () { run.st = "walk"; w2.q = run; w2.carry = ICON.letter; }, ICON.letter);
@@ -2461,34 +2463,79 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // The key is text plus last_changed, so the same words sent twice count twice.
   // If the clear fails the letter is still remembered here, the corner says so, and
   // the poll keeps ignoring that key until the text changes.
-  var LETTER = { seen: null, queue: [], clearErr: null };
+  var LETTER = { seen: null, queue: [], clearErr: null, bad: [], writes: [] };
+  // v1.8.0: people[].letter, one helper per person in the room panels' "from|text" form
+  // (letters.js has the rules and the dedupe against the bridge's copy in SENSORS.letter).
+  // A letter there goes into the same queue, so the postie or the airmail brings it in every
+  // scene; one emptied elsewhere (a panel's Done, the expiry) is taken back off the card.
+  var BOOK = newLetterBook(), OWNERS = PEOPLE.filter(function (p) { return p.letter; }).map(function (p) { return { name: p.name, entity: p.letter }; });
+  function wornBy(name) { var t = fam.filter(function (f) { return f.person.name === name; })[0]; return t ? t.letter : null; }
+  function personLetters(states) {
+    var r = letterStep(BOOK, OWNERS, states, now().getTime());
+    r.drop.forEach(function (l) {
+      LETTER.queue = LETTER.queue.filter(function (x) { return x !== l; });
+      fam.forEach(function (t) { if (t.letter === l) t.letter = null; });
+    });
+    r.add.forEach(function (l) { LETTER.queue.push(l); });
+    LETTER.bad = r.bad;
+  }
   // Without the village there is no postie: a letter drops out of the sky onto its
   // person's tag instead, in the same hours the postie keeps, while they are here.
   var AIRMAIL = { t: 2 };
   function airmail(dt) {
     if (!LETTER.queue.length || nightness > 0.35) return;
     AIRMAIL.t -= dt; if (AIRMAIL.t > 0) return; AIRMAIL.t = 2;
-    var L1 = LETTER.queue[0], to = fam.filter(function (f) { return f.person.name === L1.to; })[0];
+    var L1 = nextLetter(LETTER.queue, wornBy), to = L1 && fam.filter(function (f) { return f.person.name === L1.to; })[0];
     if (!to || offStage(to)) return;                                       // out: it waits
-    LETTER.queue.shift();
+    LETTER.queue.splice(LETTER.queue.indexOf(L1), 1);
     to.letter = L1; to.happy = 2.2; to.jump = 0.6; say("!", to.x, to.y - to.r * 2.6);
     parts.push({ kind: "icon", icon: ICON.letter, x: to.x, y: to.y - to.r * 3.4 - 40, vx: 0, vy: 20, life: 0.8, max: 0.8 });
   }
   function letterArrived(text, key) {
     if (key === LETTER.seen) return;
     LETTER.seen = key;
+    if (OWNERS.length && bridgeCopy(BOOK, text)) return;                 // the bridge's copy of a per-person letter: shown once, as that one
     var m = String(text).match(/^\s*([A-Za-z][A-Za-z0-9 ]*?)\s*[:,\-]\s*([\s\S]*)$/), who = null, body = text;
     if (m) { var nm = m[1].toLowerCase();
       who = PEOPLE.filter(function (p) { return [p.name].concat(p.aliases || []).some(function (a) { return a.toLowerCase() === nm; }); })[0]; if (who) body = m[2]; }
     if (!who) who = PEOPLE[PEOPLE.length - 1];
-    LETTER.queue.push({ to: who.name, text: String(body).trim() || String(text), at: new Date(), key: key });
+    var l = { to: who.name, text: String(body).trim() || String(text), at: new Date(), key: key };
+    LETTER.queue.push(l);
+    if (OWNERS.length) letterShared(BOOK, l, text);
   }
-  function clearLetter(l) {
+  function clearLetter(l, tap) {
+    if (l.src) { clearPersonLetter(l, tap); return; }
     if (DEMO || l.key === "hook" || !SENSORS.letter) return;
     hassToken().then(function (h) {
       return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });
     }).then(function () { LETTER.clearErr = null; })
       .catch(function (e) { console.warn("meadow: could not clear the letter", e); LETTER.clearErr = e.message || String(e); });
+  }
+  // A per-person letter, read on a real tap: empty that person's helper, and the shared one if
+  // it still holds the bridge's copy, each only while it holds what was read (a newer letter
+  // that landed since stays). Demo, the test hooks and a card opened by ?open= never write.
+  function clearPersonLetter(l, tap) {
+    var h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
+    var w = letterRead(BOOK, l, SENSORS.letter, sh);
+    if (DEMO || !tap || l.hook || !h) return;
+    w.forEach(function (c) {
+      var s = h.states && h.states[c.entity];
+      if (!s || String(s.state) !== c.expect) return;
+      LETTER.writes.push(c.entity);
+      Promise.resolve().then(function () { return h.callService(c.entity.split(".")[0], "set_value", { entity_id: c.entity, value: "" }); })
+        .then(function () { LETTER.clearErr = null; })
+        .catch(function (e) { console.warn("meadow: could not clear " + c.entity, e); LETTER.clearErr = e.message || String(e); });
+    });
+  }
+  // ?pletter=Kid 3|Parent 1|hello: a per-person letter on the demo, as a helper would hold it.
+  var PLHOOK = null;
+  function demoPersonLetter(v) {
+    var i = v.indexOf("|"), who = i < 0 ? "" : v.slice(0, i), p = PEOPLE.filter(function (q) { return q.name.toLowerCase() === who.toLowerCase(); })[0];
+    if (!p) return;
+    if (!PLHOOK) PLHOOK = { name: p.name, entity: "hook." + p.name, st: { state: v.slice(i + 1), last_changed: now().toISOString() } };
+    var ps = {}; ps[PLHOOK.entity] = PLHOOK.st;
+    var r = letterStep(BOOK, [PLHOOK], ps, now().getTime());
+    r.add.forEach(function (l) { l.hook = true; LETTER.queue.push(l); });
   }
   // The music poll, every 10s: one player, so a pause stops the dancing within seconds.
   // SENSORS.music is the panel's universal player (follows input_select.music_target).
@@ -2516,13 +2563,16 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // The quick poll: the printer's six sensors, the letter helper and the rain sensor, every 45s.
   function loadLive() {
     if (DEMO) { PR = demoPrinter();
+      if (PLFORCE) demoPersonLetter(decodeURIComponent(PLFORCE.replace(/\+/g, " ")));
       if (LFORCE) letterArrived(decodeURIComponent(LFORCE.replace(/\+/g, " ")), "hook"); return; }
     hassToken().then(function (tok) {
       function opt(id) { if (!id) return Promise.resolve(null); return getState(id, tok).catch(function (e) { console.warn("meadow: " + id, e); return null; }); }
-      return Promise.all(PR_KEYS.map(function (k) { return opt(PR_ID && PR_ID + k); }).concat([opt(SENSORS.letter), opt(SENSORS.rain)]));
+      return Promise.all(PR_KEYS.map(function (k) { return opt(PR_ID && PR_ID + k); }).concat([opt(SENSORS.letter), opt(SENSORS.rain)],
+        OWNERS.map(function (o) { return opt(o.entity); })));
     }).then(function (s) {
       setPrinter(s);
       var l = s[6], txt = l && l.state, r = s[7] && s[7].state;
+      if (OWNERS.length) { var ps = {}; OWNERS.forEach(function (o, i) { ps[o.entity] = s[8 + i]; }); personLetters(ps); }
       if (txt && !/^(unknown|unavailable)$/.test(txt) && txt.trim()) letterArrived(txt, txt + "|" + l.last_changed);
       RAIN = RAIN_STATES.wet.indexOf(r) >= 0 ? "raining" : RAIN_STATES.dry.indexOf(r) >= 0 ? "none" : null;
       if (r && !RAIN && !/^(unknown|unavailable)$/.test(r)) console.warn("meadow: rain sensor said " + r + ", ignoring it");
@@ -3070,6 +3120,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
     else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
+    else if (LETTER.bad.length) st = "Letters unavailable: " + LETTER.bad.map(function (b) { return b.who; }).join(", ");
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
@@ -3094,13 +3145,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (DATA.extraErr) return "School info unavailable (" + DATA.extraErr + ").";
     return DATA.gotAt ? "School info unavailable." : "";
   }
-  function openCard(t) {
+  function openCard(t, tap) {
     var p = t.person, name = p.name, td = ymd(now()), html = "";
     var mine = DATA.events.filter(function (e) { return e.who === name; });
     var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
     if (t.letter) {                                                          // the postie's letter, read once
-      var lt = t.letter; t.letter = null; clearLetter(lt);
-      html += "<h2>A letter</h2>" + row(pad2(lt.at.getHours()) + ":" + pad2(lt.at.getMinutes()), lt.text, "Post");
+      var lt = t.letter; t.letter = null; clearLetter(lt, tap);
+      html += "<h2>" + (lt.from ? "A letter from " + esc(lt.from) : "A letter") + "</h2>" + row(pad2(lt.at.getHours()) + ":" + pad2(lt.at.getMinutes()), lt.text, "Post");
     }
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
@@ -3137,6 +3188,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
     if (dueS.foot) foot.push('<span class="bad">' + esc(dueS.foot) + "</span>");
     if (LETTER.clearErr) foot.push('<span class="bad">Couldn\'t clear the letter in Home Assistant (' + esc(LETTER.clearErr) + ').</span>');
+    LETTER.bad.filter(function (b) { return b.who === name; }).forEach(function (b) { foot.push('<span class="bad">Letters unavailable (' + esc(b.entity) + " " + esc(b.reason) + "), so this card can't say if one is waiting.</span>"); });
     html += '<div class="foot">' + foot.join(" ") + "</div>";
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;
@@ -3483,7 +3535,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       if (b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10) d = 0;
       if (d < t.r * sc * 1.8 && d < bd) { bd = d; best = t; } }
     if (best) { best.jump = 0.6; best.happy = 1; puff("heart", best.x, best.y - best.r * 2.2, 3, best.person.col);
-      setTimeout(function () { openCard(best); }, 320); return; }
+      setTimeout(function () { openCard(best, true); }, 320); return; }
     // The office robot, or its speech bubble: the agent office view
     if (robotHit(x, y)) { ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
       setTimeout(function () { goView(VIEW.office); }, 380); return; }
@@ -3546,7 +3598,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     setTimeout(loadOffice, DEMO ? 2000 : 1200); setInterval(loadOffice, 10000);    // the agent office, for the robot
     requestAnimationFrame(frame);
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
-    if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
+    if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, book: function () { return BOOK; }, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
       office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone,
       extras: function () { return { ann: XS.ann, due: XS.due, tiles: XS.tiles, taps: XS.taps, hidden: XS.hidden }; },
       crier: function () { var C = CRIER; return { on: !!CRY, read: XS.crier, want: CWANT && CWANT.key, dismissed: XS.dismissed, clears: XS.clears, err: XS.clearErr, banner: XS.annKey,

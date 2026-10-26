@@ -423,6 +423,80 @@ eq([ts0({ state: "on", attributes: { device_class: "door" } }).text, ts0({ state
 eq(ts0({ state: "heating" }).text, "heating", "any other word shows as it is");
 eq([ts0(null).status, ts0(null).text, ts0({ state: "unavailable" }).reason, ts0({ state: "unknown" }).status], ["unavailable", "unavailable", "is unavailable", "unavailable"], "missing, unavailable or unknown reads unavailable");
 
+// ── Per-person letters (v1.8.0) ─────────────────────────────────────────────────────
+// The same table as tests/panels/check.py, so the card, the package and the panel agree.
+const LF = JSON.parse(fs.readFileSync(new URL("./panels/letters.json", import.meta.url), "utf8"));
+const KIND = { 1: "none", 2: "letter", 3: "unavailable" };
+ok(LF.letters.length >= 12 && LF.mirrors.length >= 5, "letters.json has the contract's cases");
+LF.letters.forEach(function (c) { const p = m.parseLetter({ state: c[0] });
+  eq([p.kind, p.kind === "unavailable" ? "" : p.from, p.kind === "unavailable" ? "" : p.text], [KIND[c[1]], c[2], c[3]], "letter " + JSON.stringify(c[0]) + " parses as the panels do"); });
+eq([m.parseLetter(null).kind, m.parseLetter(null).reason, m.parseLetter({ state: "unavailable" }).reason], ["unavailable", "not found", "is unavailable"], "a missing or unavailable helper is unavailable, never no letter");
+eq(m.parseLetter({ state: " hi " }).text, " hi ", "only spaces, tabs and newlines are trimmed, as the panel's C++ does");
+const RCP = { kid_a: "Kid A", kid_b: "Kid B", kid_c: "Kid C" };
+LF.mirrors.forEach(function (c) { const p = m.parseLetter({ state: c[3] }), name = RCP[String(c[0]).trim().toLowerCase().replace(/\s+/g, "_")];
+  eq(m.letterMirror(name, p.from, p.text), c[4], "the card's copy of " + JSON.stringify(c[3]).slice(0, 40) + " is what the script writes to the postie"); });
+// Config: people[].letter, an input_text or text entity of their own.
+const lc = m.normalize({ people: [{ name: "Ash", calendar: "calendar.ash", letter: " input_text.letter_ash " }, { name: "Bea", letter: "text.bea_letter" }, { name: "Home" }] });
+eq(lc.people.map(function (p) { return p.letter; }), ["input_text.letter_ash", "text.bea_letter", null], "a letter helper is an input_text or text entity, trimmed; none is null");
+eq([m.normalize({}).people.every(function (p) { return p.letter === null; }), off.people.every(function (p) { return p.letter === null; })], [true, true], "v1.0.0 and v1.7.0 configs have no per-person letters");
+throws(function () { m.normalize({ people: [{ name: "A", calendar: "calendar.a", letter: "sensor.a" }] }); }, /A: letter must be an input_text or text entity id/, "a letter helper that is a sensor");
+throws(function () { m.normalize({ people: [{ name: "A", calendar: "calendar.a", letter: ["input_text.a"] }] }); }, /letter must be an input_text/, "a letter helper as a list");
+throws(function () { m.normalize({ people: [{ name: "A", calendar: "calendar.a", letter: "input_text.x" }, { name: "B", letter: "input_text.x" }] }); }, /A and B both read input_text.x/, "two people on one helper");
+throws(function () { m.normalize({ people: [{ name: "A", calendar: "calendar.a", letter: "input_text.family_letter" }], sensors: { letter: "input_text.family_letter" } }); }, /also sensors.letter/, "a person's helper that is the postie's");
+// letterStep: arrive, same again, replace in place, emptied elsewhere, unavailable, not polled, sent again.
+const OW = [{ name: "Kid A", entity: "input_text.letter_kid_a" }, { name: "Kid B", entity: "text.kid_b" }];
+const L0 = "2026-10-26T11:50:00.000Z", L1x = "2026-10-26T11:55:00.000Z", NOWL = Date.parse("2026-10-26T12:00:00Z");
+let bk = m.newLetterBook(), rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 1|Tea's at six", last_changed: L0 }, "text.kid_b": { state: "" } }, NOWL);
+const la = rr.add[0];
+eq([rr.add.length, la.to, la.from, la.text, la.src, la.at.toISOString(), la.mirror, rr.drop.length, rr.bad.length], [1, "Kid A", "Parent 1", "Tea's at six", "input_text.letter_kid_a", L0, "Kid A: From Parent 1: Tea's at six", 0, 0], "a new letter: who, from, what, when it was written");
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 1|Tea's at six", last_changed: L0 } }, NOWL);
+eq([rr.add.length, rr.drop.length, bk.live.length], [0, 0, 1], "the same letter next poll is nothing new");
+m.letterRead(bk, la, null, null);
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 1|Tea's at six", last_changed: L0 } }, NOWL);
+eq([rr.add.length, bk.live.length], [0, 0], "read, but the helper not emptied yet (or the write failed): it does not come back");
+bk.live.push(la);
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 2|Coats on", last_changed: L1x } }, NOWL);
+eq([rr.add.length, bk.live.length, bk.live[0] === la, la.text, la.from], [0, 1, true, "Coats on", "Parent 2"], "a new letter replaces the unread one in the same envelope");
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 2|Coats on", last_changed: L1x }, "text.kid_b": { state: "unavailable" } }, NOWL);
+eq([rr.bad, bk.live.length], [[{ who: "Kid B", entity: "text.kid_b", reason: "is unavailable" }], 1], "an unavailable helper is reported, and nothing is taken back");
+rr = m.letterStep(bk, OW, { "text.kid_b": null }, NOWL);
+eq([rr.bad[0].reason, bk.live.length], ["not found", 1], "a missing helper is reported; one not polled is left alone");
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "", last_changed: L1x } }, NOWL);
+eq([rr.drop[0] === la, la.gone, bk.live.length], [true, true, 0], "emptied elsewhere (a panel's Done, the expiry): the card takes it back");
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 2|Coats on", last_changed: L1x } }, NOWL);
+eq(rr.add.length, 1, "the same words sent again after an empty are a new letter");
+eq(m.letterStep(m.newLetterBook(), OW, { "text.kid_b": { state: "|Hi" } }, NOWL).add[0].at.getTime(), NOWL, "no last_changed: when the card saw it");
+// The bridge's copy in the shared helper: shown once, as the per-person letter.
+bk = m.newLetterBook();
+m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 1|Tea's at six", last_changed: L0 } }, NOWL);
+eq([m.bridgeCopy(bk, "Kid A: From Parent 1: Tea's at six"), m.bridgeCopy(bk, " Kid A: From Parent 1: Tea's at six "), m.bridgeCopy(bk, "Kid A: Tea's at six"), m.bridgeCopy(bk, "Kid B: From Parent 1: Tea's at six")],
+  [true, true, false, false], "a shared value that is exactly the copy is the same letter; anything else is a letter of its own");
+m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "", last_changed: L1x } }, NOWL);
+ok(m.bridgeCopy(bk, "Kid A: From Parent 1: Tea's at six"), "the copy left behind after the letter was read is still not shown");
+bk = m.newLetterBook();
+const sl = { to: "Kid A", text: "From Parent 1: Tea's at six", key: "k" };
+m.letterShared(bk, sl, "Kid A: From Parent 1: Tea's at six");
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 1|Tea's at six", last_changed: L0 } }, NOWL);
+eq([rr.add.length, bk.live.length, sl.src, sl.text, sl.from, "shared" in sl], [0, 1, "input_text.letter_kid_a", "Tea's at six", "Parent 1", false], "the copy seen first: the per-person letter takes over its envelope");
+const s2 = { to: "Kid A", text: "From Parent 2: Coats on", key: "k2" };
+m.letterShared(bk, s2, "Kid A: From Parent 2: Coats on");
+rr = m.letterStep(bk, OW, { "input_text.letter_kid_a": { state: "Parent 2|Coats on", last_changed: L1x } }, NOWL);
+eq([rr.add.length, rr.drop[0] === s2, s2.gone, bk.live.length, sl.text], [0, true, true, 1, "Coats on"], "a new letter and its copy both out: one envelope, the copy taken back");
+const own = { to: "Kid A", text: "Kid A typed by hand", key: "k3" };
+m.letterShared(bk, own, "Kid A: Kid A typed by hand");
+eq(bk.live.length, 2, "a shared letter that is not a copy stays a letter of its own");
+// letterRead: the person's helper, the shared one only while it holds the copy, with the values to expect.
+eq(m.letterRead(bk, sl, "input_text.family_letter", { state: "Kid A: From Parent 2: Coats on" }), [{ entity: "input_text.letter_kid_a", expect: "Parent 2|Coats on" }, { entity: "input_text.family_letter", expect: "Kid A: From Parent 2: Coats on" }], "reading empties the helper and the copy");
+eq(bk.live, [own], "and the letter is no longer out");
+eq(m.letterRead(m.newLetterBook(), sl, "input_text.family_letter", { state: "Kid B: something else" }).length, 1, "a shared helper holding another letter is left alone");
+eq(m.letterRead(m.newLetterBook(), sl, null, null).length, 1, "no shared helper: only the person's");
+eq(m.letterRead(bk, own, "input_text.family_letter", { state: "Kid A: Kid A typed by hand" }), [], "a shared letter is cleared the v1.7.0 way, not here");
+// nextLetter: one per-person letter at a time per person; shared-only queues are taken in order as before.
+const pA = { to: "Kid A", src: "x" }, pA2 = { to: "Kid A", src: "x2" }, sB = { to: "Kid B" }, sA = { to: "Kid A" };
+const wear = function (w) { return function (n) { return w[n] || null; }; };
+eq([m.nextLetter([sA, sB], wear({ "Kid A": { to: "Kid A" } })) === sA, m.nextLetter([], wear({})), m.nextLetter([pA], wear({ "Kid A": pA })) === pA], [true, null, true], "shared letters go in order, as in v1.7.0");
+eq([m.nextLetter([pA2, sB], wear({ "Kid A": pA })) === sB, m.nextLetter([sA, sB], wear({ "Kid A": pA })) === sB, m.nextLetter([pA2], wear({ "Kid A": pA }))], [true, true, null], "a letter for someone already wearing a per-person one waits");
+
 // ── The creature registry ───────────────────────────────────────────────────────
 const isFn = function (f) { return typeof f === "function"; };
 const C = m.CREATURES, ids = C.map(function (c) { return c && c.id; });
