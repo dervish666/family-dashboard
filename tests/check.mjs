@@ -1,5 +1,5 @@
 // Runnable check for the parts of the card that need no real pixels: config normalisation,
-// calendar parsing, and the creature and scene registries (every module has the interface,
+// calendar parsing, the school timetable and lunch parsers, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
 // throwing). No dependencies.
 // Run: node tests/check.mjs [path/to/family-dashboard.js] [path/to/src]
@@ -34,6 +34,7 @@ function eq(got, want, what) {
   const g = JSON.stringify(got), w = JSON.stringify(want);
   if (g !== w) { console.error("FAIL " + what + "\n  want " + w + "\n  got  " + g); process.exit(1); }
 }
+function ok(cond, what) { n++; if (!cond) { console.error("FAIL " + what); process.exit(1); } }
 function throws(fn, re, what) {
   n++;
   try { fn(); } catch (e) { if (re.test(e.message)) return; console.error("FAIL " + what + ": wrong error: " + e.message); process.exit(1); }
@@ -119,8 +120,82 @@ eq(m.normalize(Object.assign({}, many, { demo: false })).calendarMode, true, "th
 const none = m.stubConfig(null);
 eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
 
+// ── School data per child (v1.2.0) ──────────────────────────────────────────────
+// parseTimetable: a two-week rotation counted from the anchor, week_of overrides, closures.
+const TT = { weeks: ["A", "B"], anchor: "2026-09-07", week_of: { "2026-11-02": "B", "2026-12-21": null },
+  periods: [{ p: 1, start: "08:50", end: "09:50" }, { p: 2, start: "09:50", end: "10:50" }, { p: 3, start: "11:10", end: "12:10" }],
+  days: { A: { mon: [{ p: 1, subject: "Maths", room: "M1" }, { p: 2, subject: "Art" }] },
+    B: { mon: [{ p: 1, subject: "French", room: "L2" }], tue: ["History|H2", "Science|\u2014"], Wednesday: [{ p: 3, subject: "PE", start: "11:00" }] } },
+  closed: ["2026-10-28", { date: "2026-12-18", note: "INSET" }] };
+const tst = { state: "ok", attributes: { timetable: TT } };
+const pt = function (d, st) { return m.parseTimetable(st === undefined ? tst : st, d); };
+eq([pt("2026-10-19").status, pt("2026-10-19").week], ["ok", "A"], "six weeks after the anchor is week A");
+eq(pt("2026-10-19").lessons, [{ p: 1, start: "08:50", end: "09:50", subject: "Maths", room: "M1" }, { p: 2, start: "09:50", end: "10:50", subject: "Art", room: "" }], "lessons get their period times");
+eq([pt("2026-10-26").week, pt("2026-10-26").lessons.map(function (l) { return l.subject; })], ["B", ["French"]], "seven weeks after the anchor is week B");
+eq(pt(new Date(2026, 9, 27, 8, 0)).lessons, [{ p: 1, start: "08:50", end: "09:50", subject: "History", room: "H2" }, { p: 2, start: "09:50", end: "10:50", subject: "Science", room: "" }], "a Date works, and \"Subject|Room\" strings parse inside days");
+eq(pt("2026-09-01").week, "B", "weeks before the anchor count backwards");
+eq(pt("2026-11-02").week, "B", "week_of overrides the count");
+eq(pt("2026-11-09").week, "A", "and the count restarts from the override");
+eq([pt("2026-12-22").status, pt("2026-12-22").note], ["closed", "not a timetable week"], "week_of null is a week off the timetable");
+eq(pt("2026-10-24").status, "weekend", "Saturday is the weekend");
+eq(pt("2026-10-25").status, "weekend", "so is Sunday");
+eq([pt("2026-10-28").status, pt("2026-10-28").note, pt("2026-10-28").lessons], ["closed", "", []], "a closed date has no lessons");
+eq([pt("2026-12-18").status, pt("2026-12-18").note], ["closed", "INSET"], "a closed date can say why");
+const g = pt("2026-10-26").grid;
+eq([g.monday, g.week, g.rows.map(function (r) { return r.p; }), g.days.map(function (d) { return d.closed; })], ["2026-10-26", "B", [1, 2, 3], [false, false, true, false, false]], "the week grid has every period and marks the closed day");
+eq([g.rows[0].cells.map(function (c) { return c && c.subject; }), g.rows[2].cells[2]], [["French", "History", null, null, null], null], "grid cells line up by period and day, and a closed day is empty");
+eq(pt("2026-10-21").lessons, [], "a day missing from the week is a day with no lessons, not an error");
+const sevenP = { weeks: ["A"], days: { A: { mon: [1, 2, 3, 4, 5, 6, 7].map(function (n) { return { p: n, subject: "S" + n }; }) } } };
+eq(pt("2026-10-26", { state: "x", attributes: { timetable: sevenP } }).lessons.length, 7, "any number of periods");
+eq([pt("2026-10-26", { state: "x", attributes: { timetable: sevenP } }).week, pt("2026-10-26", { state: "x", attributes: { timetable: sevenP } }).grid.rows.length], ["A", 7], "a one-week rotation needs no anchor");
+const noAnchor = { weeks: ["A", "B"], days: TT.days };
+eq(pt("2026-10-26", { state: "x", attributes: { timetable: noAnchor } }).status, "no_week", "two weeks with nothing to count from cannot say");
+eq(m.parseTimetable({ state: "x", attributes: { tt: JSON.stringify(TT) } }, "2026-10-26", null, "tt").week, "B", "a JSON string in another attribute parses");
+// unavailable says why, and never reads as a day with no lessons
+eq([pt("2026-10-26", null).status, pt("2026-10-26", null).reason], ["unavailable", "not found"], "a missing entity is unavailable");
+eq(pt("2026-10-26", { state: "unavailable", attributes: {} }).reason, "is unavailable", "an unavailable entity says so");
+eq(pt("2026-10-26", { state: "3", attributes: { other: 1 } }).reason, "has no timetable attribute", "an entity without the attribute says so");
+eq(pt("2026-10-26", { state: "3", attributes: { timetable: { weeks: ["A"] } } }).status, "unavailable", "a timetable with no days is unavailable");
+// v1.1.0's flat sensor: the week as the state, today and tomorrow as "Subject|Room" lists
+const flat = { state: "Week 1", attributes: { open_today: true, day_today: "Monday", lessons_today: ["Maths|M1", "English|E2"], open_tomorrow: false, week_tomorrow: "Week 1",
+  grid: { "Week 1": { Monday: ["Maths|M1", "English|E2"], Wednesday: ["Art|A1"] } } } };
+const fl = m.parseTimetable(flat, "2026-10-26", "2026-10-26");
+eq([fl.status, fl.week, fl.lessons], ["ok", "Week 1", [{ p: 1, start: "", end: "", subject: "Maths", room: "M1" }, { p: 2, start: "", end: "", subject: "English", room: "E2" }]], "v1.1.0 lessons_today parses");
+eq(m.parseTimetable(flat, "2026-10-27", "2026-10-26").status, "closed", "v1.1.0 open_tomorrow false is a closed day");
+eq(m.parseTimetable(flat, "2026-10-28", "2026-10-26").lessons.map(function (l) { return l.subject; }), ["Art"], "v1.1.0 grid days parse");
+eq(m.parseTimetable({ state: "Week 2", attributes: { open_today: true, lessons_today: ["PE|Gym"] } }, "2026-10-26", "2026-10-26").lessons.map(function (l) { return l.room; }), ["Gym"], "v1.1.0 without a grid still has today");
+
+// parseLunch: served with options and allergens, closed, no menu, past the end, weekend.
+const LU = { "2026-10-26": { status: "served", options: [{ name: "Pasta bake", kind: "main", allergens: ["Gluten", "Milk", "Milk"] }, "Jacket potato", { kind: "veg" }],
+    pudding: "Apple crumble", choice: "packed", note: "Theme day" },
+  "2026-10-27": { status: "closed", note: "INSET" }, "2026-10-28": { status: "no_menu" }, "2026-10-29": { options: [{ name: "Curry", allergens: "Celery, Mustard" }] } };
+const lst = { state: "served", attributes: { menu: LU, menu_ends: "2026-10-30" } };
+const pl = function (d, st, t, a) { return m.parseLunch(st === undefined ? lst : st, d, t, a); };
+const mon = pl("2026-10-26");
+eq([mon.status, mon.options, mon.pudding, mon.choice, mon.note], ["served", [{ name: "Pasta bake", kind: "main", allergens: ["Gluten", "Milk"] }, { name: "Jacket potato", kind: "", allergens: [] }],
+  { name: "Apple crumble", kind: "", allergens: [] }, "packed", "Theme day"], "a served day has its options, allergens, pudding, choice and note");
+eq([pl("2026-10-27").status, pl("2026-10-27").note], ["closed", "INSET"], "a closed day says why");
+eq(pl("2026-10-28").status, "no_menu", "no_menu stays no_menu");
+eq([pl("2026-10-29").status, pl("2026-10-29").options[0].allergens], ["served", ["Celery", "Mustard"]], "options with no status are served, and allergens can be a string");
+eq(pl("2026-10-30").status, "no_menu", "a school day missing from the menu is no_menu");
+eq([pl("2026-11-02").status, pl("2026-11-02").menuEnds], ["ended", "2026-10-30"], "past menu_ends is ended");
+eq(pl("2026-10-31").status, "weekend", "Saturday is the weekend");
+eq(pl("2026-10-27", { state: "x", attributes: { lunch: { menu: LU, menu_ends: "2026-10-30" } } }, null, "lunch").note, "INSET", "menu and menu_ends inside one attribute");
+eq([pl("2026-10-26", null).status, pl("2026-10-26", { state: "unknown", attributes: {} }).reason], ["unavailable", "is unknown"], "a missing or unknown lunch sensor is unavailable");
+const fll = { state: "served", attributes: { status_today: "served", served_today: true, main_today: "Pasta bake", veg_today: "Veggie bake", pudding_today: "Crumble", status_tomorrow: "closed", menu_ends: "2026-12-18" } };
+eq([pl("2026-10-26", fll, "2026-10-26").options.map(function (o) { return o.kind + ":" + o.name; }), pl("2026-10-26", fll, "2026-10-26").pudding.name], [["main:Pasta bake", "veg:Veggie bake"], "Crumble"], "v1.1.0 main_today parses");
+eq([pl("2026-10-27", fll, "2026-10-26").status, pl("2026-10-28", fll, "2026-10-26").status, pl("2026-12-21", fll, "2026-10-26").status], ["closed", "no_menu", "ended"], "v1.1.0 tomorrow, other days and past the end");
+
+// lunchChoice: a live entity, then the menu's day, then the config.
+const fri = "2026-10-30", monday = "2026-10-26";
+eq(m.lunchChoice({ value: "packed" }, monday, null, ""), { text: "Packed lunch", from: "config", err: "" }, "a fixed word");
+eq([m.lunchChoice({ days: { fri: "packed" } }, fri, null, "").text, m.lunchChoice({ days: { fri: "packed" } }, monday, null, "")], ["Packed lunch", null], "a weekday map");
+eq(m.lunchChoice({ entity: "input_select.k" }, monday, { state: "School dinner" }, "packed"), { text: "School dinner", from: "input_select.k", err: "" }, "a live entity wins");
+eq(m.lunchChoice({ entity: "input_select.k" }, monday, { state: "unavailable" }, "school"), { text: "School dinner", from: "menu", err: "input_select.k is unavailable" }, "an unavailable entity falls back and says so");
+eq(m.lunchChoice({ value: "packed" }, monday, null, "Jacket potato").text, "Jacket potato", "the menu's day choice beats the config");
+eq(m.lunchChoice(null, monday, null, ""), null, "nothing says, nothing shown");
+
 // ── The creature registry ───────────────────────────────────────────────────────
-function ok(cond, what) { n++; if (!cond) { console.error("FAIL " + what); process.exit(1); } }
 const isFn = function (f) { return typeof f === "function"; };
 const C = m.CREATURES, ids = C.map(function (c) { return c && c.id; });
 ok(Array.isArray(C) && C.length >= 8, "the creature registry is exported and has the cast");

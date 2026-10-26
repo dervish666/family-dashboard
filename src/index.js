@@ -11,6 +11,7 @@
 //   editor.js         the visual editor
 //   config.js         DEFAULTS, normalize(), the first-install stub
 //   calendar.js       reading calendars straight from Home Assistant
+//   school.js         each child's timetable and lunch menu, parsed from sensor attributes
 //   engine/engine.js  the world: creatures, the day, weather, parties, the cards
 //   engine/draw.js    canvas helpers shared by the engine, creatures and scenes
 //   creatures/*.js    one module per animal, listed in creatures/index.js
@@ -20,5 +21,6 @@ import "./card.js";
 // For tests/check.mjs. Home Assistant loads this file as a module and ignores the exports.
 export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
 export { parseCalendarEvents, weekRange, calendarPath } from "./calendar.js";
+export { parseTimetable, parseLunch, lunchChoice } from "./school.js";
 export { CREATURES, HELPERS as CREATURE_HELPERS, bakeRig } from "./creatures/index.js";
 export { SCENE_LIST } from "./scenes/index.js";
