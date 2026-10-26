@@ -1,0 +1,80 @@
+# Throwaway Home Assistant config for tests/panels/ha_live.py. It loads the
+# shipped panels.example.yaml and scripts.example.yaml unchanged, plus fake
+# versions of the card's sensors so the panel sensors have something to read.
+homeassistant:
+  name: Panels test
+  time_zone: Europe/London
+  country: GB
+  unit_system: metric
+  packages:
+    panels: !include panels.example.yaml
+
+http:
+api:
+system_log:
+logger:
+  default: warning
+  logs:
+    family_panels: info
+
+script: !include scripts.example.yaml
+
+input_text:
+  family_letter:
+    name: Family letter
+    max: 255
+  family_announcement:
+    name: Family announcement
+    max: 255
+    initial: ""
+
+input_select:
+  kid_b_lunch:
+    name: Kid B lunch
+    options: [School dinner, Packed lunch]
+    initial: Packed lunch
+
+template:
+  - sensor:
+      - name: Family Today
+        unique_id: test_family_today
+        state: "3"
+        attributes:
+          checked_at: "{{ now().isoformat() }}"
+          events: >-
+            {{ [
+              {'who': 'House', 'what': 'Bin day', 'all_day': true, 'start': now().date().isoformat(), 'at': ''},
+              {'who': 'Kid A', 'what': 'Swimming', 'all_day': false,
+               'start': (now() + timedelta(hours=2)).isoformat(), 'at': (now() + timedelta(hours=2)).strftime('%H:%M')},
+              {'who': 'Parent 1', 'what': 'Long gone', 'all_day': false,
+               'start': (now() - timedelta(hours=3)).isoformat(), 'at': (now() - timedelta(hours=3)).strftime('%H:%M')}
+            ] }}
+      - name: Due Times
+        unique_id: test_due_times
+        state: "3"
+        attributes:
+          items: >-
+            {{ [
+              {'label': 'Library books back', 'due': (now() + timedelta(hours=1)).strftime('%H:%M'), 'person': 'Kid A'},
+              {'label': 'Trip form', 'due': now().date().isoformat()},
+              {'label': 'Far away', 'due': (now() + timedelta(days=5)).date().isoformat()},
+              {'label': 'Broken', 'due': 'tomorrowish'}
+            ] }}
+      - name: Family Kit
+        unique_id: test_family_kit
+        state: "1"
+        attributes:
+          kit_today: PE kit
+      - name: Kid A Lunch
+        unique_id: test_kid_a_lunch
+        state: "ok"
+        attributes:
+          menu: >-
+            {{ {now().date().isoformat(): {'status': 'served',
+                'options': [{'name': 'Pasta bake', 'kind': 'main'}, 'Jacket potato'],
+                'choice': 'Bean chilli'}} }}
+      - name: Kid B Lunch
+        unique_id: test_kid_b_lunch
+        state: "ok"
+        attributes:
+          menu: "{{ {} }}"
