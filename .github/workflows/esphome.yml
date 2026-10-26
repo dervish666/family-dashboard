@@ -1,0 +1,118 @@
+name: Room panels
+
+# The optional ESPHome room panels and their Home Assistant package. Separate
+# from validate.yml on purpose: nothing here builds or checks the card.
+on:
+  push:
+    paths:
+      - "esphome/**"
+      - "homeassistant/panels.example.yaml"
+      - "homeassistant/scripts.example.yaml"
+      - "tests/panels/**"
+      - ".github/workflows/esphome.yml"
+  pull_request:
+    paths:
+      - "esphome/**"
+      - "homeassistant/panels.example.yaml"
+      - "homeassistant/scripts.example.yaml"
+      - "tests/panels/**"
+      - ".github/workflows/esphome.yml"
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # The version the packages were written and compiled against. min_version in
+  # esphome/packages/base.yaml says the same; move both together.
+  ESPHOME_VERSION: "2026.10.0"
+
+jobs:
+  contract:
+    name: Letter contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml jinja2 python-slugify
+      - name: Recipient checks and message parsing, both sides
+        run: python tests/panels/check.py
+      - name: Prove the checks can fail
+        run: python tests/panels/check.py --sabotage
+
+  config:
+    name: esphome config, every board x profile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ESPHome in a venv
+        run: |
+          python -m venv "$RUNNER_TEMP/esphome"
+          "$RUNNER_TEMP/esphome/bin/pip" install "esphome==$ESPHOME_VERSION"
+      - name: Board x profile matrix
+        run: ESPHOME="$RUNNER_TEMP/esphome/bin/esphome" sh tests/panels/matrix.sh
+      - name: The local examples
+        run: |
+          sh tests/panels/fake-secrets.sh esphome/examples
+          for f in esphome/examples/*.local.yaml; do
+            echo "== $f"; "$RUNNER_TEMP/esphome/bin/esphome" config "$f" > /dev/null || exit 1
+          done
+      - name: The GitHub examples, pinned to this commit
+        env:
+          REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          work="$RUNNER_TEMP/remote"; mkdir -p "$work"
+          sh tests/panels/fake-secrets.sh "$work"
+          for f in esphome/examples/*.yaml; do
+            case "$f" in *.local.yaml|*/secrets.yaml) continue;; esac
+            sed "s/\.yaml@main$/.yaml@$REF/" "$f" > "$work/$(basename "$f")"
+            grep -q "@$REF" "$work/$(basename "$f")" || { echo "no @main ref in $f"; exit 1; }
+            echo "== $f @ $REF"; "$RUNNER_TEMP/esphome/bin/esphome" config "$work/$(basename "$f")" > /dev/null || exit 1
+          done
+
+  compile:
+    name: compile ${{ matrix.example }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [kid-a.local.yaml, kitchen.local.yaml, kid-b.local.yaml]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ env.ESPHOME_VERSION }}-${{ matrix.example }}
+      - name: Install ESPHome in a venv
+        run: |
+          python -m venv "$RUNNER_TEMP/esphome"
+          "$RUNNER_TEMP/esphome/bin/pip" install "esphome==$ESPHOME_VERSION"
+      - name: Compile
+        run: |
+          sh tests/panels/fake-secrets.sh esphome/examples
+          "$RUNNER_TEMP/esphome/bin/esphome" compile "esphome/examples/${{ matrix.example }}"
+
+  home-assistant:
+    name: Automations in a throwaway Home Assistant
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Letters, presets and panel sensors against the real thing
+        run: python3 tests/panels/ha_live.py
