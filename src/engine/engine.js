@@ -3,6 +3,7 @@ import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, cla
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST } from "../scenes/index.js";
+import { parseTimetable, parseLunch, lunchChoice, addDays, mondayOf } from "../school.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -313,10 +314,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // true = school day, false = no school, null = cannot tell.
   function schoolDay(name, d) {
     if (!weekday(d)) return false;
-    var S = DATA.school || {}, td = ymd(d);
-    // The optional school sensors answer first for the kid they belong to (SCHOOL_WHO).
-    if (name === SCHOOL_WHO.timetable && S.timetable && typeof S.timetable.open_today === "boolean") return S.timetable.open_today;
-    if (name === SCHOOL_WHO.lunch && S.lunch) { var st = S.lunch.status_today; if (st === "served") return true; if (st === "closed") return false; }
+    var td = ymd(d);
+    // The child's own timetable and lunch sensors answer first (people[].timetable, .lunch).
+    var tt = ttFor(name, d);
+    if (tt && tt.status === "ok") return true;
+    if (tt && (tt.status === "closed" || tt.status === "weekend")) return false;
+    var ln = lunchFor(name, d);
+    if (ln && ln.status === "served") return true;
+    if (ln && ln.status === "closed") return false;
     // Otherwise the term dates in SENSORS.extra.
     var sc = ((DATA.extra || {}).schools || []).filter(function (s) { return s.who === name; })[0];
     if (!sc || !sc.terms) return null;
@@ -2196,6 +2201,43 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   //   kit, flags, term dates, which sources it could and could not check).
   var DATA = { events: [], extra: null, weekAt: null, error: null, gotAt: null };
 
+  // Each child's school sources from people[].timetable, .lunch and .choice (v1.1.0's
+  // sensors.timetable and .lunch arrive here too, copied onto their owner by normalize()).
+  // The demo hands its made-up sensors to the first three school kids instead.
+  var SRC = {};
+  PEOPLE.forEach(function (p) { if (p.timetable || p.lunch || p.choice) SRC[p.name] = { timetable: p.timetable, lunch: p.lunch, choice: p.choice }; });
+  if (DEMO) {
+    SRC = {};
+    var DK = PEOPLE.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
+    var dsrc = function (id, a) { return { entity: id, attribute: a }; };
+    if (DK[0]) SRC[DK[0]] = { timetable: dsrc("sensor.demo_timetable_1", "timetable") };
+    if (DK[1]) SRC[DK[1]] = { timetable: dsrc("sensor.demo_timetable_2", "timetable"), lunch: dsrc("sensor.demo_lunch_2", "menu"), choice: { days: { fri: "packed" } } };
+    if (DK[2]) SRC[DK[2]] = { lunch: dsrc("sensor.demo_lunch_3", "menu"), choice: { value: "school" } };
+  }
+  function schoolEntities() {
+    var ids = [];
+    Object.keys(SRC).forEach(function (n) { var s = SRC[n];
+      [s.timetable && s.timetable.entity, s.lunch && s.lunch.entity, s.choice && s.choice.entity].forEach(function (id) { if (id && ids.indexOf(id) < 0) ids.push(id); }); });
+    return ids;
+  }
+  // Parsed once per child and day until the next load: schoolDay() asks every frame.
+  // { status: "loading" } until the first load has read the sensors.
+  function schoolParse(kind, name, d) {
+    var src = SRC[name] && SRC[name][kind];
+    if (!src) return null;
+    if (!DATA.school) return { status: "loading", lessons: [], options: [] };
+    var C = DATA.pc || (DATA.pc = {}), k = kind + "|" + name + "|" + ymd(d);
+    if (!(k in C)) { var st = DATA.school.states ? DATA.school.states[src.entity] : null;
+      C[k] = (kind === "timetable" ? parseTimetable : parseLunch)(st || null, d, now(), src.attribute); }
+    return C[k];
+  }
+  function ttFor(name, d) { return schoolParse("timetable", name, d); }
+  function lunchFor(name, d) { return schoolParse("lunch", name, d); }
+  function choiceFor(name, d, fromData) {
+    var c = SRC[name] && SRC[name].choice, S = DATA.school || {};
+    return lunchChoice(c || null, d, c && c.entity && S.states ? S.states[c.entity] : null, fromData);
+  }
+
   // Home Assistant hands the card its hass object, so there is no token to find:
   // hassToken() just waits for the first hass and resolves with it.
   function hassToken() {
@@ -2251,13 +2293,17 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var extra = !SENSORS.extra ? Promise.resolve(null) : getState(SENSORS.extra, tok)
         .then(function (s) { if (/^(unavailable|unknown)$/.test(s.state) && !(s.attributes || {}).checked_at) throw new Error(SENSORS.extra + " is " + s.state); return s; })
         .catch(function (e) { console.warn("meadow: extra", e); extraErr = e.message || String(e); return null; });
+      // each child's timetable, lunch and choice entities: a missing one is null, and its card says so
+      var ids = schoolEntities(), states = {};
+      var school = Promise.all(ids.map(function (id) { return getState(id, tok).then(function (s) { states[id] = s; })
+        .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
       return Promise.all([readWeek(tok), extra,
-        opt(SENSORS.timetable), opt(SENSORS.kit), opt(SENSORS.lunch),
+        school, opt(SENSORS.kit), null,                  // null: the slot v1.1.0 used for sensors.lunch
         opt(SENSORS.sun), opt(SENSORS.weather), holidays(tok)]); })
       .then(function (s) {
         var wk = s[0];
         DATA = { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, extra: s[1] ? s[1].attributes || null : null, extraErr: extraErr, error: null, gotAt: new Date(),
-          school: { timetable: s[2] ? Object.assign({ state: s[2].state }, s[2].attributes) : null, kit: s[3] && s[3].attributes, lunch: s[4] && s[4].attributes, err: schoolErr },
+          school: { states: s[2], kit: s[3] && s[3].attributes, err: schoolErr },
           sun: s[5] && s[5].attributes, weather: s[6] ? { state: s[6].state, attributes: s[6].attributes } : null,
           holidays: s[7] || (DATA.holidays || []) };                                // a failed fetch keeps the last good list
         refreshTags();
@@ -2281,13 +2327,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         ev("Kid 2", "Sleepover at Ella's", ad(2)), ev("Kid 3", "Cubs", at(2, "18:30")), ev("Kid 1", "Mock exams start", ad(3)),
         ev("House", "Window cleaner", ad(4)), ev("Parent 2", "Late shift", at(4, "14:00"))
       ],
-      school: { timetable: { state: "Week 1", open_today: true, day_today: DAYS_LONG[now().getDay()], open_tomorrow: true, week_tomorrow: "Week 1",
-          lessons_today: ["Maths|M1", "English|E2", "Core PE|Gym", "Science|S3", "Art|A1"], lessons_tomorrow: ["History|H1", "Maths|M1", "French|L2", "Music|MU", "English|E2"],
-          grid: { "Week 1": { Monday: ["Maths|M1", "English|E2", "Science|S3", "History|H1", "Art|A1"], Tuesday: ["French|L2", "Maths|M1", "English|E2", "Music|MU", "Drama|D1"],
-            Wednesday: ["Maths|M1", "English|E2", "Core PE|Gym", "Science|S3", "Art|A1"], Thursday: ["History|H1", "Maths|M1", "French|L2", "Music|MU", "English|E2"],
-            Friday: ["Science|S3", "Geography|G1", "Maths|M1", "Core PE|Gym", "English|E2"] } } },
-        kit: { kit_today: "PE kit", kit_tomorrow: "Swimming kit" }, lunch: { status_today: "served", served_today: true, main_today: "Pasta bake", veg_today: "Veggie pasta bake", pudding_today: "Apple crumble",
-          status_tomorrow: "served", served_tomorrow: true, main_tomorrow: "Fish fingers", veg_tomorrow: "Veggie fingers", pudding_tomorrow: "Yoghurt" } },
+      school: { states: demoSchool(), kit: { kit_today: "PE kit", kit_tomorrow: "Swimming kit" } },
       extra: { checked_at: now().toISOString(), kit: [{ who: "Kid 3", what: "PE kit on Fridays" }], flags: ["Half term starts in three weeks"],
         schools: [{ who: "Kid 2", school: "Demo High", terms: [{ label: "Term 1", from: d(-20), to: d(24) }, { label: "Term 2", from: d(34), to: d(80) }], days: [{ date: d(9), what: "INSET, closed" }] },
           { who: "Kid 1", school: "Demo College", terms: [{ label: "Term 1", from: null, to: d(22), note: "start not published" }, { label: "Term 2", from: d(32), to: null }], days: [] }],
@@ -2295,6 +2335,47 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         items: [{ who: "Kid 2", date: d(2), kind: "homework", what: "Maths homework due" }, { who: "Kid 3", date: d(1), kind: "kit", what: "Swimming kit" },
           { who: "Kid 1", date: d(9), kind: "event", what: "Parents evening" }, { who: "Parent 1", date: d(5), kind: "deadline", what: "School trip form back" }] }
     };
+  }
+  // The demo's school sensors, in the v1.2.0 shapes (README, "School data per child"): the
+  // first school kid on a two-week timetable, the second on a one-week timetable with lunch
+  // and a choice, the third on lunch only. Dates count from this Monday, so they never go stale.
+  function demoSchool() {
+    var mon = mondayOf(now()), day = function (n) { return ymd(addDays(mon, n)); };
+    function L(list) { return list.map(function (x) { var s = x.split("|"); return s[1] ? { subject: s[0], room: s[1] } : { subject: s[0] }; })
+      .map(function (l, i) { l.p = i + 1; return l; }); }
+    function week(rows) { var o = {}; ["mon", "tue", "wed", "thu", "fri"].forEach(function (k, i) { o[k] = L(rows[i]); }); return o; }
+    var tt1 = { weeks: ["A", "B"], anchor: day(0),
+      periods: [{ p: 1, start: "08:45", end: "09:45" }, { p: 2, start: "09:45", end: "10:45" }, { p: 3, start: "11:05", end: "12:05" }, { p: 4, start: "12:05", end: "13:05" }, { p: 5, start: "13:50", end: "14:50" }],
+      days: { A: week([["Maths|M1", "English|E2", "Science|S3", "History|H1", "Art|A1"], ["French|L2", "Maths|M1", "English|E2", "Music|MU", "Drama|D1"],
+          ["Maths|M1", "English|E2", "PE|Gym", "Science|S3", "Art|A1"], ["History|H1", "Maths|M1", "French|L2", "Music|MU", "English|E2"], ["Science|S3", "Geography|G1", "Maths|M1", "PE|Field", "English|E2"]]),
+        B: week([["English|E2", "Maths|M1", "Geography|G1", "PE|Gym", "Computing|IT1"], ["Science|S2", "Science|S2", "Maths|M1", "RE|R1", "French|L2"],
+          ["Art|A1", "English|E2", "History|H1", "Maths|M1", "Music|MU"], ["PE|Field", "Computing|IT1", "English|E2", "Science|S3", "Drama|D1"], ["Maths|M1", "French|L2", "Geography|G1", "English|E2", "Art|A1"]]) },
+      closed: [] };
+    var tt2 = { weeks: ["A"],
+      periods: [{ p: 1, start: "09:00", end: "10:15" }, { p: 2, start: "10:30", end: "12:00" }, { p: 3, start: "13:00", end: "14:00" }, { p: 4, start: "14:10", end: "15:10" }],
+      days: { A: week([["Maths", "English", "Science", "PE"], ["Phonics", "Maths", "Art", "Music"], ["Maths", "English", "Computing", "Topic"],
+        ["Spelling", "Maths", "PE", "French"], ["Maths", "English", "Forest school", "Golden time"]]) },
+      closed: [{ date: day(9), note: "INSET" }] };
+    var DISH = [
+      [[["Pasta bake", "main", "Gluten,Milk"], ["Veggie pasta bake", "veg", "Gluten,Milk"], ["Jacket potato", "jacket", "Milk"]], ["Apple crumble", "Gluten,Milk"]],
+      [[["Fish fingers", "main", "Fish,Gluten"], ["Veggie fingers", "veg", "Gluten,Soya"]], ["Yoghurt", "Milk"]],
+      [[["Roast chicken", "main", "Celery"], ["Lentil roast", "veg", "Celery,Mustard"]], ["Fruit jelly", ""]],
+      [[["Beef chilli", "main", "Celery"], ["Bean chilli", "vegan", ""]], ["Flapjack", "Gluten"]],
+      [[["Fish and chips", "main", "Fish,Gluten"], ["Cheese and tomato pizza", "veg", "Gluten,Milk"]], ["Shortbread", "Gluten,Milk"]]];
+    function menu(shift, closed, choices) {
+      var m = {};
+      for (var w = 0; w < 2; w++) for (var i = 0; i < 5; i++) {
+        var n = w * 7 + i, dd = DISH[(i + shift + w * 2) % 5];
+        if (closed[n]) { m[day(n)] = { status: "closed", note: closed[n] }; continue; }
+        m[day(n)] = { status: "served", options: dd[0].map(function (o) { return { name: o[0], kind: o[1], allergens: o[2] ? o[2].split(",") : [] }; }),
+          pudding: { name: dd[1][0], allergens: dd[1][1] ? dd[1][1].split(",") : [] } };
+        if (choices[n]) m[day(n)].choice = choices[n];
+      }
+      return { menu: m, menu_ends: day(11) };
+    }
+    var l2 = menu(0, { 9: "INSET" }, { 1: "Veggie fingers" }), l3 = menu(1, {}, {});
+    return { "sensor.demo_timetable_1": { state: "A", attributes: { timetable: tt1 } }, "sensor.demo_timetable_2": { state: "A", attributes: { timetable: tt2 } },
+      "sensor.demo_lunch_2": { state: "served", attributes: l2 }, "sensor.demo_lunch_3": { state: "served", attributes: l3 } };
   }
   function byStart(ev) { return ev.slice().sort(function (a, b) { return new Date(a.start) - new Date(b.start); }); }
   function todayFor(name) { var td = ymd(now()); return DATA.events.filter(function (e) { return e.who === name && e.day === td; }); }
@@ -2636,18 +2717,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       html += "<h2>This week</h2>";
       later.forEach(function (e) { html += row(dayLabel(e.day) + (e.all_day ? "" : " " + e.at), e.what); });
     }
-    // School lunch, today and tomorrow, from SENSORS.lunch (the menu rotation transcribed
-    // in configuration.yaml), on the card of the person named in SCHOOL_WHO.lunch.
-    var L2 = name === SCHOOL_WHO.lunch && DATA.school && DATA.school.lunch;
-    if (L2) {
-      html += "<h2>Lunch</h2>";
-      [["today", 0], ["tomorrow", 1]].forEach(function (w) {
-        var day = DAYS_LONG[new Date(now().getTime() + w[1] * 864e5).getDay()], st = L2["status_" + w[0]];
-        var txt = L2["served_" + w[0]] ? esc(L2["main_" + w[0]]) + (L2["veg_" + w[0]] ? soft("or " + L2["veg_" + w[0]]) : "") + (L2["pudding_" + w[0]] ? soft("pudding: " + L2["pudding_" + w[0]]) : "")
-          : st === "closed" ? "No school lunch" : "Menu not gathered" + (L2.menu_ends ? soft("the printed menu ran out after " + L2.menu_ends) : "");
-        html += row(day, txt, "", true);
-      });
-    }
+    // This child's lessons and lunch (people[].timetable, .lunch), with what went wrong for the foot.
+    var sch = schoolSections(name);
+    html += sch.html;
     var ex = DATA.extra || {}, items = (ex.items || []).filter(function (i) { return i.who === name && i.date >= td; })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     var kit = (ex.kit || []).filter(function (k) { return k.who === name; });
@@ -2665,6 +2737,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       return name === "House" || SOURCE_OWNER.some(function (m) { return m[0].test(s) && m[1] === name; }); });
     if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
     var calBad = (DATA.calFailed || []).filter(function (f) { return f.who === name; });
+    sch.foot.forEach(function (f) { foot.push('<span class="bad">' + esc(f) + "</span>"); });
     if (calBad.length) foot.push('<span class="bad">Calendar unavailable: ' + calBad.map(function (f) { return esc(f.id); }).join(", ") + ". This week may be missing events.</span>");
     if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
     if (LETTER.clearErr) foot.push('<span class="bad">Couldn\'t clear the letter in Home Assistant (' + esc(LETTER.clearErr) + ').</span>');
@@ -2691,30 +2764,130 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   // ── The school card ─────────────────────────────────────────────────────────
   // Tapping the school opens everything school-shaped in one place. Sources, all
-  // through Home Assistant: the lesson grid from SENSORS.timetable, kit and lunch from
-  // SENSORS.kit and SENSORS.lunch, and term dates plus school items from SENSORS.extra.
+  // through Home Assistant: each child's lessons and lunch from people[].timetable and .lunch,
+  // kit from SENSORS.kit, and term dates plus school items from SENSORS.extra.
   // KIDS are the PEOPLE with school: true; only their items count here.
   var SCHOOL_CARD = { happy: 0, wait: 0 }, KIDS = PEOPLE.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
-  var WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   function soft(s) { return ' <span class="soft">' + esc(s) + "</span>"; }
+  // ── School data per child ────────────────────────────────────────────────────
+  // Lessons and lunch from people[].timetable and .lunch, parsed by school.js. Every empty
+  // state says which one it is: a sensor that is set but missing says unavailable and names
+  // itself, never a blank that reads as a day off.
+  var LESSONS_UNTIL = 15.5;                       // after half past three a card shows the next school day
+  function empty(t) { return '<div class="empty">' + esc(t) + "</div>"; }
+  function weekName(w) { return /^week\b/i.test(w) ? w : "Week " + w; }      // "A" reads "Week A", "Week 1" stays
+  function shortDate(ds) { var x = new Date(ds + "T12:00:00"); return DAYS[x.getDay()] + " " + x.getDate() + " " + MONTHS[x.getMonth()]; }
   function lessonRows(list) {
-    return list.map(function (l, i) { var p = l.split("|"), pe = /^Core PE/.test(p[0]);
-      return '<div class="row lesson"><div class="when">Period ' + (i + 1) + '</div><div class="what">' +
-        (pe ? '<span class="chip">PE kit</span>' : "") + esc(p[0]) + (p[1] && p[1] !== "—" ? soft(p[1]) : "") + "</div></div>"; }).join("");
+    return list.map(function (l) {
+      return '<div class="row lesson"><div class="when">' + esc(l.start || "Period " + l.p) + '</div><div class="what">' + esc(l.subject) + (l.room ? soft(l.room) : "") + "</div></div>"; }).join("");
   }
-  function weekTable(ph) {
-    var grid = ph.grid && ph.grid[ph.state];
-    if (!grid) return '<div class="empty">The full week is not on the sensor yet.</div>';
+  // Mon to Fri of one child's week: periods down the side, today's column lit, and the day the
+  // card is showing outlined when that is not today. Closed days say so in their header.
+  function weekGrid(g, td, shown) {
     var h = '<table class="tt"><tr><th></th>';
-    WEEKDAYS.forEach(function (d) { h += "<th" + (ph.open_today && ph.day_today === d ? ' class="now"' : "") + ">" + d.slice(0, 3) + "</th>"; });
+    g.days.forEach(function (d) {
+      var cls = d.date === td ? "now" : d.date === shown ? "next" : "";
+      h += '<th class="' + cls + '">' + DAYS_LONG[new Date(d.date + "T12:00:00").getDay()].slice(0, 3) + "<small>" + (d.closed ? esc(d.note || "No school") : new Date(d.date + "T12:00:00").getDate()) + "</small></th>"; });
     h += "</tr>";
-    for (var p = 0; p < 5; p++) {
-      h += "<tr><th>" + (p + 1) + "</th>";
-      WEEKDAYS.forEach(function (d) { var c = (grid[d] || [])[p] || "", s = c.split("|");
-        var cls = (ph.open_today && ph.day_today === d ? "now" : "") + (/^Core PE/.test(s[0]) ? " pe" : "");
-        h += '<td class="' + cls + '">' + esc(s[0]) + (s[1] && s[1] !== "—" ? "<small>" + esc(s[1]) + "</small>" : "") + "</td>"; });
+    g.rows.forEach(function (r) {
+      h += "<tr><th>" + esc(r.p) + (r.start ? "<small>" + esc(r.start) + "</small>" : "") + "</th>";
+      r.cells.forEach(function (c, i) { var d = g.days[i];
+        var cls = (d.date === td ? "now" : d.date === shown ? "next" : "") + (d.closed ? " off" : "");
+        h += '<td class="' + cls + '">' + (c ? esc(c.subject) + (c.room ? "<small>" + esc(c.room) + "</small>" : "") : "") + "</td>"; });
       h += "</tr>";
+    });
+    return h + "</table>";
+  }
+  // The next day the timetable has lessons, up to a fortnight ahead.
+  function nextLessonDay(name, from) {
+    for (var i = 1; i <= 14; i++) { var d = addDays(from, i), t = ttFor(name, d);
+      if (t.status === "ok" || t.status === "unavailable" || t.status === "no_week") return { d: d, t: t, i: i }; }
+    return null;
+  }
+  function dishHtml(o, picked) {
+    return '<div class="dish' + (picked ? " picked" : "") + '">' + (picked ? '<span class="chip pick">Chosen</span>' : "") + esc(o.name) + (o.kind ? soft(o.kind) : "") +
+      o.allergens.map(function (a) { return ' <span class="alg">' + esc(a) + "</span>"; }).join("") + "</div>";
+  }
+  // One day's lunch as a row's content: the choice, the options with allergens, the pudding.
+  // A school day without a menu says which kind of without it is.
+  function lunchHtml(name, d, l, today) {
+    var ch = l.status === "served" || l.status === "no_menu" || l.status === "ended" ? choiceFor(name, d, l.choice) : null;
+    // A choice that names one of the options marks that option, and the chip says school dinner.
+    var pick = ch && ch.text ? ch.text.toLowerCase() : "", named = l.options.some(function (o) { return o.name.toLowerCase() === pick; });
+    var head = ch && ch.text ? '<span class="chip choice">' + esc(named ? "School dinner" : ch.text) + "</span>" : "";
+    if (l.status === "served") {
+      var opts = l.options.map(function (o) { return dishHtml(o, o.name.toLowerCase() === pick); }).join("");
+      return head + (opts || esc("Served, options not listed")) + (l.pudding ? '<div class="dish"><span class="soft">Pudding</span> ' + esc(l.pudding.name) +
+        l.pudding.allergens.map(function (a) { return ' <span class="alg">' + esc(a) + "</span>"; }).join("") + "</div>" : "") + (l.note ? '<div class="dish soft">' + esc(l.note) + "</div>" : "");
     }
+    if (l.status === "closed") return esc("No school lunch" + (today ? " today" : "") + (l.note ? " (" + l.note + ")" : ""));
+    if (l.status === "weekend") return esc("No school, it's the weekend");
+    if (l.status === "ended") return head + esc("Menu ran out after " + shortDate(l.menuEnds));
+    if (l.status === "loading") return esc("Loading the menu");
+    return head + esc("Menu not published for this week");
+  }
+  // The child's card: lessons today (or the next school day), the week grid folded away, then
+  // lunch today and on the next school day. html for the card, foot for what could not be read.
+  function schoolSections(name) {
+    var out = { html: "", foot: [] }, src = SRC[name];
+    if (!src) return out;
+    var d = now(), td = ymd(d);
+    if (src.timetable) {
+      var t = ttFor(name, d), shown = null, sh = null, head;
+      if (t.status === "unavailable") { out.html += "<h2>Lessons</h2>" + empty("Timetable unavailable (" + src.timetable.entity + ")");
+        out.foot.push("Timetable " + src.timetable.entity + " " + (t.reason || "unavailable") + "."); }
+      else if (t.status === "loading") out.html += "<h2>Lessons</h2>" + empty("Loading the timetable.");
+      else if (t.status === "no_week") { out.html += "<h2>Lessons</h2>" + empty("Timetable can't tell which week this is");
+        out.foot.push("Timetable " + src.timetable.entity + ": " + t.reason + ". Add anchor or week_of."); }
+      else {
+        if (t.status === "ok" && d.getHours() + d.getMinutes() / 60 < LESSONS_UNTIL) { shown = td; sh = t; head = "Lessons today"; }
+        else {
+          if (t.status !== "ok") out.html += "<h2>Lessons today</h2>" + empty("No school today" + (t.note && t.status === "closed" ? " (" + t.note + ")" : ""));
+          var nx = nextLessonDay(name, d);
+          if (nx && nx.t.status === "ok") { shown = ymd(nx.d); sh = nx.t; head = "Lessons " + (nx.i === 1 ? "tomorrow" : nx.i < 7 ? DAYS_LONG[nx.d.getDay()] : shortDate(shown)); }
+          else if (nx) out.foot.push("Timetable " + src.timetable.entity + " " + (nx.t.reason || "unavailable") + ".");
+          else out.html += empty("No lessons on the timetable for the next two weeks.");
+        }
+        if (sh) out.html += "<h2>" + esc(head) + "</h2>" + (sh.lessons.length ? lessonRows(sh.lessons) : empty("Nothing on the timetable for " + DAYS_LONG[new Date(shown + "T12:00:00").getDay()] + "."));
+        var g = (sh || t).grid;
+        if (g && g.week) out.html += '<details class="wk"><summary>' + esc(weekName(g.week)) + ", from " + esc(shortDate(g.monday)) + "</summary>" + weekGrid(g, td, shown) + "</details>";
+      }
+    }
+    if (src.lunch) {
+      var first = lunchFor(name, d);
+      out.html += "<h2>Lunch</h2>";
+      if (first.status === "unavailable") { out.html += empty("Lunch menu unavailable (" + src.lunch.entity + ")");
+        out.foot.push("Lunch menu " + src.lunch.entity + " " + (first.reason || "unavailable") + "."); }
+      else {
+        var days = weekday(d) ? [d] : [];
+        var nd = addDays(d, 1); while (!weekday(nd)) nd = addDays(nd, 1);
+        days.push(nd);
+        days.forEach(function (x) { out.html += row(dayLabel(ymd(x)), lunchHtml(name, x, lunchFor(name, x), ymd(x) === td), "", true); });
+        var ce = choiceFor(name, d, first.choice);
+        if (ce && ce.err) out.foot.push("Lunch choice unavailable (" + ce.err + ").");
+      }
+    }
+    return out;
+  }
+  // The School card's week: one lane per child with a timetable, Mon to Fri, today lit. On a
+  // weekend it is next week.
+  function schoolWeek(td) {
+    var d = now(), kids = PEOPLE.filter(function (p) { return SRC[p.name] && SRC[p.name].timetable; });
+    if (!kids.length) return "";
+    var mon = weekday(d) ? mondayOf(d) : mondayOf(addDays(d, 7)), dates = [0, 1, 2, 3, 4].map(function (i) { return ymd(addDays(mon, i)); });
+    var h = "<h2>" + (weekday(d) ? "This week" : "Next week") + '</h2><table class="tt lanes"><tr><th></th>';
+    dates.forEach(function (ds) { h += '<th class="' + (ds === td ? "now" : "") + '">' + esc(shortDate(ds).replace(/ \w+$/, "")) + "</th>"; });
+    h += "</tr>";
+    kids.forEach(function (p) {
+      var t = ttFor(p.name, mon), g = t.grid;
+      h += '<tr><th class="who"><span class="dot" style="background:' + esc(p.col) + '"></span>' + esc(p.name) + (g && g.week ? "<small>" + esc(weekName(g.week)) + "</small>" : "") + "</th>";
+      if (!g || !g.week) { h += '<td colspan="5" class="off">' + esc(t.status === "unavailable" ? "Timetable unavailable (" + SRC[p.name].timetable.entity + ")" : t.status === "loading" ? "Loading"
+        : g && g.off ? "No timetable this week" : "Timetable can't tell which week this is") + "</td></tr>"; return; }
+      g.days.forEach(function (day) {
+        h += '<td class="' + (day.date === td ? "now" : "") + (day.closed ? " off" : "") + '">' + (day.closed ? esc(day.note || "No school")
+          : day.lessons.map(function (l) { return '<div class="ln"><b>' + esc(l.p) + "</b> " + esc(l.subject) + "</div>"; }).join("")) + "</td>"; });
+      h += "</tr>";
+    });
     return h + "</table>";
   }
   // "Term 1 ends Fri 16 Oct", or when the next one starts, with the gathered note.
@@ -2732,23 +2905,20 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return out;
   }
   function openSchool() {
-    var d = now(), td = ymd(d), ex = DATA.extra || {}, S = DATA.school || {}, ph = S.timetable, html = "", sum = "";
-    var TW = esc(SCHOOL_WHO.timetable), KW = esc(SCHOOL_WHO.kit === SCHOOL_WHO.lunch ? SCHOOL_WHO.kit : SCHOOL_WHO.kit + " and " + SCHOOL_WHO.lunch);
-    // The timetable: today big, or tomorrow if there is no school today
-    if (SENSORS.timetable) {
-      if (!ph) { html += "<h2>" + TW + "'s timetable</h2>" + '<div class="empty">Not loaded' + (S.err ? " (" + esc(S.err) + ")" : "") + ".</div>"; sum = "Timetable not loaded"; }
-      else if (ph.open_today) { html += "<h2>" + TW + " today, " + esc(ph.state) + "</h2>" + lessonRows(ph.lessons_today || []); sum = TW + ": " + ph.state; }
-      else { html += "<h2>" + TW + "</h2>" + '<div class="empty">No school for ' + TW + ' today.</div>';
-        if (ph.open_tomorrow) html += "<h2>" + TW + " tomorrow, " + esc(ph.week_tomorrow) + "</h2>" + lessonRows(ph.lessons_tomorrow || []);
-        sum = "No school for " + TW + " today"; }
-      if (ph) html += "<h2>" + TW + "'s " + esc(ph.state) + "</h2>" + weekTable(ph);
+    var d = now(), td = ymd(d), ex = DATA.extra || {}, S = DATA.school || {}, html = "", sum = "";
+    // Each child with a timetable in one grid, then today's lunch for each child with a menu
+    html += schoolWeek(td);
+    var lunchKids = PEOPLE.filter(function (p) { return SRC[p.name] && SRC[p.name].lunch; });
+    if (lunchKids.length && weekday(d)) {
+      html += "<h2>Lunch today</h2>";
+      lunchKids.forEach(function (p) { var l = lunchFor(p.name, d);
+        html += row(p.name, l.status === "unavailable" ? esc("Lunch menu unavailable (" + SRC[p.name].lunch.entity + ")") : lunchHtml(p.name, d, l, true), "", true); });
     }
-    // Kit and lunch
-    if (S.kit || S.lunch) {
-      html += "<h2>" + KW + " today</h2>";
-      if (S.kit) html += row("Kit", S.kit.kit_today && S.kit.kit_today !== "none" ? S.kit.kit_today : "No kit needed");
-      if (S.lunch) html += row("Lunch", S.lunch.served_today ? S.lunch.main_today + (S.lunch.veg_today ? ", or " + S.lunch.veg_today : "") : "No school lunch today");
-    }
+    if (S.kit) html += "<h2>Kit today</h2>" + row(SCHOOL_WHO.kit, S.kit.kit_today && S.kit.kit_today !== "none" ? S.kit.kit_today : "No kit needed");
+    // Kids the data cannot place (no timetable, lunch or term dates) are not counted as home.
+    var days = KIDS.map(function (n) { return schoolDay(n, d); }), atSchool = days.filter(function (x) { return x === true; }).length;
+    sum = !weekday(d) ? "Weekend" : atSchool ? atSchool + (atSchool === 1 ? " child" : " children") + " at school today"
+      : days.length && days.every(function (x) { return x === false; }) ? "No school today" : "Can't tell who has school today";
     // School items for every kid, soonest first
     var items = (ex.items || []).filter(function (i) { return KIDS.indexOf(i.who) >= 0 && i.date >= td; })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
@@ -2766,6 +2936,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var missing = (ex.sources || {}).unavailable || [];
     if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
     if (!DEMO) { var xs2 = extraState(); if (xs2) foot.push('<span class="bad">' + esc(xs2) + "</span>"); }
+    PEOPLE.forEach(function (p) { schoolSections(p.name).foot.forEach(function (f) { foot.push('<span class="bad">' + esc(p.name + ": " + f) + "</span>"); }); });
+    (CONFIG.schoolOrphans || []).forEach(function (o) { foot.push('<span class="bad">' + esc("sensors." + o.key + " (" + o.entity + ") belongs to schoolWho." + o.key + " = " + o.who +
+      ", who is not in people. Set " + o.key + " on the child.") + "</span>"); });
     html += '<div class="foot">' + foot.join(" ") + "</div>";
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;

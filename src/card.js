@@ -82,7 +82,23 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .tt td small { display: block; font-size: 12px; color: var(--ink-soft); }
 .tt td.now, .tt th.now { background: #F3E3A2; color: #26352C; }
 .tt td.now small { color: #56675C; }
-.tt td.pe { box-shadow: inset 0 0 0 2px #7FB77E; }
+.tt th small { display: block; font-size: 12px; font-weight: 500; }
+.tt td.next, .tt th.next { box-shadow: inset 0 0 0 2px #E2C25A; }
+.tt td.off { background: transparent; color: var(--ink-soft); }
+.tt .ln { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt .ln b { font-weight: 600; color: var(--ink-soft); font-size: 12px; margin-right: 2px; }
+.tt.lanes { table-layout: fixed; }
+.tt.lanes td { font-size: 14px; }
+.tt.lanes th.who { width: 112px; font-size: 16px; color: var(--ink); }
+.tt.lanes .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.wk { margin: 12px 0 2px; }
+.wk > summary { font-size: 18px; font-weight: 600; color: var(--ink-soft); padding: 8px 0; cursor: pointer; outline: none; }
+.dish { padding: 1px 0 3px; }
+.dish > .soft:first-child { margin-left: 0; margin-right: 4px; }
+.alg { display: inline-block; font-size: 13px; font-weight: 600; border-radius: 999px; padding: 1px 8px; margin-left: 4px;
+  vertical-align: 2px; background: #F8DCCB; color: #7A3412; }
+.chip.choice { background: #D7EBD3; color: #2D5737; }
+.chip.pick { background: #F3E3A2; color: #26352C; }
 #next { transition: opacity .6s; }
 .foot .bad { color: var(--warn); }
 @media (prefers-reduced-motion: reduce) { #card, #scrim { transition: none; } .dchip.now { animation: none; } }
