@@ -1,5 +1,6 @@
 // Runnable check for the parts of the card that need no real pixels: config normalisation,
-// calendar parsing, the school timetable and lunch parsers, and the creature and scene registries (every module has the interface,
+// calendar parsing, the school timetable and lunch parsers, the announcement extras and the town crier's
+// rules, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
 // throwing). No dependencies.
 // Run: node tests/check.mjs [path/to/family-dashboard.js] [path/to/src]
@@ -292,6 +293,95 @@ eq([pa({ state: "Bins tonight", last_changed: lc0 }).status, pa({ state: "Bins t
 eq([pa({ state: "" }).status, pa({ state: "   " }).status, pa({ state: "unknown" }).status, pa({ state: "5|x|" }).status], ["empty", "empty", "empty", "empty"], "nothing to say is empty, not unavailable");
 eq([pa(null).status, pa(null).reason, pa({ state: "unavailable" }).reason], ["unavailable", "not found", "is unavailable"], "missing or unavailable says so");
 eq(pa({ state: "9999|x|hi", last_changed: lc0 }).mins, 1440, "a day at most");
+
+// ── The town crier (v1.7.0) ─────────────────────────────────────────────────────────
+// Config: on by default with an announcement, sound and clear off by default, nothing without one.
+eq(off.crier, null, "no announcement, no crier: a v1.5.1 config grows nothing");
+eq(xc.crier, { on: true, sound: false, clear: false, late: 1 }, "an announcement brings the crier, silent, never clearing, late after a minute");
+const cr = function (o) { return m.normalize(Object.assign({ demo: true, announcement: "input_text.notice" }, o)).crier; };
+eq([cr({ announcement_crier: false }).on, cr({ announcement_sound: true }).sound, cr({ announcement_clear: true }).clear, cr({ announcement_late: "5" }).late, cr({ announcement_late: 0 }).late],
+  [false, true, true, 5, 0], "each switch and the late minutes");
+eq(m.normalize({ demo: true, announcement: "text.notice", announcement_clear: true }).crier.clear, true, "a text entity can be cleared too");
+eq(m.normalize({ demo: true, announcement_crier: true, announcement_clear: true }).crier, null, "crier keys without an announcement are ignored");
+throws(function () { cr({ announcement_sound: "yes" }); }, /announcement_sound must be true or false/, "a sound switch that is a word");
+throws(function () { cr({ announcement_late: -1 }); }, /announcement_late must be minutes from 0 to 1440/, "negative late minutes");
+throws(function () { cr({ announcement_late: true }); }, /announcement_late must be minutes/, "late minutes that are a switch");
+throws(function () { m.normalize({ demo: true, announcement: "sensor.notice", announcement_clear: true }); }, /announcement_clear can only empty an input_text or text entity/, "clearing a sensor");
+// parseAnnounce: the message or nothing; at is last_changed.
+const ann = function (s, lc, at) { return m.parseAnnounce({ state: s, last_changed: lc }, at == null ? T0 : at, ["Alex", "Sky"]); };
+const p1 = ann("30|Alex|Dinner's ready", lc0);
+eq([p1.text, p1.from, p1.mins, p1.at, p1.key], ["Dinner's ready", "Alex", 30, T0 - 10 * 60000, "30|Alex|Dinner's ready|" + lc0], "the pipe form, with when it changed");
+eq([ann("", lc0), ann("unknown", lc0), ann("30|Alex|x", lc0, T0 + 3600e3), m.parseAnnounce(null, T0), m.parseAnnounce({ state: "unavailable" }, T0), m.parseAnnounce(undefined, T0)],
+  [null, null, null, null, null, null], "empty, unknown, run out, missing, unavailable and no hass are no message");
+eq(ann("Bins tonight", undefined).at, 0, "no last_changed reads as 0");
+// annStep: start, late, same, old, end, and back from unavailable without a second walk.
+const iso = function (ms) { return new Date(ms).toISOString(); };
+const st = function (s, lcMs) { return { state: s, last_changed: iso(lcMs) }; };
+let seen = {};
+eq(m.annStep(seen, undefined, T0).act, "wait", "no hass yet: wait");
+eq(seen.started, undefined, "and waiting does not use up the first reading");
+let r = m.annStep(seen, st("Dinner's ready", T0 - 3 * 60000), T0, { late: 1 });
+eq([r.act, r.first, r.late], ["start", true, true], "a message three minutes old at load: banner only (late)");
+eq(m.annStep(seen, st("Dinner's ready", T0 - 3 * 60000), T0 + 1000, { late: 1 }).act, "same", "the same reading again is nothing new");
+r = m.annStep(seen, st("Coats on", T0 + 5000), T0 + 6000, { late: 1 });
+eq([r.act, r.first, r.late, r.a.text], ["start", false, false, "Coats on"], "a new message: the crier walks");
+eq(m.annStep(seen, st("Dinner's ready", T0 - 3 * 60000), T0 + 7000, { late: 1 }).act, "old", "a slow reading from before it is old, not new");
+eq(m.annStep(seen, st("Coats on", T0 + 5000), T0 + 8000, { late: 1 }).act, "same", "and the newest stays put");
+eq(m.annStep(seen, { state: "unavailable", last_changed: iso(T0 + 9000) }, T0 + 9000).act, "end", "unavailable ends it");
+eq(m.annStep(seen, st("Coats on", T0 + 60000), T0 + 61000, { late: 1 }).act, "same", "back from unavailable with the same words: no second walk");
+eq(m.annStep(seen, st("", T0 + 62000), T0 + 62000).act, "end", "emptied: end");
+r = m.annStep(seen, st("Coats on", T0 + 63000), T0 + 64000, { late: 1 });
+eq([r.act, r.late], ["start", false], "the same words set again after an empty: a new announcement");
+eq(m.annStep(seen, null, T0 + 65000).act, "end", "a missing entity ends it");
+seen = {};
+eq([m.annStep(seen, st("Hello", T0 - 20000), T0, { late: 1 }).late], [false], "a message 20 s old at load: the panel was woken for it, the crier walks");
+seen = {};
+eq(m.annStep(seen, { state: "Hello" }, T0, { late: 1 }).late, true, "no last_changed: cannot tell, so late");
+seen = {};
+eq(m.annStep(seen, st("Hello", T0 - 1000), T0, { late: 0 }).late, true, "announcement_late: 0 means anything already there is late");
+eq(m.annStep({}, st("sky: back by nine", T0), T0, { names: ["Alex", "Sky"] }).a.from, "Sky", "Name: text says who it is from");
+// crierStep: out, ring, unroll, hold (with a second ring half way), roll up, home, gone.
+const A1 = { key: "a|1", text: "Dinner's ready" }, A2 = { key: "b|2", text: "Coats on, we're off" };
+const run = function (K1, secs, want, dt) { dt = dt || 0.05; for (let t = 0; t < secs; t += dt) m.crierStep(K1, dt, want); return K1; };
+let K1 = m.newCrier(A1);
+eq([K1.st, K1.roll, K1.rings], ["out", 0, 0], "a new crier sets out");
+run(K1, 2, A1); eq(K1.st, "out", "it walks until the engine says it has arrived");
+K1.arrived = true; m.crierStep(K1, 0.05, A1);
+eq([K1.st, K1.rings, K1.say > 0, K1.bell > 0], ["ring", 1, true, true], "arrived: it rings and shouts");
+ok(m.crierShowing(K1, A1.key) && !m.crierShowing(K1, A2.key), "while it is out for a message, it is that message (the banner waits)");
+run(K1, 1.5, A1); eq(K1.st, "unroll", "then unrolls");
+run(K1, 1, A1); eq([K1.st, K1.roll, K1.hold], ["hold", 1, m.holdFor(A1.text)], "and holds for holdFor(text)");
+run(K1, K1.hold / 2 + 0.2, A1); eq(K1.rings, 2, "a second ring half way through the hold");
+run(K1, K1.hold / 2, A1); eq([K1.st, K1.done], ["rollup", A1.key], "then rolls it up, done with that message");
+ok(!m.crierShowing(K1, A1.key), "read out and rolling up: the banner takes over");
+run(K1, 0.6, A1); eq(K1.st, "home", "and walks home, though the message is still up (the banner has it now)");
+ok(!m.crierShowing(K1, A1.key), "walking home it is no longer the message");
+run(K1, 1, A1); eq(K1.st, "home", "the same message does not bring it back");
+K1.arrived = true; m.crierStep(K1, 0.05, A1); eq(K1.st, "gone", "home: gone");
+K1 = run(Object.assign(m.newCrier(A1), { arrived: true }), 3, A1);
+eq(K1.st, "hold", "set up for a replacement");
+run(K1, 0.3, A2); eq([K1.st, K1.roll < 1], ["rollup", true], "a new message rolls the old scroll up");
+run(K1, 0.4, A2); eq([K1.st, K1.rings], ["ring", 2], "and rings for the new one");
+run(K1, 3, A2); eq([K1.st, K1.ann.key], ["hold", A2.key], "and holds the new one");
+run(K1, 0.6, null); eq(K1.st, "home", "taken down (tap, cleared, run out): rolled up and home");
+m.crierStep(K1, 0.05, A1); eq(K1.st, "out", "a message it has not read out brings it back from the walk home");
+m.crierStep(K1, 0.05, null); eq(K1.st, "home", "and emptied on the way out, it turns round");
+K1 = m.newCrier(A1); K1.arrived = true; m.crierStep(K1, 0.05, A1); m.crierStep(K1, 0.05, null);
+eq(K1.st, "home", "emptied while it rings: home without a scroll");
+eq([m.holdFor("Hi"), m.holdFor("x".repeat(400)), m.holdFor("x".repeat(60))], [20, 60, 30], "the hold: 20 s for a few words, a minute at most");
+// wrapWords / fitWords: big as fits, wrapped, long words broken, overflow cut with an ellipsis.
+const meas = function (t, fs) { return String(t).length * fs * 0.5; };
+const f1 = m.fitWords("Dinner's ready!", 800, 400, 112, 28, meas);
+eq([f1.lines.length, f1.cut], [1, false], "a short message is one line");
+ok(f1.fs >= 80, "and big (" + f1.fs + "px)");
+const long = "The car is booked in for its MOT at nine tomorrow morning so someone needs to drop it at the garage on the way to school and pick it up after five";
+const f2 = m.fitWords(long, 700, 360, 112, 28, meas);
+ok(f2.lines.length > 2 && !f2.cut && f2.lines.length * f2.lh <= 360 && f2.lines.every(function (l) { return meas(l, f2.fs) <= 700; }), "a long one wraps to fit, every line inside the width");
+eq(f2.lines.join(" "), long, "and loses no words");
+const f3 = m.fitWords(long + " " + long + " " + long, 400, 120, 112, 28, meas);
+ok(f3.cut && /…$/.test(f3.lines[f3.lines.length - 1]) && f3.lines.length * f3.lh <= 120, "too long even small: cut with an ellipsis, still inside");
+const w4 = m.wrapWords("Supercalifragilisticexpialidocious", 200, function (t) { return t.length * 20; });
+ok(w4.length > 1 && w4.every(function (l) { return l.length * 20 <= 200; }) && /-$/.test(w4[0]), "a word wider than the line is broken with a hyphen");
 
 // parseDue: times today, dates, date-times, people by name or alias, the words, and the bad ones counted.
 const NOW = new Date(2026, 9, 26, 12, 0);
