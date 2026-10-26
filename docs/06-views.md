@@ -68,10 +68,12 @@ What else happens, all of it driven by data and none of it guessed:
 
 The card reads entity states from the `hass` object Home Assistant hands every card, so it
 needs no token and works for any signed-in user. It calls the REST calendar endpoint for
-holiday countdowns and `input_text.set_value` to clear a letter, both through that same
-connection. Only `sensors.week` is required. Every other entity is optional, and setting it
-to `null` turns off that part of the meadow and nothing else. A sensor that is set but
-unavailable blanks its own part and says so in the corner.
+holiday countdowns, the REST calendar endpoint again for each person's `calendar`, and
+`input_text.set_value` to clear a letter, all through that same connection. The week comes
+from the people's calendars, or from `sensors.week` on a v1.0.0 setup. Every other entity is
+optional, and setting it to `null` turns off that part of the meadow and nothing else. A
+sensor or calendar that is set but unavailable says so in the corner and on its owner's card,
+so a missing source never reads as a quiet week.
 
 **Try it without Home Assistant.** Serve the repo root over HTTP and open `demo/`:
 
@@ -106,13 +108,14 @@ cast. Every key can be set in the card's YAML, which overrides the default. Plai
 `sensors: { printer: sensor.a1mini_ }` keeps the other sensors. Lists (`people`,
 `schoolLine`, `sourceOwner`, `anniversary`) replace the default outright.
 
-Three options exist only on the card:
+Four options exist only on the card:
 
 | Option | Default | Does |
 |---|---|---|
 | `demo` | `false` | runs on the built-in demo cast and ignores Home Assistant |
 | `query` | none | test hooks as a query string, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | CSS height of the card. Use `100vh` when the header is hidden |
+| `scene` | `meadow` | which scene to draw. The meadow is the only one so far |
 
 **`people`**, one entry per creature:
 
@@ -121,8 +124,12 @@ people:
   - { name: Parent 1, col: "#7FC8D2", r: 37, look: crow, tg: 2.25, adult: true, glasses: true }
 ```
 
-- `name` must match the `who` values the sensors produce. Those come from the calendar
-  owner map in `configuration.example.yaml`, so change both together.
+- `name` is the label on the tag. Names must be unique.
+- `calendar` is one calendar entity or a list of them. The card reads them itself, so the
+  `family_week` template sensor is not needed. Without any `calendar`, the card falls back
+  to `sensors.week`, and then `name` must match the `who` values the template writes from
+  its owner map in `configuration.example.yaml`.
+- `role: adult` or `role: kid` is another way to write `adult`.
 - `col` is the person's colour, used for the creature, the name tag and the card.
 - `look` is the animal. The rigged, part-animated looks are `crow`, `capybara`, `shark`,
   `deer`, `otter` and `snail`. The older whole-sprite looks are `bear`, `bunny`, `phones`,
@@ -142,12 +149,14 @@ people:
 **`anniversary`** names the two people who get a party on a calendar event titled
 "Anniversary".
 
-**`sensors`** lists the entities. `week` is required. Every other one is optional, and
-`null` switches its part off:
+**`sensors`** lists the entities. Every one is optional, and `null` switches its part off.
+With a `calendar` on anyone, the optional sensors and the building taps in `view` start off
+and only the ones you name are read, so a fresh Home Assistant needs nothing else. A v1.0.0
+config with no calendars keeps every default below:
 
 | Key | Example | Drives |
 |---|---|---|
-| `week` | `sensor.family_week` | everything, required |
+| `week` | `sensor.family_week` | the week, when no person has a `calendar` (v1.0.0 setups) |
 | `extra` | `sensor.family_extra` | school items, kit, flags, term dates, "couldn't check" |
 | `timetable`, `kit`, `lunch` | `sensor.family_timetable` | per-child school sensors on the School card. `kit` also puts out the kit bag |
 | `sun`, `weather` | `sun.sun`, `weather.forecast_home` | how dark it is, and the scene's weather |
@@ -327,12 +336,15 @@ No printer? Delete the view and remove its path from `VIEWS`.
 
 ## Adding a person
 
-1. Add their calendar(s) to the `calendar.get_events` target lists and the owner map in
+1. Card only: add them in the card's visual editor (or `people` in YAML) with their
+   `calendar`, and you are done. The rest of this list is for the full wall panel and for
+   v1.0.0 setups that read `sensor.family_week`.
+2. Add their calendar(s) to the `calendar.get_events` target lists and the owner map in
    the `family_today` and `family_week` template sensors in `configuration.example.yaml`.
-2. Add a panel for them on Today, and copy a person page for them.
-3. Add them to the card's `people`, and to `dates.birthdays`. A school-age child
+3. Add a panel for them on Today, and copy a person page for them.
+4. Add them to the card's `people`, and to `dates.birthdays`. A school-age child
    goes in `schoolLine` too, and in the recipient list of `family_send_letter`.
-4. Restart Home Assistant. A template reload leaves a new trigger-based template sensor
+5. Restart Home Assistant. A template reload leaves a new trigger-based template sensor
    with no attributes until something fires its triggers, which looks like a broken template.
 
 ## Adding a view
@@ -382,8 +394,11 @@ not something to install. That is also why `view.office` and `officeUrl` ship as
 
 ## Where the family data comes from
 
-**Calendars.** Home Assistant's own calendar integration does the work. The two template
-sensors call `calendar.get_events` on a timer and flatten every event into a list:
+**Calendars.** Home Assistant's own calendar integration does the work. Since v1.1.0 the
+card asks the REST calendar endpoint for each person's `calendar` every five minutes and
+builds the rows itself. The two template sensors below remain for the Today view and for
+v1.0.0 setups. They call `calendar.get_events` on a timer and flatten every event into a
+list, in the same shape the card builds:
 
 ```json
 { "who": "Kid 2", "what": "Swimming", "day": "2026-09-21", "all_day": false,

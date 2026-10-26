@@ -27,64 +27,75 @@ Every screenshot is the built-in demo cast. No real household data is in this re
 Manual install: copy `dist/` to `config/www/family-dashboard/` and add
 `/local/family-dashboard/family-dashboard.js` as a JavaScript module resource.
 
-## Use it
+## Configure
 
-Try it first on the demo cast, which needs no sensors:
+Add the card from the dashboard editor (**Add card**, then **Family Dashboard**). It starts on
+the demo cast and hands out the calendars your Home Assistant already has: a family, home,
+holiday or birthday calendar goes to the household, the rest one per person. Turn **Demo
+cast** off and the creatures show your calendars. No template sensors and no YAML.
+
+| The cast | The optional sensors |
+|---|---|
+| ![The card editor: scene, demo switch and the first person](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/editor-cast.png) | ![The card editor: optional sensors, all empty](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/editor-sensors.png) |
+
+The editor covers:
+
+- **People**: add, remove and reorder. Each has a name, adult or kid, an animal, a colour,
+  accessories (glasses, headphones, a daisy, the bee), whether they go to school, and one or
+  more calendars. The last person is the household.
+- **Sensors**: weather, music speaker, letter helper, trips calendar, 3D printer, and the
+  school data sensors. All optional. Empty means that part of the scene stays off.
+- **Scene**: the meadow. It is a list so more scenes can join it later.
+- **Demo cast**: made-up data, no Home Assistant needed.
+
+The same thing in YAML:
 
 ```yaml
 type: custom:family-dashboard-card
-demo: true
+people:
+  - { name: Parent 1, role: adult, look: crow, col: "#7FC8D2", calendar: calendar.parent_1, glasses: true }
+  - { name: Kid 1, role: kid, look: otter, col: "#9EE0B4", calendar: calendar.kid_1, school: true }
+  - { name: House, look: snail, calendar: [calendar.family, calendar.holidays] }
+sensors:
+  weather: weather.forecast_home
 ```
 
-For real, give it your people and the template sensors from
-[`configuration.example.yaml`](homeassistant/configuration.example.yaml). It looks best
-alone in a `panel` view:
+The card reads each calendar through Home Assistant's calendar API every five minutes. A
+calendar that does not answer is named on its owner's card and in the corner, so a missing
+calendar never reads as a free day. The school data sensor (`sensors.extra`) works the same
+way: off when empty, "School info unavailable" when it is set but missing.
 
-```yaml
-views:
-  - title: Meadow
-    path: meadow
-    type: panel
-    cards:
-      - type: custom:family-dashboard-card
-        people:
-          - { name: Parent 1, col: "#7FC8D2", r: 37, look: crow, tg: 2.25, adult: true, glasses: true }
-          - { name: Parent 2, col: "#9A72C8", r: 36, look: capybara, tg: 2.6, adult: true }
-          - { name: Kid 1, col: "#9EE0B4", r: 31, look: otter, tg: 2.55, school: true }
-          - { name: House, col: "#E0A050", r: 37, look: snail, tg: 2.05 }
-        sensors:
-          week: sensor.family_week
-          extra: sensor.family_extra
-          weather: weather.forecast_home
-          music: media_player.kitchen
-        dates:
-          birthdays: { Parent 1: "03-14", Parent 2: "06-02", Kid 1: "07-27" }
-        view:
-          home: /lovelace/home
-          music: null
-          printer: null
-```
+It looks best alone in a `panel` view.
 
-Only `sensors.week` is required. Every other sensor is optional, and `null` switches its
-part of the scene off.
+### Coming from v1.0.0
+
+v1.0.0 configs keep working unchanged. A config with no `calendar` on anyone still reads
+`sensor.family_week` and keeps every v1.0.0 default, including the `family_*` sensors and
+the `/wall-panel/...` taps. Add a `calendar` to people and the card reads the calendars
+itself; you can then delete the `family_week` template sensor if nothing else uses it.
+Opening a v1.0.0 card in the visual editor shows a **Week template sensor** field so the old
+setup stays editable.
 
 ## Options
 
 | Option | Default | What it does |
 |---|---|---|
-| `people` | a demo cast of six | one creature each: `name`, `col`, `look`, `r`, `tg`, plus flags `adult`, `school`, `glasses`, `phones`, `daisy`, `bee`. The last entry is the household |
-| `sensors` | `sensor.family_week` and friends | entity ids: `week`, `extra`, `timetable`, `kit`, `lunch`, `sun`, `weather`, `printer`, `letter`, `music`, `rain`, `trips` |
+| `people` | a demo cast of six | one creature each: `name`, `calendar` (one or a list), `col`, `look`, `role` (`adult` or `kid`), `r`, `tg`, plus flags `adult`, `school`, `glasses`, `phones`, `daisy`, `bee`. The last entry is the household |
+| `sensors` | with calendars: `sun` and `weather` only. Without: `sensor.family_week` and friends | entity ids: `week`, `extra`, `timetable`, `kit`, `lunch`, `sun`, `weather`, `printer`, `letter`, `music`, `rain`, `trips` |
 | `dates` | demo birthdays, Halloween to New Year's Eve | `birthdays` (name to `MM-DD`) and `fixed` days, shown as countdowns in the sky |
-| `view` | `/wall-panel/...` paths | which view a tap on the cottage, bandstand, workshop or robot opens. `null` leaves the building as scenery |
+| `view` | with calendars: all `null`. Without: `/wall-panel/...` paths | which view a tap on the cottage, bandstand, workshop or robot opens. `null` leaves the building as scenery |
 | `anniversary` | the first two people | who gets the party on an "Anniversary" event |
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | school sensor owners, queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
 | `demo` | `false` | run on the built-in demo cast |
+| `scene` | `meadow` | which scene to draw. The meadow is the only one so far |
 | `query` | none | test hooks, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | card height. Use `100vh` with the header hidden |
 
 Objects such as `sensors` and `view` merge with the defaults, so you only list what changes.
-Lists such as `people` replace the default. [docs/06-views.md](docs/06-views.md) covers each
+Lists such as `people` replace the default. Unknown keys are ignored. A config the card
+cannot draw (a duplicate name, an unknown animal, a calendar id that is not a calendar)
+shows an error on the card that says what to change. [docs/06-views.md](docs/06-views.md) covers each
 option, the looks, and the test hooks.
 
 ## The rest of the wall panel
@@ -114,8 +125,10 @@ hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night.
 ## Known limits
 
 - Built and tuned for 1280x800. Other sizes work but the village was laid out for that one.
-- Names on the calendars must match `people` exactly, since the template sensor tags each
-  event with its owner's name.
+- On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
+  since the template sensor tags each event with its owner's name. Calendars set on people
+  have no such rule.
+- Birthday parties need `dates.birthdays` in YAML. The editor does not edit dates yet.
 - The 3D printer workshop speaks the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)'s
   sensor names only.
 

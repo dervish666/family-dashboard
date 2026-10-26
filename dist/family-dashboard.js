@@ -8,7 +8,7 @@
 // Extra card options: demo (built-in demo cast, no Home Assistant data), query (the test
 // hooks as a query string, e.g. "hour=21.5&weather=snow"), height (CSS height of the card).
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const BASE = new URL("./", import.meta.url).href;   // HACS serves this under /hacsfiles/family-dashboard/
 
 // ══ CONFIG ═══════════════════════════════════════════════════════════════════
@@ -3225,7 +3225,9 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // family_week template sensor. A calendar that fails is named on its owner's card
   // and its events are left out; the rest of the week still draws.
   function readWeek(tok) {
-    if (!CONFIG.calendarMode) return getState(SENSORS.week, tok).then(function (s) {
+    if (!CONFIG.calendarMode) return getState(SENSORS.week, tok).catch(function () {
+      throw new Error(SENSORS.week + " not found. Give people a calendar in the card editor, or set up that sensor");
+    }).then(function (s) {
       var wk = s.attributes || {};
       if (!Array.isArray(wk.events)) throw new Error(SENSORS.week + " has no events list (state " + s.state + ")");
       return { events: wk.events, at: wk.checked_at ? new Date(wk.checked_at) : null, failed: [] };
@@ -3585,7 +3587,7 @@ function meadow(ROOT, WRAP, CONFIG, HOOKS, HA) {
       : DATA.events.length ? "Nothing else on today" : "";
     // Say out loud when the picture is old. A stale week must not read as a quiet one.
     var st = "";
-    if (DATA.error) st = "Can't reach Home Assistant (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
+    if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
     else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
@@ -4264,7 +4266,9 @@ class FamilyDashboardCardEditor extends HTMLElement {
   // Rebuilds the DOM only when the cast changes size, so typing never loses focus.
   _update() {
     if (!this._config) return;
-    const people = this._people(), withWeek = !!(this._config.sensors && this._config.sensors.week);
+    // The v1.0.0 week sensor field shows for configs that read it: a cast with no calendars.
+    const people = this._people(), withWeek = !!(this._config.sensors && this._config.sensors.week) ||
+      (Array.isArray(this._config.people) && !this._config.people.some(function (p) { return p && (p.calendar || p.calendars); }));
     if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek) this._build(people.length, withWeek);
     let eff = null; try { eff = normalize(this._config); } catch (e) { eff = null; }
     const sensors = eff ? eff.sensors : Object.assign({}, this._config.sensors);
