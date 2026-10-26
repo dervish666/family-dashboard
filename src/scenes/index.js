@@ -17,6 +17,10 @@
 //   weather.ground(ctx, S, WX)  lying snow and the like, over the background
 // and optionally:
 //   village, grazers  true to run the engine's village / the meadow's grazers (meadow only)
+//   indoor           true for a scene under a roof: the engine's clouds, rainbow, falling rain and
+//                    snow, mist, lightning and blown leaves stay off; the scene draws its weather
+//   darkSky          true when the top of the card is always dark: the clock and corner go light
+//   flyer(ctx, x, y, dir, time, S)  draws the craft that tows the next-event banner (the plane)
 //   start(i, S)      where person i starts; swimSpot(S) where the swimmers go for a dip
 //   via(t, dest, S)  a waypoint on the way from t to dest, or null for a straight walk
 //   ambient          { setup(S), update(dt, S), under, back, front, light (ctx, time, S) }:

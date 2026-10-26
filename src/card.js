@@ -15,6 +15,8 @@ const STYLE = `
   --ink: #E6EEF2; --ink-soft: #A9B8C4; --paper: #1D2A3A; --paper-2: #26364A;
   --scrim: rgba(6, 10, 22, .55); --warn: #FFB08A; --hud: #EAF1F6; --hud-soft: #B3C2CF;
 }
+.fd.darksky { --hud: #EAF1F6; --hud-soft: #B3C2CF; }
+.fd.darksky #status { color: #FFB08A; }
 .fd { position: relative; width: 100%; height: 100%; overflow: hidden; background: #A6D9A8;
   font-family: Fredoka, "Instrument Sans", Roboto, sans-serif; color: var(--ink);
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }

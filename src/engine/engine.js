@@ -92,6 +92,10 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // The scene: CONFIG.scene, from the registry. VIL: it has the village (walkers, school,
   // workshop, bandstand, cottage, postie). GRAZE: the meadow's puffs, foxes, berries, fireflies.
   var SCENE = SCENE_BY_ID[CONFIG.scene] || SCENE_LIST[0], VIL = !!SCENE.village, GRAZE = !!SCENE.grazers;
+  // INDOOR: a scene under a roof (the space station). The engine's sky and weather layers
+  // (clouds, rainbow, falling rain and snow, mist, lightning, blown leaves) stay off, and the
+  // scene draws what each weather looks like from inside, from SV.WX, in its ambient.
+  var INDOOR = !!SCENE.indoor;
   // PATCH: the family's areas, ROAM: everyone else's; HOME: the fallback spot; EXIT: where
   // someone off out leaves the scene ({ x, y, off }).
   var PATCH = [], ROAM = [], HOME = null, EXIT = null;
@@ -106,6 +110,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     say: function (txt, x, y) { say(txt, x, y); },
     depth: function (y) { return depth(y); },
     now: function () { return now(); }, rand: rand,
+    printer: function () { return { state: printerState(), progress: PR.progress }; },
     sprites: {}, fam: [], WX: null, DARK: 0, nightness: 0, time: 0
   };
 
@@ -1529,6 +1534,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (WX.snow > 0.01) for (i = 0; i < WX.flakes.length; i++) { p = WX.flakes[i]; p.y += (30 + 30 * p.s) * dt; p.x += (Math.sin(clockT * 1.3 + p.ph) * 18 - 60 * WX.wind) * dt;
       if (p.y > H) { p.y = -5; p.x = rand(0, W); } if (p.x < -10) p.x = W + 10; if (p.x > W + 10) p.x = -10; }
     // wind: leaves blowing through, and now and then someone's hat
+    if (INDOOR) return;
     if (WX.wind > 0.35 && Math.random() < dt * WX.wind * 5)
       parts.push({ kind: "leaf", x: W + 10, y: rand(HZ, H - 40), vx: -rand(140, 260) * WX.wind, vy: rand(-20, 20), life: 7, max: 7, ph: rand(0, 6), col: pick(["#6FB673", "#9CCB6A", "#D9B04A"]) });
     if (WX.wind > 0.6 && Math.random() < dt * 0.05 && WALKERS.length) {
@@ -1586,6 +1592,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function drawWeatherFront(time) {
     var i;
+    if (INDOOR) return;
     if (WX.cloud > 0.35) { ctx.fillStyle = "rgba(80,92,112," + (0.16 * (WX.cloud - 0.35) / 0.65).toFixed(3) + ")"; ctx.fillRect(0, 0, W, H); }
     if (WX.fog > 0.02) {                                   // low mist, three drifting layers
       ctx.globalAlpha = 0.7 * WX.fog;                     // thin enough that the family still reads through it
@@ -2060,7 +2067,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (t.rig) { ctx.scale(t.face * sx * sc / K, sy * sc / K); t.dancing = dance; drawRig(t, time); if (wearsHat(t)) drawPartyHat(t); }
     else { ctx.scale(t.face * sx * sc / spr.k, sy * sc / spr.k); ctx.drawImage(spr.c, -spr.ax, -spr.ay); }
     ctx.restore();
-    if (t.kind === "fam" && WX.rain > 0.3 && look !== "snail") {           // umbrellas out; the snail has a roof
+    if (t.kind === "fam" && !INDOOR && WX.rain > 0.3 && look !== "snail") {   // umbrellas out; the snail has a roof
       var ur = t.r * sc, uy = t.y - hop - ur * (t.person.tg - 0.35), ux = t.x + t.face * ur * 0.1;
       ctx.globalAlpha = clamp((WX.rain - 0.3) * 3, 0, 1);
       ctx.strokeStyle = "#5A4A3A"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ux, uy); ctx.lineTo(ux, uy + ur * 0.9); ctx.stroke();
@@ -2116,9 +2123,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var AMB = SCENE.ambient; if (AMB) { SV.time = time; SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; SV.music = MUSIC_T; SV.party = PARTY_T; }
     if (AMB && AMB.under) AMB.under(ctx, time, SV);              // the scene's moving ground: water, waves
     drawWeatherGround();
-    for (i = 0; i < CLOUDS.length; i++) ctx.drawImage(CLOUDS[i].c, CLOUDS[i].x, CLOUDS[i].y);
-    drawWeatherSky(time);
-    drawRainbow();
+    if (!INDOOR) { for (i = 0; i < CLOUDS.length; i++) ctx.drawImage(CLOUDS[i].c, CLOUDS[i].x, CLOUDS[i].y);
+      drawWeatherSky(time);
+      drawRainbow(); }
     drawPlane(time);
     if (AMB && AMB.back) AMB.back(ctx, time, SV);                // the scene's critters, behind the family
     for (i = 0; i < food.length; i++) { var f = food[i], fs = f.grow * 0.8 / K * depth(f.y);
@@ -2690,6 +2697,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     $("status").textContent = st;
     $("next").style.opacity = FLIGHT ? 0 : 1;
     WRAP.classList.toggle("night", DARK > 0.5);
+    if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
   }
 
   // ── The card ────────────────────────────────────────────────────────────────
@@ -3063,13 +3071,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var dy = Math.sin(time * 4 - fromLead * 3) * 2.5 * fromLead;
       ctx.drawImage(c, i * sw * K, 0, sw * K + 1, c.height, bx + i * sw, by + dy, sw + 0.5, bh);
     }
+    if (SCENE.flyer) { SCENE.flyer(ctx, f.x, py + 17, f.dir, time, SV); return; }   // the scene's own tug, lights and all
     blit(PLANE, f.x, py + 17, f.dir, 1, 1, 1);
     var nose = f.x + f.dir * 30, spin = Math.abs(Math.sin(time * 30));
     ctx.strokeStyle = "rgba(60,60,60,.7)"; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(nose, py + 3 - 9 * spin); ctx.lineTo(nose, py + 3 + 9 * spin); ctx.stroke();
   }
   function planeLight(a, time) {
-    if (!FLIGHT) return;
+    if (!FLIGHT || SCENE.flyer) return;
     var on = Math.sin(time * 5) > 0, x = FLIGHT.x - FLIGHT.dir * 4, y = LANE + 6;
     ctx.globalAlpha = a * (on ? 1 : 0.35); ctx.drawImage(GLOW, x - 10, y - 10, 20, 20);
     ctx.fillStyle = FLIGHT.dir > 0 ? "#7BE07F" : "#FF6B6B"; ctx.beginPath(); ctx.arc(x, y, 2.2, 0, 7); ctx.fill();
