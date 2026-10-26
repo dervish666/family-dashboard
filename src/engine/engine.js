@@ -2,6 +2,7 @@ import { weekRange, calendarPath, parseCalendarEvents } from "../calendar.js";
 import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
+import { SCENE_BY_ID, SCENE_LIST } from "../scenes/index.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -86,274 +87,62 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // ── The meadow itself, baked once per size ──────────────────────────────────
   var cv = ROOT.getElementById("world"), ctx = cv.getContext("2d");
   var W, H, DPR, HZ, TOP, BG, POND;
-  var LAY = {}, ZONES = [];          // village anchors, and the ellipses nothing wanders into
+  var LAY = {}, ZONES = [];          // the scene's anchors, and the ellipses nothing wanders into
+  // The scene: CONFIG.scene, from the registry. VIL: it has the village (walkers, school,
+  // workshop, bandstand, cottage, postie). GRAZE: the meadow's puffs, foxes, berries, fireflies.
+  var SCENE = SCENE_BY_ID[CONFIG.scene] || SCENE_LIST[0], VIL = !!SCENE.village, GRAZE = !!SCENE.grazers;
+  // PATCH: the family's areas, ROAM: everyone else's; HOME: the fallback spot; EXIT: where
+  // someone off out leaves the scene ({ x, y, off }).
+  var PATCH = [], ROAM = [], HOME = null, EXIT = null;
+  // What a scene gets to work with. Sizes are refreshed before every bake; place() takes
+  // the scene's layout; the rest is read-only state and a few helpers.
+  var SV = {
+    place: function (L) { LAY = L.lay || {}; DOORS = L.doors || {}; ZONES = L.zones || []; POND = L.water || null;
+      PATCH = L.patch; ROAM = L.roam; HOME = L.home; EXIT = L.exit; SV.lay = LAY; SV.layout = L; },
+    inZone: function (x, y, pad) { return inZone(x, y, pad); },
+    blit: function (spr, x, y, face, sx, sy, sc, rot) { blit(spr, x, y, face, sx, sy, sc, rot); },
+    puff: function (kind, x, y, n, col) { puff(kind, x, y, n, col); },
+    say: function (txt, x, y) { say(txt, x, y); },
+    depth: function (y) { return depth(y); },
+    sprites: {}, fam: [], WX: null, DARK: 0, nightness: 0, time: 0
+  };
 
+  // The scene (scenes/*.js) paints the background once per size and says where things
+  // are; see SV below for what it gets to work with.
   function bakeBackground() {
-    var c = canvas(W * DPR, H * DPR), g = c.getContext("2d"), i;
+    var c = canvas(W * DPR, H * DPR), g = c.getContext("2d");
     g.scale(DPR, DPR);
-    var sky = g.createLinearGradient(0, 0, 0, HZ);
-    sky.addColorStop(0, "#BFE4F0"); sky.addColorStop(1, "#E9F7EC");
-    g.fillStyle = sky; g.fillRect(0, 0, W, HZ + 20);
-    function hills(y, amp, col, seed) {
-      g.fillStyle = col; g.beginPath(); g.moveTo(0, H);
-      for (var x = 0; x <= W; x += 16) g.lineTo(x, y - amp * (0.6 * Math.sin(x / 210 + seed) + 0.4 * Math.sin(x / 97 + seed * 2.3)));
-      g.lineTo(W, H); g.closePath(); g.fill();
-    }
-    hills(HZ - 18, 22, "#B7DFB4", 1.2);
-    hills(HZ + 2, 14, "#9ED39E", 4.1);
-    var gr = g.createLinearGradient(0, HZ, 0, H);
-    gr.addColorStop(0, "#98D194"); gr.addColorStop(1, "#7EC47E");
-    g.fillStyle = gr; g.fillRect(0, HZ + 8, W, H);
-    hills(HZ + 12, 6, "#98D194", 2.7);
-    // bushes on the horizon, behind anything that can walk
-    for (i = 0; i < 9; i++) {
-      var bx = rand(0, W), by = HZ + rand(4, 16), br = rand(18, 34);
-      if (bx < 520 && by < HZ + 20 && i % 2) continue;
-      [[0, 0, 1], [-0.7, 0.25, 0.7], [0.7, 0.25, 0.75]].forEach(function (p) {
-        g.fillStyle = "#6FB673"; g.beginPath(); g.arc(bx + p[0] * br, by + p[1] * br, br * p[2], 0, 7); g.fill(); });
-      g.fillStyle = "rgba(255,255,255,.18)"; g.beginPath(); g.arc(bx - br * 0.3, by - br * 0.35, br * 0.35, 0, 7); g.fill();
-    }
-    // soft mottles so the grass is not a flat fill
-    for (i = 0; i < 90; i++) {
-      g.fillStyle = Math.random() < 0.5 ? "rgba(255,255,255,.07)" : "rgba(40,110,50,.06)";
-      g.beginPath(); g.ellipse(rand(0, W), rand(HZ + 20, H), rand(30, 110), rand(10, 30), 0, 0, 7); g.fill();
-    }
-    // pond, half off the bottom-right edge
-    POND = { x: W * 0.83, y: H * 0.93, rx: Math.min(210, W * 0.17), ry: 74 };
-    g.fillStyle = "#6DB57A"; g.beginPath(); g.ellipse(POND.x, POND.y, POND.rx + 10, POND.ry + 8, 0, 0, 7); g.fill();
-    var pg = g.createLinearGradient(0, POND.y - POND.ry, 0, POND.y + POND.ry);
-    pg.addColorStop(0, "#9ED8E6"); pg.addColorStop(1, "#6FBBD3");
-    g.fillStyle = pg; g.beginPath(); g.ellipse(POND.x, POND.y, POND.rx, POND.ry, 0, 0, 7); g.fill();
-    g.strokeStyle = "rgba(255,255,255,.6)"; g.lineWidth = 3; g.lineCap = "round";
-    g.beginPath(); g.ellipse(POND.x - 30, POND.y - 22, 60, 14, 0, 3.6, 5.2); g.stroke();
-    g.fillStyle = "#5FAE69"; g.beginPath(); g.ellipse(POND.x + 70, POND.y - 12, 26, 12, 0.3, 0.5, 6.0); g.fill();   // lily pad
-    g.fillStyle = "#FFB3C7"; g.beginPath(); g.arc(POND.x + 74, POND.y - 16, 6, 0, 7); g.fill();
-    layout();
-    // tufts and flowers
-    for (i = 0; i < 160; i++) {
-      var x = rand(0, W), y = rand(HZ + 26, H);
-      if (inZone(x, y, 16)) continue;
-      g.strokeStyle = "rgba(52,120,60,.45)"; g.lineWidth = 2;
-      g.beginPath(); g.moveTo(x - 4, y - 7); g.lineTo(x, y); g.lineTo(x + 1, y - 9); g.moveTo(x, y); g.lineTo(x + 5, y - 6); g.stroke();
-    }
-    for (i = 0; i < 70; i++) {
-      var fx = rand(0, W), fy = rand(HZ + 30, H), fc = pick(["#FFFFFF", "#FFF3A8", "#FFC4D6", "#E4D2FF"]);
-      if (inZone(fx, fy, 14)) continue;
-      g.fillStyle = fc; for (var p = 0; p < 5; p++) { var a = p / 5 * 6.283;
-        g.beginPath(); g.arc(fx + Math.cos(a) * 3.2, fy + Math.sin(a) * 3.2, 2.6, 0, 7); g.fill(); }
-      g.fillStyle = "#F4B63C"; g.beginPath(); g.arc(fx, fy, 1.8, 0, 7); g.fill();
-    }
-    paintProps(g);
+    SV.W = W; SV.H = H; SV.HZ = HZ; SV.TOP = TOP; SV.DPR = DPR;
+    SCENE.bake(g, SV);
     BG = c;
-  }
-  // The village. A high street along the back with a road in front of it, the school
-  // and playground down the left, the woodcutter and washing line down the right, and
-  // the bandstand, garden, pitch and pond along the bottom. The middle is the family's
-  // patch, and nothing in the village is allowed to plan a route through it.
-  // Fractions of the screen, so it survives another resolution.
-  function layout() {
-    var B = TOP + 36, R = TOP + 62;
-    LAY = {
-      B: B, R: R,
-      well:    { x: Math.round(W * 0.06),  y: B },
-      pub:     { x: Math.round(W * 0.195), y: B },
-      bakery:  { x: Math.round(W * 0.345), y: B },
-      post:    { x: Math.round(W * 0.48),  y: B },
-      market:  { x: Math.round(W * 0.61),  y: B },
-      bus:     { x: Math.round(W * 0.715), y: R + 16 },
-      cottage: { x: Math.round(W * 0.79),  y: B },
-      mill:    { x: Math.round(W * 0.905), y: B },
-      // The printer's workshop goes on the cottage's back plot, below it and left of
-      // the woodcutter: the one patch the village had not used. The family patch
-      // starts just below its zone.
-      shop:    { x: Math.round(W * 0.79),  y: TOP + 172 },
-      school:  { x: Math.round(W * 0.075), y: TOP + 190 },
-      swing:   { x: Math.round(W * 0.05),  y: H - 160 },
-      wood:    { x: Math.round(W * 0.9),   y: TOP + 175 },
-      wash:    { x: Math.round(W * 0.925), y: H - 200 },
-      garden:  { x: Math.round(W * 0.14),  y: H - 58 },
-      band:    { x: Math.round(W * 0.33),  y: H - 30 },
-      pitch:   { x: Math.round(W * 0.52),  y: H - 60 },
-      fish:    { x: POND.x + Math.cos(3.45) * (POND.rx + 8), y: POND.y + Math.sin(3.45) * (POND.ry + 8), bx: POND.x - POND.rx * 0.5, by: POND.y - POND.ry * 0.3 }
-    };
-    var L = LAY, lx = Math.round(W * 0.855), sx = L.school.x + 100;
-    function back(x, y) { return { x: x, y: y || B + 3, lane: [{ x: x, y: R }] }; }
-    DOORS = {
-      pub: back(L.pub.x - 30), bakery: back(L.bakery.x - 31), post: back(L.post.x - 18),
-      cottage: back(L.cottage.x - 14), mill: back(L.mill.x),
-      bakeryside: back(L.bakery.x + 84, B + 12), marketside: back(L.market.x - 84, B + 14),
-      marketq: back(L.market.x + 10, B + 20), wellq: back(L.well.x + 60, R), busq: back(L.bus.x - 30, R + 12),
-      school: { x: L.school.x, y: L.school.y + 3, lane: [{ x: sx, y: L.school.y + 12 }, { x: sx, y: R }] },
-      wood: { x: L.wood.x - 34, y: L.wood.y + 4, lane: [{ x: lx, y: L.wood.y + 4 }, { x: lx, y: R }] },
-      wash: { x: L.wash.x - 44, y: L.wash.y + 8, lane: [{ x: lx, y: L.wash.y + 8 }, { x: lx, y: R }] },
-      left: { x: -24, y: R, lane: [] }, right: { x: W + 24, y: R, lane: [] }
-    };
-    ZONES = [{ x: POND.x, y: POND.y, rx: POND.rx, ry: POND.ry },
-      { x: L.school.x + 5, y: L.school.y + 50, rx: 112, ry: 165 },        // school, yard and swing
-      { x: L.wood.x + 30, y: L.wood.y + 90, rx: 105, ry: 165 },           // woodcutter and washing line
-      { x: L.garden.x + 20, y: L.garden.y - 8, rx: 140, ry: 52 },
-      { x: L.band.x, y: L.band.y - 22, rx: 92, ry: 58 },
-      { x: L.pitch.x, y: L.pitch.y, rx: 128, ry: 50 },
-      { x: L.fish.x - 10, y: L.fish.y, rx: 46, ry: 30 },
-      { x: L.shop.x, y: L.shop.y - 16, rx: 74, ry: 46 }];                 // the workshop plot
   }
   function inZone(x, y, pad) {
     for (var i = 0; i < ZONES.length; i++) { var z = ZONES[i], dx = (x - z.x) / (z.rx + pad), dy = (y - z.y) / (z.ry + pad);
       if (dx * dx + dy * dy < 1) return z; }
     return null;
   }
-  // inner: the family's patch. Grazers get everything south of the road.
+  // inner: the family's areas (PATCH), else everyone's (ROAM). An area is a rect
+  // { x0, x1, y0, y1 } or a shape with has(x, y) and pick(); w weights the pick.
+  function inArea(a, x, y) { return a.has ? a.has(x, y) : x > a.x0 && x < a.x1 && y > a.y0 && y < a.y1; }
   function inBounds(x, y, inner) {
-    return inner ? x > W * 0.16 && x < W * 0.84 && y > TOP + 118 && y < H - 170 : x > 30 && x < W - 30 && y > LAY.R + 16 && y < H - 22;
+    var A = inner ? PATCH : ROAM;
+    for (var i = 0; i < A.length; i++) if (inArea(A[i], x, y)) return true;
+    return false;
+  }
+  function pickArea(A) {
+    if (A.length === 1) return A[0];
+    var tot = 0, i; for (i = 0; i < A.length; i++) tot += A[i].w || 1;
+    var r = Math.random() * tot; for (i = 0; i < A.length; i++) { r -= A[i].w || 1; if (r < 0) return A[i]; }
+    return A[A.length - 1];
   }
   function spot(inner) {
+    var A = inner ? PATCH : ROAM;
     for (var i = 0; i < 40; i++) {
-      var x = inner ? rand(W * 0.16, W * 0.84) : rand(30, W - 30), y = inner ? rand(TOP + 118, H - 170) : rand(LAY.R + 16, H - 22);
+      var a = pickArea(A), p = a.pick ? a.pick() : null;
+      var x = p ? p.x : rand(a.x0, a.x1), y = p ? p.y : rand(a.y0, a.y1);
       if (!inZone(x, y, 30)) return { x: x, y: y };
     }
-    return { x: W / 2, y: (TOP + H) / 2 };
-  }
-
-  // Static village furniture, painted into the background once.
-  function paintProps(g) {
-    var L = LAY, B = L.B, R = L.R, x, y, i;
-    function roofTri(x0, x1, base, apex, col, rim) {
-      rimmed(g, rim, col, 2, function (e) { g.beginPath(); g.moveTo(x0 - e, base + e); g.lineTo((x0 + x1) / 2, apex - e); g.lineTo(x1 + e, base + e); g.closePath(); g.fill(); });
-    }
-    function walls(x0, w, top, h, col, rim) { rimmed(g, rim, col, 2, function (e) { g.fillRect(x0 - e, top - e, w + 2 * e, h + 2 * e); }); }
-    function win(x0, y0, w, h) { g.fillStyle = "#FFE9A6"; rr(g, x0, y0, w, h, 4); g.fill();
-      g.strokeStyle = "rgba(90,60,40,.5)"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x0 + w / 2, y0); g.lineTo(x0 + w / 2, y0 + h); g.stroke(); }
-    function door(x0, y0, w, h, col) { g.fillStyle = col || "#8A5A3C"; rr(g, x0, y0, w, h, Math.min(10, w / 2)); g.fill();
-      g.fillStyle = "#E8C66A"; g.beginPath(); g.arc(x0 + w - 5, y0 + h / 2, 1.8, 0, 7); g.fill(); }
-
-    // road and the two lanes down the sides
-    g.fillStyle = "rgba(233,217,168,.85)"; rr(g, -10, R - 12, W + 20, 26, 12); g.fill();
-    rr(g, L.school.x + 92, R, 17, L.school.y + 22 - R, 8); g.fill();
-    rr(g, Math.round(W * 0.855) - 8, R, 17, L.wash.y + 18 - R, 8); g.fill();
-    g.fillStyle = "rgba(170,150,110,.35)";
-    for (i = 0; i < 70; i++) { g.beginPath(); g.arc(rand(0, W), R + rand(-9, 11), rand(1, 2.2), 0, 7); g.fill(); }
-
-    x = L.well.x; y = B;                                              // well
-    g.fillStyle = "#8D6440"; g.fillRect(x - 20, y - 64, 4, 50); g.fillRect(x + 16, y - 64, 4, 50);
-    roofTri(x - 30, x + 30, y - 60, y - 80, "#B5654A", "#7E4331");
-    g.fillStyle = "#9A9AA3"; g.fillRect(x - 22, y - 24, 44, 24);
-    g.fillStyle = "#B7B7BF"; for (i = 0; i < 4; i++) g.fillRect(x - 20 + i * 11, y - 20 + (i % 2) * 8, 9, 5);
-    g.fillStyle = "#6F6F78"; g.beginPath(); g.ellipse(x, y - 24, 22, 7, 0, 0, 7); g.fill();
-    g.fillStyle = "#3B4A5A"; g.beginPath(); g.ellipse(x, y - 24, 16, 4.5, 0, 0, 7); g.fill();
-
-    x = L.pub.x; y = B;                                               // the pub
-    walls(x - 64, 128, y - 64, 64, "#F1E3C8", "#7A5238");
-    g.fillStyle = "#7A5238"; [x - 64, x - 20, x + 20, x + 60].forEach(function (bx) { g.fillRect(bx, y - 64, 4, 64); });
-    g.fillRect(x - 64, y - 36, 128, 4);
-    roofTri(x - 76, x + 76, y - 62, y - 100, "#5E6E8C", "#3C4760");
-    door(x - 42, y - 34, 24, 34, "#6B3F2A"); win(x - 4, y - 56, 20, 16); win(x + 30, y - 56, 20, 16);
-    g.fillStyle = "#7A5238"; g.fillRect(x - 78, y - 58, 16, 3);
-    g.fillStyle = "#FFF4E0"; rr(g, x - 84, y - 55, 20, 20, 5); g.fill();
-    g.fillStyle = "#E8B33C"; g.fillRect(x - 79, y - 48, 9, 10); g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(x - 75, y - 49, 5, Math.PI, 0); g.fill();
-
-    x = L.bakery.x; y = B;                                            // bakery
-    g.fillStyle = "#A7584A"; g.fillRect(x + 30, y - 136, 16, 40);
-    walls(x - 62, 124, y - 78, 78, "#F4D3BE", "#B98569");
-    rimmed(g, "#8E4A3C", "#D0705A", 2, function (e) { g.beginPath(); g.moveTo(x - 76 - e, y - 74 + e); g.lineTo(x, y - 130 - e); g.lineTo(x + 76 + e, y - 74 + e); g.closePath(); g.fill(); });
-    g.strokeStyle = "rgba(255,255,255,.22)"; g.lineWidth = 2;
-    for (i = 1; i <= 3; i++) { var yy = y - 74 - i * 14, hw = 76 * (1 - i * 14 / 56); g.beginPath(); g.moveTo(x - hw, yy); g.lineTo(x + hw, yy); g.stroke(); }
-    door(x - 44, y - 46, 26, 46);
-    g.fillStyle = "#FFE9A6"; rr(g, x + 4, y - 56, 36, 28, 5); g.fill();
-    g.strokeStyle = "#B98569"; g.beginPath(); g.moveTo(x + 22, y - 56); g.lineTo(x + 22, y - 28); g.moveTo(x + 4, y - 42); g.lineTo(x + 40, y - 42); g.stroke();
-    g.fillStyle = "#9C6B43"; g.fillRect(x + 1, y - 28, 42, 7);
-    ["#FF8FB1", "#FFFFFF", "#FF8FB1", "#FFD35C"].forEach(function (c, n) { g.fillStyle = c; g.beginPath(); g.arc(x + 7 + n * 10, y - 30, 3, 0, 7); g.fill(); });
-    g.fillStyle = "#FFF4E0"; rr(g, x - 52, y - 68, 42, 16, 8); g.fill();
-    g.fillStyle = "#D89A55"; g.beginPath(); g.ellipse(x - 31, y - 60, 10, 4.5, 0, 0, 7); g.fill();
-
-    x = L.post.x; y = B;                                              // post office
-    walls(x - 48, 96, y - 62, 62, "#E7766A", "#9E3F36");
-    g.fillStyle = "#9E3F36"; g.fillRect(x - 54, y - 74, 108, 14);
-    g.fillStyle = "#FFF4E0"; rr(g, x - 16, y - 72, 32, 11, 3); g.fill();
-    g.strokeStyle = "#9E3F36"; g.lineWidth = 1.4; g.strokeRect(x - 8, y - 70.5, 16, 8);
-    g.beginPath(); g.moveTo(x - 8, y - 70.5); g.lineTo(x, y - 65.5); g.lineTo(x + 8, y - 70.5); g.stroke();
-    door(x - 30, y - 38, 24, 38, "#5E3A2A"); win(x + 4, y - 50, 30, 20);
-    rimmed(g, "#7E2A24", "#D9433A", 2, function (e) { rr(g, x + 50 - e, y - 30 - e, 14 + 2 * e, 30 + 2 * e, 6); g.fill(); });
-    g.fillStyle = "#3B2A26"; g.fillRect(x + 53, y - 22, 8, 2);
-
-    x = L.market.x; y = B;                                            // market stall: posts and awning
-    g.fillStyle = "#A87A50"; g.fillRect(x - 62, y - 84, 6, 84); g.fillRect(x + 56, y - 84, 6, 84);
-    g.fillStyle = "#C24E42"; g.fillRect(x - 74, y - 103, 148, 6);
-    for (i = 0; i < 8; i++) { g.fillStyle = i % 2 ? "#FFF4E8" : "#E86A5B"; g.fillRect(x - 72 + i * 18, y - 98, 18, 20);
-      g.beginPath(); g.arc(x - 63 + i * 18, y - 78, 9, 0, Math.PI); g.fill(); }
-
-    x = L.bus.x; y = L.bus.y;                                         // bus stop roundel
-    g.fillStyle = "#6E6E78"; g.fillRect(x - 2, y - 52, 4, 52);
-    g.fillStyle = "#D9433A"; g.beginPath(); g.arc(x, y - 58, 11, 0, 7); g.fill();
-    g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(x, y - 58, 6.5, 0, 7); g.fill();
-    g.fillStyle = "#3B5FA8"; g.fillRect(x - 13, y - 61, 26, 6);
-
-    x = L.cottage.x; y = B;                                           // cottage
-    g.fillStyle = "#8C6E62"; g.fillRect(x + 18, y - 104, 12, 26);
-    walls(x - 44, 88, y - 56, 56, "#CFE3F2", "#6D8FB5");
-    roofTri(x - 54, x + 54, y - 54, y - 98, "#6D8FB5", "#48648A");
-    door(x - 26, y - 36, 22, 36, "#B5654A"); win(x + 6, y - 44, 26, 20);
-    ["#FF8FB1", "#FFD35C", "#FFFFFF"].forEach(function (c, n) { g.fillStyle = c; g.beginPath(); g.arc(x + 11 + n * 8, y - 22, 3, 0, 7); g.fill(); });
-
-    x = L.mill.x; y = B;                                              // windmill tower (the sails turn, so they are drawn live)
-    rimmed(g, "#B3A48C", "#F2E8D8", 2, function (e) { g.beginPath(); g.moveTo(x - 34 - e, y + e); g.lineTo(x - 21 - e, y - 120 - e);
-      g.lineTo(x + 21 + e, y - 120 - e); g.lineTo(x + 34 + e, y + e); g.closePath(); g.fill(); });
-    rimmed(g, "#7E4331", "#B5654A", 2, function (e) { g.beginPath(); g.arc(x, y - 118, 24 + e, Math.PI, 0); g.fill(); });
-    door(x - 10, y - 32, 20, 32, "#8A5A3C"); win(x - 8, y - 84, 16, 18);
-
-    x = L.school.x; y = L.school.y;                                   // school
-    walls(x - 74, 148, y - 68, 68, "#F6E7B8", "#C2A25E");
-    roofTri(x - 86, x + 86, y - 66, y - 108, "#C9594A", "#8E3B34");
-    g.fillStyle = "#F6E7B8"; g.fillRect(x - 11, y - 126, 22, 22); g.fillStyle = "#8E3B34";
-    g.beginPath(); g.moveTo(x - 15, y - 124); g.lineTo(x, y - 138); g.lineTo(x + 15, y - 124); g.closePath(); g.fill();
-    door(x - 12, y - 38, 24, 38, "#4E7CA8"); win(x - 58, y - 52, 28, 20); win(x + 30, y - 52, 28, 20);
-    g.fillStyle = "#FFFFFF"; rr(g, x - 24, y - 62, 48, 14, 5); g.fill();
-    g.font = "600 10px Fredoka"; g.textAlign = "center"; g.textBaseline = "middle";
-    [["A", "#E86A5B"], ["B", "#3B5FA8"], ["C", "#4E9A5A"]].forEach(function (c, n) { g.fillStyle = c[1]; g.fillText(c[0], x - 12 + n * 12, y - 54.5); });
-    g.fillStyle = "rgba(217,207,165,.55)"; g.beginPath(); g.ellipse(x + 12, y + 50, 96, 34, 0, 0, 7); g.fill();
-
-    x = L.swing.x; y = L.swing.y;                                     // swing frame
-    g.fillStyle = "rgba(140,110,70,.25)"; g.beginPath(); g.ellipse(x, y - 2, 30, 7, 0, 0, 7); g.fill();
-    g.strokeStyle = "#A87A50"; g.lineWidth = 6; g.lineCap = "round";
-    g.beginPath(); g.moveTo(x - 52, y); g.lineTo(x - 40, y - 100); g.lineTo(x - 28, y); g.moveTo(x + 28, y); g.lineTo(x + 40, y - 100); g.lineTo(x + 52, y); g.stroke();
-    g.lineWidth = 7; g.beginPath(); g.moveTo(x - 46, y - 100); g.lineTo(x + 46, y - 100); g.stroke();
-
-    x = L.wood.x; y = L.wood.y;                                       // chopping stump
-    g.fillStyle = "#9C6B43"; g.fillRect(x - 20, y - 16, 40, 16);
-    g.fillStyle = "#E2C08E"; g.beginPath(); g.ellipse(x, y - 16, 20, 7, 0, 0, 7); g.fill();
-    g.strokeStyle = "#B8905E"; g.lineWidth = 1.5; g.beginPath(); g.ellipse(x, y - 16, 12, 4, 0, 0, 7); g.stroke();
-
-    x = L.wash.x; y = L.wash.y;                                       // washing line poles
-    g.fillStyle = "#A87A50"; g.fillRect(x - 66, y - 70, 5, 70); g.fillRect(x + 62, y - 70, 5, 70);
-
-    x = L.garden.x; y = L.garden.y;                                   // vegetable patch
-    g.fillStyle = "#F2E6D0"; g.fillRect(x - 94, y - 42, 188, 4);
-    for (i = x - 92; i <= x + 92; i += 23) g.fillRect(i - 2, y - 50, 5, 20);
-    rimmed(g, "#7E5536", "#A9794F", 2, function (e) { rr(g, x - 90 - e, y - 30 - e, 180 + 2 * e, 50 + 2 * e, 14); g.fill(); });
-    g.strokeStyle = "rgba(80,50,30,.35)"; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(x - 78, y - 14); g.lineTo(x + 78, y - 14); g.moveTo(x - 78, y + 4); g.lineTo(x + 78, y + 4); g.stroke();
-
-    x = L.band.x; y = L.band.y;                                       // bandstand
-    rimmed(g, "#8D6440", "#C69C6D", 2, function (e) { g.beginPath(); g.ellipse(x, y - 4, 76 + e, 18 + e, 0, 0, 7); g.fill(); });
-    g.fillStyle = "#A87A50"; g.fillRect(x - 76, y - 4, 152, 10);
-    g.fillStyle = "#FFFFFF"; [-66, -24, 24, 66].forEach(function (o) { g.fillRect(x + o - 2, y - 90, 4, 84); });
-    for (i = 0; i < 8; i++) { g.fillStyle = i % 2 ? "#FFF4E8" : "#D9534F";
-      g.beginPath(); g.moveTo(x, y - 132); g.lineTo(x - 82 + i * 20.5, y - 88); g.lineTo(x - 82 + (i + 1) * 20.5, y - 88); g.closePath(); g.fill(); }
-    g.fillStyle = "#E8C66A"; g.beginPath(); g.arc(x, y - 134, 4, 0, 7); g.fill();
-
-    x = L.pitch.x; y = L.pitch.y;                                     // pitch
-    g.fillStyle = "#AEDDA3"; rr(g, x - 112, y - 34, 224, 68, 12); g.fill();
-    g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 2;
-    rr(g, x - 104, y - 28, 208, 56, 8); g.stroke();
-    g.beginPath(); g.moveTo(x, y - 28); g.lineTo(x, y + 28); g.stroke();
-    g.beginPath(); g.ellipse(x, y, 16, 10, 0, 0, 7); g.stroke();
-    g.lineWidth = 3; [-1, 1].forEach(function (s) { g.beginPath(); g.moveTo(x + s * 104, y - 14); g.lineTo(x + s * 112, y - 14);
-      g.lineTo(x + s * 112, y + 14); g.lineTo(x + s * 104, y + 14); g.stroke(); });
-
-    x = L.shop.x; y = L.shop.y;                                       // the workshop plot: bare earth and a few fence posts
-    g.fillStyle = "rgba(196,166,118,.55)"; rr(g, x - 58, y - 46, 116, 56, 14); g.fill();
-    g.fillStyle = "rgba(150,120,80,.35)"; for (i = 0; i < 14; i++) { g.beginPath(); g.arc(x + rand(-50, 50), y + rand(-38, 4), rand(1.5, 3), 0, 7); g.fill(); }
-    g.fillStyle = "#A87A50"; [-62, -44, 46, 64].forEach(function (o) { g.fillRect(x + o - 2, y - 22, 4, 20); });
-    g.fillRect(x - 62, y - 14, 20, 2.5); g.fillRect(x + 44, y - 14, 20, 2.5);
+    return { x: HOME.x, y: HOME.y };
   }
 
   function depth(y) { return 0.8 + 0.2 * Math.max(0, Math.min(1, (y - TOP) / (H - TOP))); }
@@ -380,19 +169,27 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     SHADOW = shadowSprite(); GLOW = glowSprite();
     FOOD_SPR = [foodSprite(false), foodSprite(true)];
     CLOUDS = [200, 150, 230].map(function (w, i) { return { c: cloudSprite(w), x: rand(0, W), y: [16, 46, 26][i], v: rand(4, 9) }; });   // bottoms stay above the horizon, clear of the village roofs
-    PUFF_LOOKS = ["#FFF6D6", "#FFFFFF", "#FFE0D2", "#E8F4FF"].map(function (col) { return makeSprites({ r: 20, col: col, look: "puff", fluff: true }, classicSprite); });
-    var FOX = makeSprites({ r: 25, col: "#F4A259", look: "fox" }, classicSprite);   // the wild fox, not the family look
     things = []; food = []; parts = [];
-    for (var i = 0; i < 12; i++) spawn("puff", { r: 20, spr: pick(PUFF_LOOKS), speed: 34 });
-    for (i = 0; i < 2; i++) spawn("nib", { r: 25, spr: FOX, speed: 30 });
-    fam = PEOPLE.map(function (p, i) {                         // spread out along the meadow
-      return spawn("fam", { r: p.r, spr: makeSprites(p), rig: bakeRig(p), person: p, speed: p.look === "snail" ? 11 : 26, hunger: rand(0, 0.4) },
-        W * (0.24 + (i % 3) * 0.22), i < 3 ? TOP + 150 : H - 200);           // clear of the workshop plot on the right
+    var i;
+    if (GRAZE) {
+      PUFF_LOOKS = ["#FFF6D6", "#FFFFFF", "#FFE0D2", "#E8F4FF"].map(function (col) { return makeSprites({ r: 20, col: col, look: "puff", fluff: true }, classicSprite); });
+      var FOX = makeSprites({ r: 25, col: "#F4A259", look: "fox" }, classicSprite);   // the wild fox, not the family look
+      for (i = 0; i < 12; i++) spawn("puff", { r: 20, spr: pick(PUFF_LOOKS), speed: 34 });
+      for (i = 0; i < 2; i++) spawn("nib", { r: 25, spr: FOX, speed: 30 });
+    }
+    fam = PEOPLE.map(function (p, i) {                         // where the scene starts them, or anywhere in their areas
+      var at = SCENE.start ? SCENE.start(i, SV) : { x: null, y: null };
+      return spawn("fam", { r: p.r, spr: makeSprites(p), rig: bakeRig(p), person: p, speed: p.look === "snail" ? 11 : 26, hunger: rand(0, 0.4) }, at.x, at.y);
     });
+    SV.fam = fam;
     BEE_HOST = fam.filter(function (t) { return t.person.bee; })[0] || null;
-    for (i = 0; i < 26; i++) addFood();
-    ICON = makeIcons(); BUBS = makeBubbles(); MFRONT = marketFront(); SHOP = makeShop(); VILLAGE = makeVillage(); PLANE = planeSprite(); makeWeatherSprites();
-    flies = []; for (i = 0; i < 16; i++) flies.push({ x: rand(0, W), y: rand(HZ, H), a: rand(0, 6), s: rand(0.4, 1) });
+    if (GRAZE) for (i = 0; i < 26; i++) addFood();
+    ICON = makeIcons(); BUBS = makeBubbles();
+    if (VIL) { MFRONT = marketFront(); SHOP = makeShop(); VILLAGE = makeVillage(); }
+    else { VILLAGE = []; makeDrops(); }
+    PLANE = planeSprite(); makeWeatherSprites();
+    flies = []; if (GRAZE) for (i = 0; i < 16; i++) flies.push({ x: rand(0, W), y: rand(HZ, H), a: rand(0, 6), s: rand(0.4, 1) });
+    if (SCENE.ambient) SCENE.ambient.setup(SV);
   }
   function addFood() { var p = spot(); food.push({ x: p.x, y: p.y, spr: FOOD_SPR[Math.random() < 0.3 ? 1 : 0], grow: 0 }); }
 
@@ -462,20 +259,20 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var duty = t.duty = dutyFor(t);
     if (duty) {
       t.pass = true;
-      if (duty.where !== "away") return dutySpot(t, duty);
-      var bus = { x: LAY.bus.x - 36, y: LAY.R + 14 };
+      if (VIL && duty.where !== "away") return dutySpot(t, duty);          // without the village every duty is out
+      var bus = { x: EXIT.x, y: EXIT.y };
       if (t.gone) return { x: t.x, y: t.y };                                  // out, and staying out until it is over
-      if (Math.abs(t.x - bus.x) < 30 && Math.abs(t.y - bus.y) < 20) { t.gone = true; return { x: W + 55, y: LAY.R }; }
+      if (Math.abs(t.x - bus.x) < 30 && Math.abs(t.y - bus.y) < 20) { t.gone = true; return { x: EXIT.off.x, y: EXIT.off.y }; }
       return bus;                                                             // first the road, then the stop
     }
-    if (t.gone) { t.gone = false; t.pass = true; return { x: LAY.bus.x - 36, y: LAY.R + 14 }; }   // back off the bus
+    if (t.gone) { t.gone = false; t.pass = true; return { x: EXIT.x, y: EXIT.y }; }   // back off the bus
     t.pass = false;
     // The swimmers head for the pond bank now and then; more often if the other one is already in.
     var look = t.person.look;
-    if (look === "shark" || look === "otter") {
+    if ((look === "shark" || look === "otter") && SCENE.swimSpot) {
       var mate = fam.filter(function (o) { return o !== t && o.dipT >= 0; })[0];
       if (Math.random() < (mate ? 0.6 : 0.3)) {
-        var ps = { x: rand(W * 0.72, W * 0.83), y: H - 172 }, clear = !inZone(ps.x, ps.y, 30);
+        var ps = SCENE.swimSpot(SV), clear = !inZone(ps.x, ps.y, 30);
         for (var q = 0; clear && q < fam.length; q++) if (fam[q] !== t && fam[q].dipT < 0 && Math.hypot(fam[q].x - ps.x, fam[q].y - ps.y) < 110) clear = false;
         if (clear) return ps;
       }
@@ -487,7 +284,16 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         score = Math.min(score, Math.hypot(o.x - c.x, (o.y - c.y) * 1.6), Math.hypot(o.tx - c.x, (o.ty - c.y) * 1.6)); }
       if (score > bs) { bs = score; best = c; }
     }
+    // A scene with ways between its areas (the seaside's pier) routes through them:
+    // via() answers the next waypoint, or nothing when the way is straight.
+    if (SCENE.via) { var w = SCENE.via(t, best, SV); if (w) { t.dest = best; return w; } }
     return best;
+  }
+  // On the way somewhere through a waypoint: the next one, or the place itself.
+  function famOnward(t) {
+    var d = t.dest, w = SCENE.via(t, d, SV);
+    if (!w) t.dest = null;
+    return w || d;
   }
 
   // ── The day ─────────────────────────────────────────────────────────────────
@@ -630,17 +436,19 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function update(dt) {
     var i, j, t, asleep = nightness > 0.6;
     for (i = 0; i < VILLAGE.length; i++) VILLAGE[i].update(dt, asleep);
+    if (!VIL) { updateWeather(dt); airmail(dt); }                    // the village runs these itself
+    if (SCENE.ambient) { SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; SCENE.ambient.update(dt, SV); }
     updateParty(dt);
     updatePlane(dt);
     updateRobot(dt);
-    if (Math.random() < dt * 1.1 && food.length < 34) addFood();
+    if (GRAZE && Math.random() < dt * 1.1 && food.length < 34) addFood();
     for (i = 0; i < food.length; i++) food[i].grow = Math.min(1, food[i].grow + dt * 2.5);
 
     var puffs = things.filter(function (o) { return o.kind === "puff"; });
     var nibs = things.filter(function (o) { return o.kind === "nib"; });
     // Keep the meadow alive: a lull in grazers brings a newcomer in from the edge,
     // so two hungry foxes can never empty the screen.
-    if (puffs.length < 6 && Math.random() < dt / 6) {
+    if (GRAZE && puffs.length < 6 && Math.random() < dt / 6) {
       var side = Math.random() < 0.5 ? -20 : W + 20, n = spawn("puff", { r: 20, spr: pick(PUFF_LOOKS), speed: 34 }, side, rand(LAY.R + 30, H - 60));
       go(n, side < 0 ? 120 : W - 120, n.y);
     }
@@ -723,9 +531,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       if (t.idle || t.munch > 0) {
         t.moving = false; t.wait -= dt;
         if (t.wait <= 0 && t.munch <= 0) {
-          var s = t.kind === "fam" ? famSpot(t) : wanderSpot(t);
+          var s = t.kind !== "fam" ? wanderSpot(t) : t.dest && !dutyFor(t) ? famOnward(t) : (t.dest = null, famSpot(t));
           go(t, s.x, s.y); t.target = null; t.yielding = false;
-          t.wait = rand(1, t.kind === "fam" ? 5 : 3.5) * (MUSIC_T > 0.5 ? 2.5 : 1);   // with music on they stop to dance for longer
+          t.wait = t.dest ? 0.05 : rand(1, t.kind === "fam" ? 5 : 3.5) * (MUSIC_T > 0.5 ? 2.5 : 1);   // with music on they stop to dance for longer
         }
       } else {
         t.moving = true;
@@ -1015,11 +823,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       say("shoo!", g.v.x, g.v.y - 50); g.v.happy = 2; g.mode = "home"; }
   }
 
+  // Rain and snow, one set per size. The village makes them; a scene without it gets them in setup.
+  function makeDrops() {
+    WX.drops = []; for (var d = 0; d < 170; d++) WX.drops.push({ x: rand(0, W), y: rand(0, H), s: rand(0.7, 1.2) });
+    WX.flakes = []; for (d = 0; d < 110; d++) WX.flakes.push({ x: rand(0, W), y: rand(0, H), s: rand(0, 1.5), ph: rand(0, 6) });
+  }
   function makeVillage() {
     var S = [], L = LAY, B = L.B, R = L.R;
     WALKERS = []; TRADE = { flour: 1, wood: 3, bread: 1 }; PUBN = 2;
-    WX.drops = []; for (var d = 0; d < 170; d++) WX.drops.push({ x: rand(0, W), y: rand(0, H), s: rand(0.7, 1.2) });
-    WX.flakes = []; for (d = 0; d < 110; d++) WX.flakes.push({ x: rand(0, W), y: rand(0, H), s: rand(0, 1.5), ph: rand(0, 6) });
+    makeDrops();
 
     // Weather, fox-shooing cooldown and the walker bookkeeping.
     // Every colour and hat a passer-by can wear, baked one per frame at boot. A sprite
@@ -1727,30 +1539,34 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       g.fillStyle = "#D9534F"; g.fillRect(14, 38, 26, 5); g.fillRect(34, 38, 5, 12);
       g.fillStyle = "#2B2433"; g.fillRect(18, 12, 18, 4); g.fillRect(21, 0, 12, 13);
       g.strokeStyle = "#7A5238"; g.lineWidth = 2; g.lineCap = "round"; g.beginPath(); g.moveTo(8, 50); g.lineTo(0, 40); g.moveTo(46, 50); g.lineTo(54, 42); g.stroke(); });
-    // party props
-    var L = LAY, B = L.B;
-    BUNTING = canvas(W * K, 90 * K); g = BUNTING.getContext("2d"); g.scale(K, K);
+    SV.sprites.snowman = SNOWMAN; SV.sprites.glow = GLOW;
+    // party props: the bunting, cake and balloons hang on the village
     var cols = ["#E86A5B", "#F3DE7C", "#6C8FD0", "#7BC47F", "#E68AB0", "#F4A340"];
-    [[L.pub.x + 66, L.bakery.x - 62], [L.bakery.x + 62, L.post.x - 50], [L.post.x + 50, L.market.x - 70], [L.market.x + 70, L.cottage.x - 46], [L.cottage.x + 46, L.mill.x - 30]].forEach(function (s) {
-      var x0 = s[0], x1 = s[1], y0 = 34, sag = 22, n = Math.max(3, Math.floor((x1 - x0) / 18));
-      g.strokeStyle = "rgba(90,80,70,.8)"; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo((x0 + x1) / 2, y0 + sag * 2, x1, y0); g.stroke();
-      for (var i2 = 0; i2 < n; i2++) { var u = (i2 + 0.5) / n, x = x0 + (x1 - x0) * u, y = y0 + sag * 4 * u * (1 - u) * 1;
-        g.fillStyle = cols[i2 % cols.length]; g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.lineTo(x, y + 13); g.closePath(); g.fill(); } });
-    CAKE = icon(50, 56, function (g) {
-      g.fillStyle = "#C69C6D"; g.fillRect(4, 50, 42, 5);
-      rimmed(g, "#C98AA0", "#FBE3EC", 1.2, function (e) { rr(g, 6 - e, 30 - e, 38 + 2 * e, 20 + 2 * e, 5); g.fill(); rr(g, 12 - e, 16 - e, 26 + 2 * e, 16 + 2 * e, 5); g.fill(); });
-      g.fillStyle = "#FFFFFF"; [8, 14, 20, 26, 32, 38].forEach(function (x) { g.beginPath(); g.arc(x, 30, 3, 0, Math.PI); g.fill(); });
-      g.fillStyle = "#E86A5B"; [16, 25, 34].forEach(function (x) { g.beginPath(); g.arc(x, 24, 2, 0, 7); g.fill(); });
-      ["#6C8FD0", "#F3DE7C", "#7BC47F"].forEach(function (c, i) { g.fillStyle = c; g.fillRect(17 + i * 7, 6, 3, 10); });
-    });
-    BALLOONS = [[L.band.x - 70, L.band.y - 92], [L.band.x - 26, L.band.y - 92], [L.band.x + 26, L.band.y - 92], [L.band.x + 70, L.band.y - 92],
-      [L.market.x - 60, B - 86], [L.market.x + 60, B - 86], [L.bakery.x + 70, B - 80]].map(function (a, i) {
-        return { x: a[0], y: a[1], ph: rand(0, 6), col: cols[i % cols.length], len: rand(26, 40) }; });
+    if (VIL) {
+      var L = LAY, B = L.B;
+      BUNTING = canvas(W * K, 90 * K); g = BUNTING.getContext("2d"); g.scale(K, K);
+      [[L.pub.x + 66, L.bakery.x - 62], [L.bakery.x + 62, L.post.x - 50], [L.post.x + 50, L.market.x - 70], [L.market.x + 70, L.cottage.x - 46], [L.cottage.x + 46, L.mill.x - 30]].forEach(function (s) {
+        var x0 = s[0], x1 = s[1], y0 = 34, sag = 22, n = Math.max(3, Math.floor((x1 - x0) / 18));
+        g.strokeStyle = "rgba(90,80,70,.8)"; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo((x0 + x1) / 2, y0 + sag * 2, x1, y0); g.stroke();
+        for (var i2 = 0; i2 < n; i2++) { var u = (i2 + 0.5) / n, x = x0 + (x1 - x0) * u, y = y0 + sag * 4 * u * (1 - u) * 1;
+          g.fillStyle = cols[i2 % cols.length]; g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.lineTo(x, y + 13); g.closePath(); g.fill(); } });
+      CAKE = icon(50, 56, function (g) {
+        g.fillStyle = "#C69C6D"; g.fillRect(4, 50, 42, 5);
+        rimmed(g, "#C98AA0", "#FBE3EC", 1.2, function (e) { rr(g, 6 - e, 30 - e, 38 + 2 * e, 20 + 2 * e, 5); g.fill(); rr(g, 12 - e, 16 - e, 26 + 2 * e, 16 + 2 * e, 5); g.fill(); });
+        g.fillStyle = "#FFFFFF"; [8, 14, 20, 26, 32, 38].forEach(function (x) { g.beginPath(); g.arc(x, 30, 3, 0, Math.PI); g.fill(); });
+        g.fillStyle = "#E86A5B"; [16, 25, 34].forEach(function (x) { g.beginPath(); g.arc(x, 24, 2, 0, 7); g.fill(); });
+        ["#6C8FD0", "#F3DE7C", "#7BC47F"].forEach(function (c, i) { g.fillStyle = c; g.fillRect(17 + i * 7, 6, 3, 10); });
+      });
+      BALLOONS = [[L.band.x - 70, L.band.y - 92], [L.band.x - 26, L.band.y - 92], [L.band.x + 26, L.band.y - 92], [L.band.x + 70, L.band.y - 92],
+        [L.market.x - 60, B - 86], [L.market.x + 60, B - 86], [L.bakery.x + 70, B - 80]].map(function (a, i) {
+          return { x: a[0], y: a[1], ph: rand(0, 6), col: cols[i % cols.length], len: rand(26, 40) }; });
+
+    } else { BUNTING = null; BALLOONS = []; }
     makePartySprites(cols);
   }
+  // Lying snow and the like belong to the scene: it knows where its ground is.
   function drawWeatherGround() {
-    if (WX.snow > 0.02) { ctx.fillStyle = "rgba(246,249,255," + (0.5 * WX.snow).toFixed(3) + ")"; ctx.fillRect(0, HZ - 30, W, H);
-      ctx.globalAlpha = WX.snow; blit(SNOWMAN, W * 0.215, H - 120, 1, 1, 1, 1); ctx.globalAlpha = 1; }
+    if (SCENE.weather && SCENE.weather.ground) SCENE.weather.ground(ctx, SV, WX);
   }
   function drawWeatherSky(time) {
     if (WX.cloud > 0.3) { ctx.globalAlpha = clamp((WX.cloud - 0.3) * 1.4, 0, 1) * 0.9;                // extra, greyer clouds
@@ -1967,11 +1783,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // music on the speaker: the whole meadow grooves, a notch below the rave
     MUSIC_T = clamp(MUSIC_T + (MUSIC.on ? dt : -dt) / 2, 0, 1);
     if (MUSIC_T > 0.5 && PARTY_T <= 0.5 && nightness < 0.6) { DANCE = { x: W / 2, y: H / 2, r: 1e6, k: clockT * MUSIC_W / 7, amp: 6, sq: 0.08, wig: 0.05 };
-      if (HOUSE_T <= 0.5) { MUSIC_NOTE -= dt;
+      if (VIL && HOUSE_T <= 0.5) { MUSIC_NOTE -= dt;
         if (MUSIC_NOTE < 0) { MUSIC_NOTE = rand(0.7, 1.4);
           parts.push({ kind: "note", x: LAY.cottage.x + 19 + rand(-6, 6), y: LAY.B - 48, vx: rand(-14, 14), vy: -30, life: 1.9, max: 1.9, col: pick(["#3B5FA8", "#E86A5B", "#4E9A5A", "#E68AB0"]) }); } } }
     // the house party: guests in with presents, out with cake; notes from the window
-    if (HOUSE_T > 0.5) { HP.note -= dt;
+    if (VIL && HOUSE_T > 0.5) { HP.note -= dt;
       if (HP.note < 0) { HP.note = rand(0.45, 1.0);
         parts.push({ kind: "note", x: LAY.cottage.x + 19 + rand(-6, 6), y: LAY.B - 48, vx: rand(-14, 14), vy: -30, life: 1.9, max: 1.9, col: pick(["#3B5FA8", "#E86A5B", "#4E9A5A", "#E68AB0"]) }); }
       if (nightness < 0.35 && WX.storm < 0.5) { HP.guest -= dt;
@@ -1999,6 +1815,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       byCol[c].forEach(function (p) { ctx.globalAlpha = 1; ctx.moveTo(p.x + 2.2, p.y); ctx.arc(p.x, p.y, 2.2 * (0.5 + p.life / p.max), 0, 7); }); ctx.fill(); });
   }
   function drawPartyBack(time) {
+    if (!VIL) return;                                         // the dressing hangs on the village
     if (PARTY_T > 0.01) { ctx.globalAlpha = PARTY_T; ctx.drawImage(BUNTING, 0, LAY.B - 110, W, 90); ctx.globalAlpha = 1; }
     if (HOUSE_T > 0.01) drawHouseBack(time);
   }
@@ -2027,7 +1844,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   // The cottage window in party colours, on top of the dusk so it reads as lit.
   function drawHouseLights(time) {
-    if (HOUSE_T <= 0.01) return;
+    if (HOUSE_T <= 0.01 || !VIL) return;
     var x = LAY.cottage.x, B = LAY.B, cols = ["255,212,120", "255,150,190", "150,200,255", "190,255,170"], k = time * 1.6, i = Math.floor(k) & 3, u = k - Math.floor(k);
     ctx.fillStyle = "rgba(" + cols[i] + "," + (HOUSE_T * (0.55 + 0.35 * DARK)).toFixed(2) + ")"; rr(ctx, x + 6, B - 44, 26, 20, 4); ctx.fill();
     ctx.fillStyle = "rgba(" + cols[(i + 1) & 3] + "," + (HOUSE_T * u * (0.55 + 0.35 * DARK)).toFixed(2) + ")"; rr(ctx, x + 6, B - 44, 26, 20, 4); ctx.fill();
@@ -2036,8 +1853,10 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // The rave's lights, over the dusk and under the tags. Flat fills, lines and one
   // baked ball: nothing per-frame that Chrome 87 on the panel would sulk at.
   function makePartySprites(cols) {
-    var x = LAY.cottage.x, B = LAY.B, i;
-    HBAL = [[x - 36, B - 34], [x + 40, B - 30], [x + 47, B - 36]].map(function (a, i) { return { x: a[0], y: a[1], ph: rand(0, 6), col: cols[(i * 2 + 1) % cols.length], len: rand(28, 42) }; });
+    var i;
+    if (VIL) { var x = LAY.cottage.x, B = LAY.B;
+      HBAL = [[x - 36, B - 34], [x + 40, B - 30], [x + 47, B - 36]].map(function (a, i) { return { x: a[0], y: a[1], ph: rand(0, 6), col: cols[(i * 2 + 1) % cols.length], len: rand(28, 42) }; }); }
+    else HBAL = [];
     SPOTS = []; for (i = 0; i < 12; i++) SPOTS.push({ x: rand(W * 0.05, W * 0.95), y: rand(TOP + 70, H - 30), ph: rand(0, 6), hue: (i * 47) % 360 });
     DISCO = icon(60, 60, function (g) { g.fillStyle = "#8A93A6"; g.beginPath(); g.arc(30, 30, 28, 0, 7); g.fill();
       for (var r = 0; r < 8; r++) for (var c = 0; c < 8; c++) { var fx = 3 + c * 6.8, fy = 3 + r * 6.8, dx = fx + 3 - 30, dy = fy + 3 - 30; if (dx * dx + dy * dy > 26 * 26) continue;
@@ -2054,7 +1873,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       ctx.fillStyle = "hsla(" + ((s.hue + hue) % 360) + ",95%,65%," + (a * 0.27 * glow).toFixed(3) + ")"; ctx.beginPath(); ctx.ellipse(sx, sy, r, r * 0.42, 0, 0, 7); ctx.fill(); }
     // lasers, fanned up from the bandstand and the pitch
     ctx.globalCompositeOperation = "lighter"; ctx.lineWidth = 3; ctx.lineCap = "round";
-    var rigs = [[LAY.band.x, LAY.band.y - 70, 1], [LAY.pitch.x, LAY.pitch.y - 40, -1]];
+    var rigs = VIL ? [[LAY.band.x, LAY.band.y - 70, 1], [LAY.pitch.x, LAY.pitch.y - 40, -1]] : [];
     for (var g = 0; g < rigs.length; g++) { var rx = rigs[g][0], ry = rigs[g][1];
       for (i = 0; i < 4; i++) { var th = rigs[g][2] * (i - 1.5) * 0.28 + Math.sin(time * 1.5 + i * 1.3 + g * 2) * 0.55, len = ry + 30;
         ctx.strokeStyle = "hsla(" + ((hue + 90 * i + g * 45) % 360) + ",100%,65%," + (a * (0.22 + 0.18 * pump) * glow).toFixed(3) + ")";
@@ -2106,7 +1925,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return { c: c, w: c.width / K, h: c.height / K };
   }
   function drawBandShow(time) {
-    if (MUSIC_T <= 0.01) return;
+    if (MUSIC_T <= 0.01 || !VIL) return;
     var bx = LAY.band.x, by = LAY.band.y, i;
     var awake = 1 - clamp((nightness - 0.3) / 0.3, 0, 1);       // 0 once the family is asleep
     var a = MUSIC_T * (1 - PARTY_T), live = a * awake, glow = 0.55 + 0.45 * DARK;
@@ -2158,7 +1977,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       ctx.drawImage(SIGN.c, sx0, sy0, SIGN.w, SIGN.h); ctx.globalAlpha = 1; }
   }
   function drawPartyFront(time) {
-    if (PARTY_T <= 0.01) return;
+    if (PARTY_T <= 0.01 || !VIL) return;
     ctx.globalAlpha = PARTY_T;
     var cx = LAY.band.x + 104, cy = LAY.band.y + 6;
     blit(CAKE, cx, cy, 1, 1, 1, 1);
@@ -2282,11 +2101,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var i, t;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.drawImage(BG, 0, 0, W, H);
+    var AMB = SCENE.ambient; if (AMB) { SV.time = time; SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; }
+    if (AMB && AMB.under) AMB.under(ctx, time, SV);              // the scene's moving ground: water, waves
     drawWeatherGround();
     for (i = 0; i < CLOUDS.length; i++) ctx.drawImage(CLOUDS[i].c, CLOUDS[i].x, CLOUDS[i].y);
     drawWeatherSky(time);
     drawRainbow();
     drawPlane(time);
+    if (AMB && AMB.back) AMB.back(ctx, time, SV);                // the scene's critters, behind the family
     for (i = 0; i < food.length; i++) { var f = food[i], fs = f.grow * 0.8 / K * depth(f.y);
       ctx.drawImage(f.spr.c, f.x - f.spr.ax * fs, f.y - f.spr.ay * fs, f.spr.c.width * fs, f.spr.c.height * fs); }
     for (i = 0; i < things.length; i++) { t = things[i]; if ((t.person && t.person.look === "shark") || offStage(t)) continue;
@@ -2301,6 +2123,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     for (i = 0; i < order.length; i++) { if (!robo && ROBOT.y < order[i].y) { drawRobot(time); robo = true; }
       if (!offStage(order[i])) drawThing(order[i], time); }
     if (!robo) drawRobot(time);
+    if (AMB && AMB.front) AMB.front(ctx, time, SV);              // in front of the family
     for (i = 0; i < VILLAGE.length; i++) if (VILLAGE[i].layer === "front") VILLAGE[i].draw(time, asleep);
     drawPartyFront(time);
     // The bee, in a lazy figure of eight around whoever has bee: true
@@ -2335,6 +2158,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (DARK > 0) {
       ctx.fillStyle = "rgba(24,32,78," + (0.52 * DARK).toFixed(3) + ")"; ctx.fillRect(0, 0, W, H);
       for (i = 0; i < VILLAGE.length; i++) if (VILLAGE[i].light) VILLAGE[i].light(DARK);
+      if (AMB && AMB.light) AMB.light(ctx, time, SV);            // the scene's lamps, over the dusk
       planeLight(DARK, time);
       drawFireworks();
       ctx.globalAlpha = DARK;
@@ -2348,7 +2172,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       ctx.drawImage(stg.c, sx0, sy0, stg.w, stg.h); SCHOOL_CARD.tagBox = [sx0, sy0, stg.w, stg.h]; }
     // the workshop's board: the percent on the fence while a job is on (a tag above
     // would sit on the road, the plot is that close under it)
-    var bd = shopBoard(); if (bd) ctx.drawImage(bd.c, LAY.shop.x - 60 - bd.w / 2, LAY.shop.y - 30 - bd.h, bd.w, bd.h);
+    var bd = VIL && shopBoard(); if (bd) ctx.drawImage(bd.c, LAY.shop.x - 60 - bd.w / 2, LAY.shop.y - 30 - bd.h, bd.w, bd.h);
     // name tags last, so night never hides who is who; a letter rides above the tag
     for (i = 0; i < fam.length; i++) { t = fam[i]; var tag = TAGS[t.person.name]; if (!tag) continue;
       if (offStage(t)) { t.tagBox = null; continue; }
@@ -2537,6 +2361,18 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // If the clear fails the letter is still remembered here, the corner says so, and
   // the poll keeps ignoring that key until the text changes.
   var LETTER = { seen: null, queue: [], clearErr: null };
+  // Without the village there is no postie: a letter drops out of the sky onto its
+  // person's tag instead, in the same hours the postie keeps, while they are here.
+  var AIRMAIL = { t: 2 };
+  function airmail(dt) {
+    if (!LETTER.queue.length || nightness > 0.35) return;
+    AIRMAIL.t -= dt; if (AIRMAIL.t > 0) return; AIRMAIL.t = 2;
+    var L1 = LETTER.queue[0], to = fam.filter(function (f) { return f.person.name === L1.to; })[0];
+    if (!to || offStage(to)) return;                                       // out: it waits
+    LETTER.queue.shift();
+    to.letter = L1; to.happy = 2.2; to.jump = 0.6; say("!", to.x, to.y - to.r * 2.6);
+    parts.push({ kind: "icon", icon: ICON.letter, x: to.x, y: to.y - to.r * 3.4 - 40, vx: 0, vy: 20, life: 0.8, max: 0.8 });
+  }
   function letterArrived(text, key) {
     if (key === LETTER.seen) return;
     LETTER.seen = key;
@@ -3075,22 +2911,24 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // The office robot, or its speech bubble: the agent office view
     if (robotHit(x, y)) { ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
       setTimeout(function () { goView(VIEW.office); }, 380); return; }
-    // The school: its tag, or the building itself
-    var s0 = LAY.school, tb = SCHOOL_CARD.tagBox;
-    if ((x > s0.x - 90 && x < s0.x + 90 && y > s0.y - 145 && y < s0.y + 8) || (tb && x >= tb[0] - 10 && x <= tb[0] + tb[2] + 10 && y >= tb[1] - 10 && y <= tb[1] + tb[3] + 10)) {
-      say("ding!", s0.x + 22, s0.y - 150); setTimeout(openSchool, 320); return; }
-    // The workshop: the plot, its board and the builder
-    var sh = LAY.shop;
-    if (VIEW.printer && x > sh.x - 90 && x < sh.x + 66 && y > sh.y - 100 && y < sh.y + 12) {
-      puff("chip", sh.x, sh.y - 30, 6, "#D9B27A"); setTimeout(function () { goView(VIEW.printer); }, 380); return; }
-    // The bandstand, the band on it and the now-playing sign over it: the music view
-    var bs = LAY.band, top0 = bs.y - 140 - (SIGN && MUSIC_T > 0.3 ? SIGN.h + 14 : 0);
-    if (VIEW.music && x > bs.x - 95 && x < bs.x + 95 && y > top0 && y < bs.y + 22) {
-      puff("note", bs.x + rand(-30, 30), bs.y - 100, 5, "#D9534F"); setTimeout(function () { goView(VIEW.music); }, 380); return; }
-    // The blue cottage, the family's house: the Home view (the room the panel lives in)
-    var ct = LAY.cottage;
-    if (VIEW.home && x > ct.x - 58 && x < ct.x + 58 && y > ct.y - 110 && y < ct.y + 10) {
-      puff("heart", ct.x + 18, ct.y - 50, 3, "#FF7FA0"); setTimeout(function () { goView(VIEW.home); }, 380); return; }
+    if (VIL) {                                                 // the village's buildings
+      // The school: its tag, or the building itself
+      var s0 = LAY.school, tb = SCHOOL_CARD.tagBox;
+      if ((x > s0.x - 90 && x < s0.x + 90 && y > s0.y - 145 && y < s0.y + 8) || (tb && x >= tb[0] - 10 && x <= tb[0] + tb[2] + 10 && y >= tb[1] - 10 && y <= tb[1] + tb[3] + 10)) {
+        say("ding!", s0.x + 22, s0.y - 150); setTimeout(openSchool, 320); return; }
+      // The workshop: the plot, its board and the builder
+      var sh = LAY.shop;
+      if (VIEW.printer && x > sh.x - 90 && x < sh.x + 66 && y > sh.y - 100 && y < sh.y + 12) {
+        puff("chip", sh.x, sh.y - 30, 6, "#D9B27A"); setTimeout(function () { goView(VIEW.printer); }, 380); return; }
+      // The bandstand, the band on it and the now-playing sign over it: the music view
+      var bs = LAY.band, top0 = bs.y - 140 - (SIGN && MUSIC_T > 0.3 ? SIGN.h + 14 : 0);
+      if (VIEW.music && x > bs.x - 95 && x < bs.x + 95 && y > top0 && y < bs.y + 22) {
+        puff("note", bs.x + rand(-30, 30), bs.y - 100, 5, "#D9534F"); setTimeout(function () { goView(VIEW.music); }, 380); return; }
+      // The blue cottage, the family's house: the Home view (the room the panel lives in)
+      var ct = LAY.cottage;
+      if (VIEW.home && x > ct.x - 58 && x < ct.x + 58 && y > ct.y - 110 && y < ct.y + 10) {
+        puff("heart", ct.x + 18, ct.y - 50, 3, "#FF7FA0"); setTimeout(function () { goView(VIEW.home); }, 380); return; }
+    }
     // Everyone else just enjoys the attention.
     for (i = 0; i < things.length; i++) { t = things[i];
       if (t.kind !== "fam" && Math.abs(x - t.x) < t.r * 1.8 && Math.abs(y - (t.y - t.r)) < t.r * 1.8) {
@@ -3135,7 +2973,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
       office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView };
-    if (OPEN === "school") setTimeout(openSchool, 900);
+    if (OPEN === "school") { if (VIL) setTimeout(openSchool, 900); }
     else if (OPEN === "workshop") setTimeout(openShop, 900);
     else if (OPEN) setTimeout(function () { var t = fam.filter(function (f) { return f.person.name.toLowerCase() === OPEN.toLowerCase(); })[0]; if (t) openCard(t); }, 900);
   }
@@ -3144,7 +2982,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   return {
     // positions are fractions of the card, so a new size rebuilds the village
     resize: function () { if (STOPPED || !STARTED) return; if (WRAP.clientWidth === W && WRAP.clientHeight === H) return;
-      size(); VILLAGE = makeVillage(); makeWeatherSprites(); },
+      size(); if (VIL) VILLAGE = makeVillage(); else makeDrops(); makeWeatherSprites();
+      if (SCENE.ambient) SCENE.ambient.setup(SV); },
     stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF); }
   };
 }

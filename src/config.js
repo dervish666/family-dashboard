@@ -1,5 +1,6 @@
 // Card config: the defaults, normalize() and the first-install stub.
 import { CREATURES } from "./creatures/index.js";
+import { SCENE_LIST } from "./scenes/index.js";
 
 // ══ CONFIG ═══════════════════════════════════════════════════════════════════
 // Everything household-specific lives in this one object. Edit it and nothing else.
@@ -96,8 +97,8 @@ export const LOOK_TG = {};
 CREATURES.forEach(function (c) { if (c.tg) LOOK_TG[c.id] = c.tg; });
 export const PALETTE = ["#7FC8D2", "#9A72C8", "#A3B0F2", "#D4A8F5", "#9EE0B4", "#E0A050", "#F2A0A0", "#E8D070"];
 export const ACCESSORIES = ["glasses", "phones", "daisy", "bee"];
-// Scenes the card can draw. Only the meadow so far; a later scene adds an entry here.
-export const SCENES = [{ id: "meadow", name: "Meadow" }];
+// Scenes the card can draw, from the scene registry (scenes/index.js). The first is the default.
+export const SCENES = SCENE_LIST.map(function (s) { return { id: s.id, name: s.label }; });
 const CARD_KEYS = ["demo", "query", "height", "scene"];
 const OPTIONAL_SENSORS = ["extra", "timetable", "kit", "lunch", "printer", "letter", "music", "rain", "trips"];
 
