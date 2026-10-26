@@ -24,9 +24,16 @@ const LABELS = { name: "Name", role: "Role", look: "Animal", col: "Colour", cale
   school: "Goes to school", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
 SENSOR_FIELDS.forEach(function (f) { LABELS[f[0]] = f[2]; });
 Object.assign(LABELS, { announcement: "Announcement entity (input_text or sensor)", announcement_title: "Announcement heading (optional)", due: "Due times sensor",
+  announcement_crier: "Town crier for a new announcement", announcement_sound: "Ring a bell sound", announcement_clear: "A tap empties the entity (input_text or text)",
+  announcement_late: "Banner only if older than (minutes)",
   entity: "Entity", label: "Label", icon: "Icon", unit: "Unit (optional)", thresholds: "Colour from a value: 0 #5B7FD6, 8 #3FA34D", on_color: "Colour when on or open", off_color: "Colour when off or closed", min: "Empty at", max: "Full at" });
 // v1.6.0: the announcement banner, the due-time row and the status tiles (extras.js has the shapes).
-const EXTRA_SCHEMA = [entityField("announcement", ["input_text", "text", "sensor", "input_select"]), { name: "announcement_title", selector: { text: {} } }, entityField("due", "sensor")];
+// v1.7.0: the town crier's switches sit under the announcement (crier.js has the rules).
+const EXTRA_SCHEMA = [entityField("announcement", ["input_text", "text", "sensor", "input_select"]), { name: "announcement_title", selector: { text: {} } },
+  { type: "grid", name: "", schema: [{ name: "announcement_crier", selector: { boolean: {} } }, { name: "announcement_sound", selector: { boolean: {} } }] },
+  { type: "grid", name: "", schema: [{ name: "announcement_clear", selector: { boolean: {} } }, { name: "announcement_late", selector: { text: {} } }] },
+  entityField("due", "sensor")];
+const CRIER_FLAGS = { announcement_crier: true, announcement_sound: false, announcement_clear: false };
 const TILE_SCHEMA = [
   entityField("entity", ["sensor", "binary_sensor", "switch", "light", "input_boolean"]),
   { type: "grid", name: "", schema: [{ name: "label", selector: { text: {} } },
@@ -174,7 +181,9 @@ class FamilyDashboardCardEditor extends HTMLElement {
       sc.creatures.filter(function (id) { return CREATURE[id] && CREATURE[id].editor; }).map(function (id) { return CREATURE[id].label; }).join(", ") + "." : "";
     this._forms.sensors.set(sensors);
     const c0 = this._config, dueV = c0.due;
-    this._forms.extras.set({ announcement: c0.announcement || "", announcement_title: c0.announcement_title || "", due: typeof dueV === "string" ? dueV : dueV && dueV.entity || "" });
+    this._forms.extras.set({ announcement: c0.announcement || "", announcement_title: c0.announcement_title || "", due: typeof dueV === "string" ? dueV : dueV && dueV.entity || "",
+      announcement_crier: c0.announcement_crier !== false, announcement_sound: c0.announcement_sound === true, announcement_clear: c0.announcement_clear === true,
+      announcement_late: c0.announcement_late == null ? "" : String(c0.announcement_late) });
     const self = this;
     this._tileShown = this._tiles().map(function (t, i) {
       const o = typeof t === "string" ? { entity: t } : t || {}, sh = { entity: o.entity || "", label: o.label == null ? "" : String(o.label), icon: o.icon || "",
@@ -243,7 +252,7 @@ class FamilyDashboardCardEditor extends HTMLElement {
     F.sensors = makeForm(sensorSchema(withWeek), function (d) { self._sensors(d); });
     sec("Sensors", "All optional. Leave one empty and that part of the scene stays off. A sensor that is set but missing says unavailable on the cards.").appendChild(F.sensors.el);
     F.extras = makeForm(EXTRA_SCHEMA, function (d) { self._extras(d); });
-    sec("Announcements and due times", "A banner in the sky while the announcement entity holds text, and a row of chips for a sensor whose items attribute lists { label, due, person }. Empty means off.").appendChild(F.extras.el);
+    sec("Announcements and due times", "A banner in the sky while the announcement entity holds text, and a town crier who walks out and reads a new one aloud on a scroll. A row of chips for a sensor whose items attribute lists { label, due, person }. Empty means off.").appendChild(F.extras.el);
     const ts = sec("Status tiles", "Up to " + MAX_TILES + " small tiles under the corner hint, one per entity: a number fills the icon in its threshold colour, on and off use their two colours. A tap opens the entity in Home Assistant.");
     for (let i = 0; i < nt; i++) {
       const box = document.createElement("div"); box.className = "person";
@@ -304,6 +313,11 @@ class FamilyDashboardCardEditor extends HTMLElement {
     const c = clone(this._config);
     ["announcement", "announcement_title"].forEach(function (k) { if (!(k in d)) return; const v = (d[k] || "").trim();
       if (v === (c[k] || "")) return; if (v) c[k] = v; else delete c[k]; });
+    // a switch at its default leaves no key behind, so a v1.6.0 config stays as it was
+    Object.keys(CRIER_FLAGS).forEach(function (k) { if (!(k in d)) return; const v = d[k] === true, cur = c[k] == null ? CRIER_FLAGS[k] : c[k] === true;
+      if (v === cur) return; if (v === CRIER_FLAGS[k]) delete c[k]; else c[k] = v; });
+    if ("announcement_late" in d) { const v = String(d.announcement_late == null ? "" : d.announcement_late).trim(), cur = c.announcement_late == null ? "" : String(c.announcement_late);
+      if (v !== cur) { if (!v) delete c.announcement_late; else c.announcement_late = isFinite(+v) ? +v : v; } }
     if ("due" in d) { const v = (d.due || "").trim(), cur = typeof c.due === "string" ? c.due : c.due && c.due.entity || "";
       if (v !== cur) { if (!v) delete c.due; else if (c.due && typeof c.due === "object") c.due = Object.assign({}, c.due, { entity: v }); else c.due = v; } }
     this._emit(c);
