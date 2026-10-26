@@ -1,0 +1,93 @@
+# ESP32-2432S028R, the "Cheap Yellow Display": ESP32-WROOM-32, 4 MB flash,
+# no PSRAM, 2.8" 320x240 TFT, XPT2046 resistive touch. The cheapest board.
+#
+# The same board ships with three display chips and one pin map. This file
+# defaults to the ST7789V version, the one with both a USB-C and a micro-USB
+# socket (ESPHome model ESP32-2432S028-7789). For the micro-USB-only ILI9341
+# version set cyd_model to ESP32-2432S028; for the ILI9342 one,
+# ESP32-2432S028-9342. A white or mirrored screen means the wrong model.
+#
+# Power: the two-socket version can brown out on a weak USB-C lead or a
+# laptop port with Wi-Fi and the backlight on. Use a 5 V 1 A (or better)
+# supply and a short cable; if it keeps rebooting, try the micro-USB socket.
+#
+# Pins (ESPHome's ESP32-2432S028 preset and board definition): display SPI
+# CLK 14, MOSI 13, MISO 12, CS 15, DC 2; touch SPI CLK 25, MOSI 32, MISO 39,
+# CS 33, IRQ 36; backlight GPIO21; RGB LED 4/16/17 (active low, unused).
+#
+# Resistive touch needs calibrating per board. The defaults suit most; if a
+# tap lands in the wrong place, set logger level DEBUG, tap the four corners,
+# read x_raw and y_raw from the log, and set the four touch_* values.
+
+substitutions:
+  cyd_model: ESP32-2432S028-7789
+  panel_width: "320"
+  panel_height: "240"
+  rotation: "90"
+  touch_x_min: "280"
+  touch_x_max: "3860"
+  touch_y_min: "340"
+  touch_y_max: "3860"
+  font_small: "14"
+  font_body: "18"
+  font_big: "24"
+  font_clock: "52"
+
+esp32:
+  board: esp32dev
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+spi:
+  - id: lcd_spi
+    clk_pin: 14
+    mosi_pin: 13
+    miso_pin:
+      number: 12
+      ignore_strapping_warning: true
+  - id: touch_spi
+    clk_pin: 25
+    mosi_pin: 32
+    miso_pin: 39
+
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: 21
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Screen
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 400ms
+
+display:
+  - platform: mipi_spi
+    id: panel_display
+    model: ${cyd_model}
+    spi_id: lcd_spi
+    auto_clear_enabled: false
+    update_interval: never
+
+touchscreen:
+  - platform: xpt2046
+    id: panel_touch
+    spi_id: touch_spi
+    cs_pin: 33
+    interrupt_pin: 36
+    display: panel_display
+    calibration:
+      x_min: ${touch_x_min}
+      x_max: ${touch_x_max}
+      y_min: ${touch_y_min}
+      y_max: ${touch_y_max}
+    on_release:
+      - script.execute: wake_screen
+
+lvgl:
+  buffer_size: 25%
+  rotation: ${rotation}

@@ -1,0 +1,79 @@
+# Guition JC3248W535: ESP32-S3, 16 MB flash, 8 MB PSRAM, 3.5" 320x480 IPS
+# with an AXS15231B driver on quad SPI and capacitive touch in the same chip.
+# The better board, and the one the kitchen profile is laid out for.
+#
+# Pins come from ESPHome's own JC3248W535 preset (mipi_spi) and its board
+# definition: QSPI clock 47, data 21/48/40/39, CS 45; touch I2C SDA 4, SCL 8;
+# backlight on GPIO1.
+#
+# Two quirks of the panel. It only draws reliably when LVGL redraws the whole
+# frame (full_refresh), and it has no hardware rotation, so it runs in
+# portrait. LVGL can rotate it in software: set rotation to 90 or 270 below
+# and swap panel_width and panel_height.
+
+substitutions:
+  panel_width: "320"
+  panel_height: "480"
+  rotation: "0"
+  font_small: "16"
+  font_body: "20"
+  font_big: "28"
+  font_clock: "72"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+spi:
+  - id: lcd_spi
+    type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+i2c:
+  - id: touch_i2c
+    sda: 4
+    scl: 8
+    frequency: 400kHz
+
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: 1
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Screen
+    output: backlight_output
+    restore_mode: ALWAYS_ON
+    default_transition_length: 400ms
+
+display:
+  - platform: mipi_spi
+    id: panel_display
+    model: JC3248W535
+    spi_id: lcd_spi
+    auto_clear_enabled: false
+    update_interval: never
+
+touchscreen:
+  - platform: axs15231
+    id: panel_touch
+    i2c_id: touch_i2c
+    display: panel_display
+    on_release:
+      - script.execute: wake_screen
+
+lvgl:
+  full_refresh: true
+  buffer_size: 100%
+  rotation: ${rotation}
