@@ -41,7 +41,10 @@ creatures/cat.js|s/editor: true, sleeps: true,/editor: true,/|the cat does not s
 creatures/cat.js|s/sl \* (0.04 + 0.012 \* Math.sin(time \* 1.5))/sl * 0.04/|the sleeping cat stops breathing
 creatures/frog.js|s/^  anim: function (t, p, time, M) {/  anim: function (t, p, time, M) { return;/|the frog stands stock still, walking or not
 creatures/frog.js|s/var breathe = aw \* 0.01 \* Math.sin(time \* 3.2) \* M.idle;/var breathe = 0;/|the idle frog never stirs
-scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside\];/export const SCENE_LIST = [meadow];/|the seaside dropped from the registry
+scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside, winter\];/export const SCENE_LIST = [meadow, winter];/|the seaside dropped from the registry
+scenes/winter.js|s/    office:  { box: function () { var p = G.post;/    offis:   { box: function () { var p = G.post;/|the winter village's post office loses its tap
+scenes/winter.js|s/var h = G.home; return \[h.x - 86, h.y - 150, h.x + 86, h.y + 30\];/var h = G.post; return [h.x - 56, h.y - 110, h.x + 70, h.y + 14];/|home's tap box sits on the post office
+engine/route.js|s/^  if (!best) return null;/  return null;/|duty walks go straight through the campfire and the pond
 scenes/seaside.js|s/    ground: function (ctx, S, WX) {/    floor: function (ctx, S, WX) {/|the seaside loses weather.ground()
 scenes/seaside.js|s/    music:   { box: function () { var p = G.pav;/    musik:   { box: function () { var p = G.pav;/|the seaside's band on the pier loses its tap
 scenes/meadow.js|s/    office:  { robot: true }/    office:  null/|the meadow's office robot is no longer mapped

@@ -326,8 +326,9 @@ eq(m.SCENES.map(function (s) { return s.id; }), sids, "config's scenes are the r
 eq(sids[0], "meadow", "the meadow stays first, the default for configs with no scene");
 ok(new Set(sids).size === sids.length, "scene ids are unique");
 eq(m.HOTSPOT_IDS, ["school", "printer", "music", "home", "office"], "the landmark ids are the ones the engine taps");
-let sea = null; try { sea = m.normalize({ demo: true, scene: "seaside" }).scene; } catch (e) { sea = e.message; }
-eq(sea, "seaside", "the seaside is a valid scene");
+["seaside", "winter"].forEach(function (id) { let got = null; try { got = m.normalize({ demo: true, scene: id }).scene; } catch (e) { got = e.message; }
+  eq(got, id, "the " + id + " is a valid scene"); });
+eq(sids.slice(0, 3), ["meadow", "seaside", "winter"], "the scenes, in the editor's order");
 SL.forEach(function (sc) {
   const who = "scene " + (sc && sc.id);
   ok(sc && typeof sc.id === "string" && /^[a-z]+$/.test(sc.id), who + ": id is a lower-case word");
@@ -350,6 +351,8 @@ SL.forEach(function (sc) {
   ok(L !== null, who + ": bake() places its layout");
   ok(Array.isArray(L.zones) && Array.isArray(L.patch) && L.patch.length > 0 && Array.isArray(L.roam) && L.roam.length > 0, who + ": the layout has zones, the family's areas and everyone else's");
   ok(L.home && isFinite(L.home.x) && L.exit && isFinite(L.exit.x) && L.exit.off && isFinite(L.exit.off.x), who + ": the layout has a home spot and an exit");
+  ok(L.exit.off.x < 0 || L.exit.off.x > S.W, who + ": the exit leads off the card (school runs and appointments leave the scene)");
+  ok(L.water == null || (isFinite(L.water.x) && L.water.rx > 0 && L.water.ry > 0), who + ": water is an ellipse, or null for none");
   L.patch.concat(L.roam).forEach(function (a, i) {
     if (a.pick) { for (let k = 0; k < 20; k++) { const p = a.pick(); ok(a.has(p.x, p.y), who + ": area " + i + " picks points inside itself"); } }
     else ok(a.x0 < a.x1 && a.y0 < a.y1 && a.x0 >= 0 && a.x1 <= S.W && a.y0 >= S.HZ && a.y1 <= S.H, who + ": area " + i + " is a rect on the ground");
@@ -370,6 +373,25 @@ SL.forEach(function (sc) {
     ok(b[0] < S.W && b[2] > 0 && b[1] < S.H && b[3] > S.HZ - 120, who + ": " + id + " is on the card");
     h.tap(S);
   });
+  // no two landmarks share much of their tap box, so a tap opens the one you meant
+  const bx = m.HOTSPOT_IDS.map(function (id) { const h = sc.hotspots[id]; S.sign = 0; return h && !h.robot ? h.box(S) : null; });
+  for (let i = 0; i < bx.length; i++) for (let j = i + 1; j < bx.length; j++) { const a = bx[i], b = bx[j]; if (!a || !b) continue;
+    const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    ok(ix * iy <= 0.1 * Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])), who + ": the " + m.HOTSPOT_IDS[i] + " and " + m.HOTSPOT_IDS[j] + " landmarks do not overlap"); }
+  // a walk on a duty that a scene routes (via) goes round its obstacles: step it there and back
+  if (sc.via && L.lay && (L.lay.fire || L.lay.pond)) {
+    const z = L.lay.fire || L.lay.pond;
+    ok(isFinite(z.x) && isFinite(z.y) && z.rx > 0 && z.ry > 0, who + ": lay." + (L.lay.fire ? "fire" : "pond") + " is the obstacle's ellipse");
+    const inZ = function (x, y) { return L.zones.some(function (q) { const dx = (x - q.x) / (q.rx * 0.9), dy = (y - q.y) / (q.ry * 0.9); return dx * dx + dy * dy < 1; }); };
+    const S2 = Object.assign({}, S, { inZone: function (x, y, pad) { return L.zones.filter(function (q) { const dx = (x - q.x) / (q.rx + pad), dy = (y - q.y) / (q.ry + pad); return dx * dx + dy * dy < 1; })[0] || null; } });
+    [[-1, 1], [1, -1]].forEach(function (d) {
+      const w = { x: z.x + d[0] * (z.rx + 150), y: z.y + 8, pass: true }, dest = { x: z.x + d[1] * (z.rx + 150), y: z.y - 4 };
+      let crossed = false, k = 0;
+      for (; k < 3000 && Math.hypot(dest.x - w.x, dest.y - w.y) > 3; k++) { const v = sc.via(w, dest, S2) || dest, dx = v.x - w.x, dy = v.y - w.y, l = Math.hypot(dx, dy) || 1;
+        w.x += dx / l * Math.min(3, l); w.y += dy / l * Math.min(3, l); if (inZ(w.x, w.y)) crossed = true; }
+      ok(!crossed && k > 20 && k < 3000, who + ": a duty walk across the " + (L.lay.fire ? "campfire" : "pond") + " goes round it and arrives");
+    });
+  }
   if (L.lay && L.lay.school) ok(isFinite(L.lay.school.x) && isFinite(L.lay.school.y) && (!L.lay.school.cut || (L.lay.school.cut.length === 4 && L.lay.school.cut.every(isFinite))), who + ": the School tag's spot is a point");
   if (sc.start) for (let i = 0; i < 8; i++) { const p = sc.start(i, S); ok(p && (p.x === null || (isFinite(p.x) && isFinite(p.y))), who + ": start(" + i + ") is a point"); }
   if (sc.ambient) {
