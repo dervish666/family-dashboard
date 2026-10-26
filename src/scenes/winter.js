@@ -12,7 +12,7 @@
 // engine's weather, and fresh snow covers the trodden paths while it falls. The pond is
 // frozen, so there is no open water for the swimmers. No village population: school and
 // away duties go along the lane past the school and off the left edge.
-import { rand, pick, rr, rimmed, canvas, K } from "../engine/draw.js";
+import { rand, pick, rr, rimmed, canvas, K, aoShadow } from "../engine/draw.js";
 import { around } from "../engine/route.js";
 
 var G = null;
@@ -59,8 +59,11 @@ function bake(g, S) {
   S.place(L);
   // a pale winter sky, warmer at the horizon
   var sky = g.createLinearGradient(0, 0, 0, HZ);
-  sky.addColorStop(0, "#B7CADB"); sky.addColorStop(0.65, "#DCE4EA"); sky.addColorStop(1, "#F1EEE8");
+  sky.addColorStop(0, "#A7BFD6"); sky.addColorStop(0.6, "#D6E0E8"); sky.addColorStop(1, "#F3EEE6");
   g.fillStyle = sky; g.fillRect(0, 0, W, HZ + 40);
+  var sun = g.createRadialGradient(W * 0.2, 30, 0, W * 0.2, 30, HZ * 0.9);                            // the low winter sun, left
+  sun.addColorStop(0, "rgba(255,240,205,.6)"); sun.addColorStop(0.5, "rgba(255,236,200,.16)"); sun.addColorStop(1, "rgba(255,236,200,0)");
+  g.fillStyle = sun; g.fillRect(0, 0, W, HZ + 40);
   // far snowy hills, then a fir wood dusted white
   hills(g, HZ - 30, 26, "#E4EAF0", 0.7); hills(g, HZ - 8, 18, "#D6E0EA", 2.9);
   for (i = 0; i < 46; i++) { x = (i / 45) * W * 1.04 - 20 + Math.sin(i * 7.3) * 9; y = HZ + 6 + Math.abs(Math.sin(i * 2.1)) * 6;
@@ -84,6 +87,9 @@ function bake(g, S) {
   // paths across the green: from the lane to the cottage gate, and to the pond
   G.paths = [[[G.tree.x - 30, B + 30], [W * 0.62, H * 0.62], [G.home.x, G.home.y + 34]], [[G.lane.x + 40, B + 30], [W * 0.25, H * 0.66], [G.pond.x + 60, G.pond.y - G.pond.ry]]];
   G.paths.forEach(function (p) { trodden(g, p, 26); });
+  // the ground under the back row: blue shadow on the lane, before the walls go up
+  [[G.school.x, 92], [G.cot[0].x, 52], [G.church.x + 16, 82], [G.pub.x, 74], [G.post.x, 62], [G.cot[1].x, 48], [G.smithy.x, 66]]
+    .forEach(function (b) { aoShadow(g, b[0], B + 1, b[1], 9, 0.26, "80,100,150"); });
   // the back row, far to near does not matter here: left to right
   school(g, G.school.x, G.school.y);
   cottage(g, G.cot[0]);
@@ -95,6 +101,8 @@ function bake(g, S) {
   // the lamps along the lane, with Christmas lights strung between them
   var lx = [0.155, 0.255, 0.405, 0.535, 0.635, 0.735, 0.82, 0.93];
   lx.forEach(function (f) { lamp(g, W * f, B + 30); });
+  g.fillStyle = "rgba(90,110,160,.2)";                                                                 // the lamps' long shadows, sun from the left
+  G.lamps.forEach(function (l) { g.beginPath(); g.moveTo(l.x - 2, l.foot); g.lineTo(l.x + 2, l.foot); g.lineTo(l.x + 64, l.foot + 13); g.lineTo(l.x + 58, l.foot + 14); g.closePath(); g.fill(); });
   for (i = 0; i < G.lamps.length - 1; i++) { var a = G.lamps[i], b = G.lamps[i + 1];
     if (Math.abs(b.x - G.tree.x) < 30 || Math.abs(a.x - G.tree.x) < 30) continue;
     string(g, a.x, a.y + 10, b.x, b.y + 10, 16); }
@@ -103,7 +111,7 @@ function bake(g, S) {
   G.snowmen.forEach(function (m) { snowman(g, m.x, m.y, m.s, m.kid); });
   homeCottage(g, G.home.x, G.home.y);
   // snowy firs framing the green's left edge, tracks across it, a bird table by the pond
-  [[22, H * 0.6, 92], [62, H * 0.52, 70], [W - 18, H * 0.47, 80]].forEach(function (f) { fir(g, f[0], f[1], f[2], "#3F6B58", 1); });
+  [[22, H * 0.6, 92], [62, H * 0.52, 70], [W - 18, H * 0.47, 80]].forEach(function (f) { aoShadow(g, f[0] + f[2] * 0.4, f[1] + 2, f[2] * 0.55, 7, 0.28, "80,100,150"); fir(g, f[0], f[1], f[2], "#3F6B58", 1); });
   tracks(g, [[W * 0.1, H * 0.98], [W * 0.42, H * 0.72], [W * 0.66, H * 0.84]]);
   birdTable(g, G.pond.x + G.pond.rx + 40, G.pond.y - 10);
   snowballs(g, W * 0.665, H * 0.5);
@@ -155,7 +163,11 @@ function trodden(g, p, w) {
 // ── Buildings ──────────────────────────────────────────────────────────────────
 // Walls, then a roof in snow: a dark eave line, a white top shaded blue underneath, a soft
 // overhang with drips, and icicles. The ridge runs along the lane.
-function walls(g, x0, w, top, h, col) { rimmed(g, "rgba(80,70,70,.55)", col, 1.2, function (e) { g.fillRect(x0 - e, top - e, w + 2 * e, h + 2 * e); }); }
+function walls(g, x0, w, top, h, col) { rimmed(g, "rgba(80,70,70,.55)", col, 1.2, function (e) { g.fillRect(x0 - e, top - e, w + 2 * e, h + 2 * e); });
+  var sg = g.createLinearGradient(x0 + w * 0.45, 0, x0 + w, 0); sg.addColorStop(0, "rgba(40,40,70,0)"); sg.addColorStop(1, "rgba(40,40,70,.13)");   // shaded on the right
+  g.fillStyle = sg; g.fillRect(x0, top, w, h);
+  var eg = g.createLinearGradient(0, top, 0, top + 10); eg.addColorStop(0, "rgba(40,40,70,.18)"); eg.addColorStop(1, "rgba(40,40,70,0)");          // under the eaves
+  g.fillStyle = eg; g.fillRect(x0, top, w, 10); }
 function snowRoof(g, x0, x1, base, rh, slate) {
   var o = 9, inset = Math.min(22, (x1 - x0) * 0.18);
   g.fillStyle = slate; g.beginPath(); g.moveTo(x0 - o, base + 2); g.lineTo(x0 + inset, base - rh); g.lineTo(x1 - inset, base - rh); g.lineTo(x1 + o, base + 2); g.closePath(); g.fill();
@@ -549,7 +561,12 @@ function update(dt, S) {
 // Under the weather: glints on the snow and the pond.
 function under(ctx, time, S) {
   if (!A) return;
-  var i, p = G.pond;
+  var i, p = G.pond, D0 = S.DARK || 0;
+  if (D0 > 0 && D0 < 1) {                                                                        // a pink sunset over the hills
+    var sa = Math.sin(D0 * Math.PI) * 0.34, sg = ctx.createLinearGradient(0, G.HZ - 120, 0, G.HZ + 40);
+    sg.addColorStop(0, "rgba(255,150,120,0)"); sg.addColorStop(0.6, "rgba(255,140,110," + sa.toFixed(3) + ")"); sg.addColorStop(1, "rgba(255,170,140,0)");
+    ctx.fillStyle = sg; ctx.fillRect(0, G.HZ - 120, G.W, 160);
+  }
   ctx.fillStyle = "#FFFFFF";
   for (i = 0; i < G.glints.length; i++) { var gl = G.glints[i], tw = Math.sin(time * 1.7 + gl.ph * 3);
     if (tw > 0.75) { ctx.globalAlpha = (tw - 0.75) * 4 * (1 - 0.6 * S.DARK); ctx.fillRect(gl.x - 1.5, gl.y - 0.4, 3, 0.8); ctx.fillRect(gl.x - 0.4, gl.y - 1.5, 0.8, 3); } }
@@ -652,10 +669,14 @@ function light(ctx, time, S) {
   if (!A) return;
   var D = S.DARK, i, W = G.W;
   if (D <= 0.02) return;
+  var ng = ctx.createLinearGradient(0, 0, 0, G.HZ + 10); ng.addColorStop(0, "rgba(8,12,46,.55)"); ng.addColorStop(0.7, "rgba(12,18,56,.28)"); ng.addColorStop(1, "rgba(20,26,66,0)");   // a deep blue night sky
+  ctx.globalAlpha = D; ctx.fillStyle = ng; ctx.fillRect(0, 0, W, G.HZ + 10);
+  ctx.fillStyle = "rgba(30,50,120,.1)"; ctx.fillRect(0, G.B + 30, W, G.H - G.B);                        // moonlight blues the snow
   ctx.fillStyle = "#FFFFFF";
-  for (i = 0; i < A.stars.length; i++) { var st = A.stars[i], tw = 0.55 + 0.45 * Math.sin(time * 1.4 + st.ph); ctx.globalAlpha = D * tw * 0.85; ctx.fillRect(st.x, st.y, st.s, st.s); }
+  for (i = 0; i < A.stars.length; i++) { var st = A.stars[i], tw = 0.55 + 0.45 * Math.sin(time * 1.4 + st.ph), ss = st.s * 1.3; ctx.globalAlpha = D * tw * 0.9; ctx.fillRect(st.x - ss / 2, st.y - ss / 2, ss, ss);
+    if (st.s > 1.9) { ctx.globalAlpha = D * tw * 0.4; ctx.fillRect(st.x - ss * 1.6, st.y - 0.5, ss * 3.2, 1); ctx.fillRect(st.x - 0.5, st.y - ss * 1.6, 1, ss * 3.2); } }
   var mx = W * 0.52, my = 92;                                                                     // a crescent moon
-  ctx.globalAlpha = D * 0.25; ctx.drawImage(A.glow, mx - 40, my - 40, 80, 80);
+  ctx.globalAlpha = D * 0.3; ctx.drawImage(A.glow, mx - 56, my - 56, 112, 112);
   ctx.globalAlpha = D; ctx.fillStyle = "#FFF6D8"; ctx.save(); ctx.beginPath(); ctx.arc(mx, my, 15, 0, 7); ctx.clip();
   ctx.beginPath(); ctx.rect(mx - 16, my - 16, 32, 32); ctx.arc(mx + 7, my - 5, 13, 0, 7); ctx.fill("evenodd"); ctx.restore();
   ctx.globalCompositeOperation = "lighter";
