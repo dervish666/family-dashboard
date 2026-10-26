@@ -1,3 +1,3 @@
-The fonts in this directory (Fredoka and Instrument Sans, *.woff2) are not
-covered by the MIT License in the repository root. They are distributed under
-the SIL Open Font License 1.1, see OFL.txt in this directory.
+The fonts in this directory (Instrument Sans, *.woff2) are not covered by the MIT
+License in the repository root. They are distributed under the SIL Open Font License
+1.1, see OFL.txt in this directory. Fredoka, the card font, lives in dist/fonts/.

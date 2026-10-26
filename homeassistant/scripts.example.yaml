@@ -31,7 +31,7 @@ printer_pause_resume:
 # The postie's letters, and the Music view's two scripts. family_send_letter
 # writes input_text.family_letter; the music scripts need Music Assistant and
 # input_select.music_target. Both helpers are in configuration.example.yaml.
-# Change the recipient list to the names in CONFIG.people in www/family-dashboard.html.
+# Change the recipient list to the names in the meadow card's people option.
 family_send_letter:
   alias: 'Meadow: send a letter'
   description: Pick who, type the note, press Run. The postie on the wall panel carries

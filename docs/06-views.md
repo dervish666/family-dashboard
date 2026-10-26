@@ -17,11 +17,11 @@ Parent 1, Parent 2, Kid 1, Kid 2, Kid 3, and House for shared things.
 | detail pages | `detail-coming-up`, `detail-tomorrow`, `detail-school` | subviews, from Today |
 
 Delete any optional view you do not want. If you drop Music or Printer, set the matching
-entry in the page's `CONFIG.view` to `null` too, or its building will try to open a view that is not there.
+entry in the card's `view` option to `null` too, or its building will try to open a view that is not there.
 
 ## Meadow
 
-`www/family-dashboard.html` in a full-screen `iframe` card. The family live in a small village as
+The `custom:family-dashboard-card` from this repo's `dist/`, full screen in a `panel` view. The family live in a small village as
 creatures, alongside puffballs that wander, eat, breed and occasionally get chased by a fox.
 The top left shows the time, date, outside temperature and the next thing on anyone's
 calendar. Tap a creature and a card opens with that person's today and week, any school
@@ -52,7 +52,7 @@ What else happens, all of it driven by data and none of it guessed:
   the card shows it and clears the helper. A name the meadow does not know goes to House.
 - **The kit bag.** When the kit sensor names kit for today, a bag sits by the cottage door
   before school.
-- **Countdowns** in the sky: birthdays and the fixed days in `CONFIG.dates`, Easter, the end of term
+- **Countdowns** in the sky: birthdays and the fixed days in `dates`, Easter, the end of term
   from `sensor.family_extra`, and holidays. Any event on the `trips` calendar with "holiday"
   in its title becomes a countdown, so "Holiday Cornwall" shows as Cornwall.
 - **Rain.** The weather entity (met.no by default) picks the scene. An optional rain sensor
@@ -61,42 +61,64 @@ What else happens, all of it driven by data and none of it guessed:
   light show with a sign on its roof that shows what is playing. Podcasts and audiobooks do
   not count.
 - **Buildings are shortcuts.** Tap the cottage for Home, the bandstand for Music, the
-  workshop for Printer. See `CONFIG.view` below.
-- **The office robot.** Off unless `CONFIG.officeUrl` is set. A small robot wanders the meadow
+  workshop for Printer. See `view` below.
+- **The office robot.** Off unless `officeUrl` is set. A small robot wanders the meadow
   saying the latest line from an agent office (see [the Office
   example](#an-example-our-office)).
 
-It reads Home Assistant itself, over the REST API, with the `hassTokens` the Home Assistant
-frontend keeps in the browser's storage (tick "Keep me logged in" when you sign in). Only `sensor.family_week` is required. Every other entity
-is optional, and setting it to `null` in `CONFIG.sensors` turns off that part of the meadow and
-nothing else. A sensor that is set but unavailable blanks its own part and says so in the
-corner.
+The card reads entity states from the `hass` object Home Assistant hands every card, so it
+needs no token and works for any signed-in user. It calls the REST calendar endpoint for
+holiday countdowns and `input_text.set_value` to clear a letter, both through that same
+connection. Only `sensors.week` is required. Every other entity is optional, and setting it
+to `null` turns off that part of the meadow and nothing else. A sensor that is set but
+unavailable blanks its own part and says so in the corner.
 
-**Try it without Home Assistant.** Open `family-dashboard.html` straight from disk, or add `?demo`,
-and it runs on built-in demo data. Test hooks:
+**Try it without Home Assistant.** Serve the repo root over HTTP and open `demo/`:
+
+```sh
+python3 -m http.server 8000   # then http://localhost:8000/demo/
+```
+
+The demo page runs the card with `demo: true` on a built-in cast, and passes its own query
+string to the card as test hooks, so `demo/?hour=21.5&weather=snow` works. In a dashboard,
+put the same hooks in the card's `query` option. Test hooks:
 
 | Hook | Does |
 |---|---|
-| `?demo` | built-in demo data, no Home Assistant needed |
-| `?hour=21.5` | fakes the clock |
-| `?date=2026-12-24` | fakes the day, for countdowns, parties and school days. Pair it with `?hour=` |
-| `?weather=snow` | forces the weather: sunny, partly, cloudy, rain, storm, fog, snow, windy |
-| `?open=Kid%202` | opens a card |
-| `?party=christmas` | starts a party. A name from `CONFIG.people` works too, or `friend:Pat` for a house party |
-| `?printer=running:45` | fakes the printer: `running:N`, `pause:N`, `prepare`, `finish`, `failed`, `idle`, `offline` |
-| `?letter=Kid%203:hello` | delivers a letter a few seconds after boot (URL-encode it) |
-| `?music=on` | the speaker is playing. `?mtitle=` and `?martist=` set the sign's text |
-| `?office=quiet` | fakes the office robot: `off`, `quiet`, `ask:Name`, or `Name:what it is doing` |
-| `?fps` | frame rate and per-frame JavaScript time, bottom right |
+| `demo` | built-in demo data, no Home Assistant needed (same as `demo: true`) |
+| `hour=21.5` | fakes the clock |
+| `date=2026-12-24` | fakes the day, for countdowns, parties and school days. Pair it with `hour=` |
+| `weather=snow` | forces the weather: sunny, partly, cloudy, rain, storm, fog, snow, windy |
+| `open=Kid%202` | opens a card |
+| `party=christmas` | starts a party. A name from `people` works too, or `friend:Pat` for a house party |
+| `printer=running:45` | fakes the printer: `running:N`, `pause:N`, `prepare`, `finish`, `failed`, `idle`, `offline` |
+| `letter=Kid%203:hello` | delivers a letter a few seconds after boot (URL-encode it) |
+| `music=on` | the speaker is playing. `mtitle=` and `martist=` set the sign's text |
+| `office=quiet` | fakes the office robot: `off`, `quiet`, `ask:Name`, or `Name:what it is doing` |
+| `fps` | frame rate and per-frame JavaScript time, bottom right |
+| `warm=20` | runs 20 seconds of the simulation before the first frame, for screenshots |
 
-### The CONFIG block
+### Card options
 
-Everything you should need to change sits at the top of the script.
+The defaults live in `DEFAULTS` at the top of `dist/family-dashboard.js`, a neutral demo
+cast. Every key can be set in the card's YAML, which overrides the default. Plain objects
+(`sensors`, `view`, `dates`, `schoolWho`, `rainStates`) merge one level deep, so
+`sensors: { printer: sensor.a1mini_ }` keeps the other sensors. Lists (`people`,
+`schoolLine`, `sourceOwner`, `anniversary`) replace the default outright.
 
-**`CONFIG.people`**, one entry per creature:
+Three options exist only on the card:
 
-```js
-{ name: "Parent 1", col: "#7FC8D2", r: 37, look: "crow", tg: 2.25, adult: true, glasses: true }
+| Option | Default | Does |
+|---|---|---|
+| `demo` | `false` | runs on the built-in demo cast and ignores Home Assistant |
+| `query` | none | test hooks as a query string, for example `hour=21.5&weather=snow` |
+| `height` | `calc(100vh - var(--header-height, 56px))` | CSS height of the card. Use `100vh` when the header is hidden |
+
+**`people`**, one entry per creature:
+
+```yaml
+people:
+  - { name: Parent 1, col: "#7FC8D2", r: 37, look: crow, tg: 2.25, adult: true, glasses: true }
 ```
 
 - `name` must match the `who` values the sensors produce. Those come from the calendar
@@ -106,7 +128,7 @@ Everything you should need to change sits at the top of the script.
   `deer`, `otter` and `snail`. The older whole-sprite looks are `bear`, `bunny`, `phones`,
   `curls` and `flower`.
 - Accessories are flags worn whatever the animal: `glasses`, `phones` (headphones),
-  `daisy`. `adult: true` gives neater ears and a taller body. The comment above `CONFIG.people`
+  `daisy`. `adult: true` gives neater ears and a taller body. The comment above `DEFAULTS`
   has the current list.
 - `r` is body size in pixels. `tg` is how far above the feet the name tag sits, in body
   radii. If you change someone's look and the tag lands on their head, adjust `tg`.
@@ -117,10 +139,10 @@ Everything you should need to change sits at the top of the script.
 - `bee: true` has a bee circle this one. One person only.
 - The last entry, House, is the household: bin day, the window cleaner, anything nobody owns.
 
-**`CONFIG.anniversary`** names the two people who get a party on a calendar event titled
+**`anniversary`** names the two people who get a party on a calendar event titled
 "Anniversary".
 
-**`CONFIG.sensors`** lists the entities. `week` is required. Every other one is optional, and
+**`sensors`** lists the entities. `week` is required. Every other one is optional, and
 `null` switches its part off:
 
 | Key | Example | Drives |
@@ -135,49 +157,55 @@ Everything you should need to change sits at the top of the script.
 | `rain` | `sensor.rain_sensor` | extra rain on top of the forecast. `null` by default |
 | `trips` | `calendar.family` | holiday countdowns |
 
-**`CONFIG.schoolWho`** says whose card each per-child school sensor belongs to, for example
+**`schoolWho`** says whose card each per-child school sensor belongs to, for example
 `{ timetable: "Kid 2", kit: "Kid 3", lunch: "Kid 3" }`.
 
-**`CONFIG.sourceOwner`** maps source names in `family-extra.json` to people, as pairs of a regular
-expression and a name:
+**`sourceOwner`** maps source names in `family-extra.json` to people, as pairs of a pattern
+and a name. In YAML the pattern is a string, read as a case-insensitive regular expression:
 
-```js
-sourceOwner: [[/primary/, "Kid 3"], [/parent-mail/, "Parent 2"]];
+```yaml
+sourceOwner:
+  - [primary, Kid 3]
+  - [parent-mail, Parent 2]
 ```
 
 When a source lands in `sources.unavailable`, the matching person's card says "Couldn't check:
 …" instead of showing an empty week as if it were a quiet one. House sees every missing
 source.
 
-**`CONFIG.schoolLine`** is the order the kids queue at the school door, front to back. Put the
+**`schoolLine`** is the order the kids queue at the school door, front to back. Put the
 highest name tag (largest `tg`) first so the tags fan out instead of overlapping.
 
-**`CONFIG.rainStates`** says which of the rain sensor's states mean wet and which mean dry. The
+**`rainStates`** says which of the rain sensor's states mean wet and which mean dry. The
 defaults cover `raining`/`none`, `wet`/`dry` and a binary sensor's `on`/`off`. Any other state
 counts as no reading, and the console says so.
 
-**`CONFIG.dates`** holds the countdowns. `birthdays` maps names from `CONFIG.people` to `"MM-DD"`, and
+**`dates`** holds the countdowns. `birthdays` maps names from `people` to `"MM-DD"`, and
 each one throws that person's party on the day. `fixed` is the list of days that work for
 anyone (Halloween, bonfire night, Christmas, New Year's Eve). Holidays need no entry here,
 they come from the `trips` calendar.
 
-**`CONFIG.view`** maps buildings to dashboard views:
+**`view`** maps buildings to dashboard views:
 
-```js
-view: { home: "/wall-panel/home", music: "/wall-panel/music", printer: "/wall-panel/printer", office: null };
+```yaml
+view:
+  home: /wall-panel/home
+  music: /wall-panel/music
+  printer: /wall-panel/printer
+  office: null
 ```
 
-`null` leaves that building as scenery. The tap reaches the dashboard through
-`history.pushState` on the parent page, which works because the page is same-origin.
+`null` leaves that building as scenery. A tap navigates the way Home Assistant's own cards
+do, with `history.pushState` and a `location-changed` event.
 
-**`CONFIG.officeUrl`** is the address the office robot polls. `null`, the default, keeps the robot
+**`officeUrl`** is the address the office robot polls. `null`, the default, keeps the robot
 out of the meadow entirely. If you run something like it, the URL must answer `GET` with
 JSON shaped `{ <source>: { data: { title, stations: [{ id, state, detail, attention }] } } }`
 and send CORS headers that allow Home Assistant's origin. The comment above `OFFICE` in
-`family-dashboard.html` says what the robot makes of each state. It never invents a line: no bubble
+`dist/family-dashboard.js` says what the robot makes of each state. It never invents a line: no bubble
 unless the server said it in the last 45 seconds.
 
-Bump `?v=` on the iframe URL in the dashboard after every edit.
+HACS adds a version to the resource URL on every update, so there is no cache to bust.
 
 ## Today (optional)
 
@@ -302,8 +330,8 @@ No printer? Delete the view and remove its path from `VIEWS`.
 1. Add their calendar(s) to the `calendar.get_events` target lists and the owner map in
    the `family_today` and `family_week` template sensors in `configuration.example.yaml`.
 2. Add a panel for them on Today, and copy a person page for them.
-3. Add them to `CONFIG.people` in `family-dashboard.html`, and to `CONFIG.dates.birthdays`. A school-age child
-   goes in `CONFIG.schoolLine` too, and in the recipient list of `family_send_letter`.
+3. Add them to the card's `people`, and to `dates.birthdays`. A school-age child
+   goes in `schoolLine` too, and in the recipient list of `family_send_letter`.
 4. Restart Home Assistant. A template reload leaves a new trigger-based template sensor
    with no attributes until something fires its triggers, which looks like a broken template.
 
@@ -319,8 +347,7 @@ Then reload the panel.
 
 ### A page from another server
 
-Any web page can be a view: a `panel` view holding one full-screen `iframe` card, the way the
-Meadow is built.
+Any web page can be a view: a `panel` view holding one full-screen `iframe` card.
 
 ```yaml
   - title: Office
@@ -332,27 +359,26 @@ Meadow is built.
         url: http://192.168.1.60:8137/
 ```
 
-Two things change when the page lives on another server instead of under `/local/`.
+Two things change when the page lives on another server.
 
-**Key presses and taps stop reaching the dashboard.** The Meadow is on Home Assistant's
-origin, so it dispatches its key presses and taps straight onto the dashboard document. A
-page from another origin cannot touch that document, so anything on the dashboard page that
-listens for keys or activity will not hear the embedded page.
+**Key presses and taps stop reaching the dashboard.** A page from another origin cannot
+touch the dashboard document, so anything on the dashboard page that listens for keys or
+activity will not hear the embedded page.
 
 **Mixed content.** If you reach Home Assistant over HTTPS, the browser blocks an `http://`
 iframe on that page without saying much. Serve the embedded page over HTTPS too, or keep the
 panel on plain HTTP like ours.
 
 To make a Meadow building open it, set the matching entry
-in `CONFIG.view`.
+in the card's `view`.
 
 ### An example: our office
 
 On our panel an Office view sits after Printer. It is a live pixel-art office showing the
 Claude Code sessions running on the author's computer, served by a small Node server of his
-own, which also feeds the Meadow's office robot through `CONFIG.officeUrl`. Neither is published,
+own, which also feeds the Meadow's office robot through `officeUrl`. Neither is published,
 because both are wired to one person's machine, so treat it as the pattern above in use and
-not something to install. That is also why `CONFIG.view.office` and `CONFIG.officeUrl` ship as `null`.
+not something to install. That is also why `view.office` and `officeUrl` ship as `null`.
 
 ## Where the family data comes from
 

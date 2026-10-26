@@ -12,8 +12,8 @@
 # person pages (person-parent-1, person-kid-2) and three detail pages
 # (detail-coming-up, detail-tomorrow, detail-school), all reached by tapping
 # a panel on Today. Delete Today and its subviews together if the Meadow is
-# enough; delete any optional view and set its entry in the page's
-# CONFIG.view to null.
+# enough; delete any optional view and set its entry in the meadow card's
+# view option to null.
 #
 # Every entity id below is a placeholder. Search for light., sensor., switch.,
 # media_player. and a1mini_SERIAL and swap in your own. The people are Parent 1,
@@ -38,26 +38,21 @@ title: Wall Panel
 views:
 
   # ── Meadow: the family as creatures in a little village ───────────────
-  # www/family-dashboard.html in an iframe, full screen. The page reads sensor.family_week
-  # and sensor.family_extra itself with this browser's HA token, and hands key
-  # presses up to the dashboard page. Bump ?v= on every
-  # push: /local/ is cached for a month (the docs cover this cache trap).
+  # The family-dashboard-card (install it from HACS), full screen in a panel
+  # view. It reads hass.states directly, so it needs no token and no iframe.
+  # Every key of the card's DEFAULTS can be set here; see docs/06-views.md.
+  # height: 100vh because the theme hides the header (themes/wall-panel.yaml).
   - title: Meadow
     path: meadow
     type: panel
     theme: Wall Panel
     cards:
-      - type: iframe
-        url: /local/family-dashboard.html?v=21
-        card_mod:
-          style: |
-            ha-card {
-              border: none !important;
-              border-radius: 0 !important;
-              background: none !important;
-              box-shadow: none !important;
-              overflow: hidden;
-            }
+      - type: custom:family-dashboard-card
+        height: 100vh
+        view:
+          home: /wall-panel/home
+          music: /wall-panel/music
+          printer: /wall-panel/printer
 
   # ── Today: the whole family's day ─────────────────────────────────────
   # Four columns: the ambient column (clock, sky, what is next), the adults,

@@ -312,8 +312,8 @@ sensor:
 
 # ── Rain (optional, the Meadow) ────────────────────────────────────────────
 # The Meadow takes its weather from weather.forecast_home, and a rain sensor
-# adds the rain the forecast misses. Any sensor will do: set CONFIG.sensors.rain in
-# www/family-dashboard.html to its id and list its wet and dry states in CONFIG.rainStates
+# adds the rain the forecast misses. Any sensor will do: set sensors.rain on the
+# meadow card to its id and list its wet and dry states in rainStates
 # (raining/none, wet/dry and on/off are understood already). A rain gauge's
 # binary_sensor works as it is. If yours reports a rate in mm/h, wrap it:
 #
