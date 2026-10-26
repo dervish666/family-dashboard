@@ -15,6 +15,19 @@ export default {
   start: function (i, S) { return { x: S.W * (0.24 + (i % 3) * 0.22), y: i < 3 ? S.TOP + 150 : S.H - 200 }; },
   // where the swimmers stand when they fancy a dip: the pond's bank
   swimSpot: function (S) { return { x: rand(S.W * 0.72, S.W * 0.83), y: S.H - 172 }; },
+  // The landmarks a tap opens (scenes/index.js has the ids): the school, the workshop plot,
+  // the bandstand (and the now-playing sign over it), the blue cottage, and the office robot.
+  hotspots: {
+    school:  { box: function (S) { var s = S.lay.school; return [s.x - 90, s.y - 145, s.x + 90, s.y + 8]; },
+               tap: function (S) { var s = S.lay.school; S.say("ding!", s.x + 22, s.y - 150); } },
+    printer: { box: function (S) { var s = S.lay.shop; return [s.x - 90, s.y - 100, s.x + 66, s.y + 12]; },
+               tap: function (S) { var s = S.lay.shop; S.puff("chip", s.x, s.y - 30, 6, "#D9B27A"); } },
+    music:   { box: function (S) { var b = S.lay.band; return [b.x - 95, b.y - 140 - (S.sign || 0), b.x + 95, b.y + 22]; },
+               tap: function (S) { var b = S.lay.band; S.puff("note", b.x + rand(-30, 30), b.y - 100, 5, "#D9534F"); } },
+    home:    { box: function (S) { var c = S.lay.cottage; return [c.x - 58, c.y - 110, c.x + 58, c.y + 10]; },
+               tap: function (S) { var c = S.lay.cottage; S.puff("heart", c.x + 18, c.y - 50, 3, "#FF7FA0"); } },
+    office:  { robot: true }
+  },
   weather: {
     // lying snow, and a snowman by the garden
     ground: function (ctx, S, WX) {

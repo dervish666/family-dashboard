@@ -23,4 +23,4 @@ export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
 export { parseCalendarEvents, weekRange, calendarPath } from "./calendar.js";
 export { parseTimetable, parseLunch, lunchChoice, lessonsEnd, lessonsOver } from "./school.js";
 export { CREATURES, HELPERS as CREATURE_HELPERS, bakeRig } from "./creatures/index.js";
-export { SCENE_LIST } from "./scenes/index.js";
+export { SCENE_LIST, HOTSPOT_IDS } from "./scenes/index.js";

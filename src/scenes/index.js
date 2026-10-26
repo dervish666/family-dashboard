@@ -20,11 +20,21 @@
 //   via(t, dest, S)  a waypoint on the way from t to dest, or null for a straight walk
 //   ambient          { setup(S), update(dt, S), under, back, front, light (ctx, time, S) }:
 //                    the scene's own life, drawn under the weather, behind the family, in
-//                    front of it, and as lights over the dusk
+//                    front of it, and as lights over the dusk. S.music and S.party say how far
+//                    the speaker's music and a party have faded in (0 to 1)
+//   hotspots         the landmarks a tap opens, one for every id in HOTSPOT_IDS below:
+//                    { box(S) -> [x0, y0, x1, y1], tap(S) } where tap() makes the puff or the
+//                    "ding!". school opens the School card; home, music, printer and office
+//                    open the card's view.<id> (a null view leaves that landmark as scenery).
+//                    office may be { robot: true }: the office robot, where it walks.
+//                    lay.school, if set, is where the School tag hangs: tag is its y, and cut
+//                    [x, y, w, h] the piece of background the School card's portrait shows.
 // tests/check.mjs fails if an entry breaks this shape or a module in this folder is not listed.
 import meadow from "./meadow.js";
 import seaside from "./seaside.js";
 
 export const SCENE_LIST = [meadow, seaside];
+// Every scene maps each of these to a landmark, in this order of tap priority.
+export const HOTSPOT_IDS = ["school", "printer", "music", "home", "office"];
 export const SCENE_BY_ID = {};
 SCENE_LIST.forEach(function (s) { SCENE_BY_ID[s.id] = s; });

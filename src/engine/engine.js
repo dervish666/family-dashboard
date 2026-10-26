@@ -2,7 +2,7 @@ import { weekRange, calendarPath, parseCalendarEvents } from "../calendar.js";
 import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
-import { SCENE_BY_ID, SCENE_LIST } from "../scenes/index.js";
+import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
 import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
@@ -375,7 +375,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     }
     return { x: t.x, y: t.y };
   }
-  function offStage(t) { return t.x > W + 20; }
+  // Off the edge the scene's exit leads to: the right for the meadow, the left for a scene
+  // whose exit.off is left of the card.
+  function offStage(t) { return EXIT && EXIT.off.x < 0 ? t.x < -20 : t.x > W + 20; }
 
   // Eyes: blink at random, wide on a jump or a fright, glance at whoever is near,
   // down while grazing or chewing, shut at night.
@@ -445,7 +447,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var i, j, t, asleep = nightness > 0.6;
     for (i = 0; i < VILLAGE.length; i++) VILLAGE[i].update(dt, asleep);
     if (!VIL) { updateWeather(dt); airmail(dt); }                    // the village runs these itself
-    if (SCENE.ambient) { SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; SCENE.ambient.update(dt, SV); }
+    if (SCENE.ambient) { SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; SV.music = MUSIC_T; SV.party = PARTY_T; SCENE.ambient.update(dt, SV); }
     updateParty(dt);
     updatePlane(dt);
     updateRobot(dt);
@@ -1783,6 +1785,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     ctx.restore(); ctx.globalAlpha = 1;
   }
   function updateParty(dt) {
+    if (!VIL) DANCE = null;                                   // the village's bandstand resets it every frame; elsewhere this does
     PARTY_T = clamp(PARTY_T + (partyOn() ? dt : -dt) / 3, 0, 1);
     HOUSE_T = clamp(HOUSE_T + (houseOn() ? dt : -dt) / 3, 0, 1);
     // the rave: everyone dances on the beat (k is scaled so the bandstand's sin(k * 7) lands on RAVE_W), the road grins
@@ -2109,7 +2112,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var i, t;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     ctx.drawImage(BG, 0, 0, W, H);
-    var AMB = SCENE.ambient; if (AMB) { SV.time = time; SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; }
+    var AMB = SCENE.ambient; if (AMB) { SV.time = time; SV.WX = WX; SV.DARK = DARK; SV.nightness = nightness; SV.music = MUSIC_T; SV.party = PARTY_T; }
     if (AMB && AMB.under) AMB.under(ctx, time, SV);              // the scene's moving ground: water, waves
     drawWeatherGround();
     for (i = 0; i < CLOUDS.length; i++) ctx.drawImage(CLOUDS[i].c, CLOUDS[i].x, CLOUDS[i].y);
@@ -2176,7 +2179,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     }
     drawRaveLights(time); drawHouseLights(time); drawBandShow(time);  // over the dusk, under the tags
     // the school's tag: it is a tap target like the family
-    var stg = TAGS.School; if (stg && LAY.school) { var sx0 = LAY.school.x - stg.w / 2, sy0 = LAY.school.y - 144 - stg.h;
+    var stg = TAGS.School; if (stg && LAY.school) { var sx0 = LAY.school.x - stg.w / 2, sy0 = (LAY.school.tag != null ? LAY.school.tag : LAY.school.y - 144) - stg.h;
       ctx.drawImage(stg.c, sx0, sy0, stg.w, stg.h); SCHOOL_CARD.tagBox = [sx0, sy0, stg.w, stg.h]; }
     // the workshop's board: the percent on the fence while a job is on (a tag above
     // would sit on the road, the plot is that close under it)
@@ -2946,9 +2949,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     $("who").textContent = "School"; $("sum").textContent = sum;
     $("face").style.background = "#F6E7B8";
     // portrait: the school itself, cut from the painted meadow
-    var pc = $("portrait"), g = pc.getContext("2d"), s = LAY.school, sw = 210, sh = 175;
+    var pc = $("portrait"), g = pc.getContext("2d"), s = LAY.school, cut = s.cut || [s.x - 105, s.y - 150, 210, 175], sw = cut[2], sh = cut[3];
     g.clearRect(0, 0, pc.width, pc.height);
-    g.drawImage(BG, (s.x - sw / 2) * DPR, (s.y - 150) * DPR, sw * DPR, sh * DPR, 0, (pc.height - pc.width * sh / sw) / 2, pc.width, pc.width * sh / sw);
+    g.drawImage(BG, cut[0] * DPR, cut[1] * DPR, sw * DPR, sh * DPR, 0, (pc.height - pc.width * sh / sw) / 2, pc.width, pc.width * sh / sw);
     openThing = SCHOOL_CARD;
     $("scrim").classList.add("open");
     clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
@@ -3088,29 +3091,26 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // The office robot, or its speech bubble: the agent office view
     if (robotHit(x, y)) { ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
       setTimeout(function () { goView(VIEW.office); }, 380); return; }
-    if (VIL) {                                                 // the village's buildings
-      // The school: its tag, or the building itself
-      var s0 = LAY.school, tb = SCHOOL_CARD.tagBox;
-      if ((x > s0.x - 90 && x < s0.x + 90 && y > s0.y - 145 && y < s0.y + 8) || (tb && x >= tb[0] - 10 && x <= tb[0] + tb[2] + 10 && y >= tb[1] - 10 && y <= tb[1] + tb[3] + 10)) {
-        say("ding!", s0.x + 22, s0.y - 150); setTimeout(openSchool, 320); return; }
-      // The workshop: the plot, its board and the builder
-      var sh = LAY.shop;
-      if (VIEW.printer && x > sh.x - 90 && x < sh.x + 66 && y > sh.y - 100 && y < sh.y + 12) {
-        puff("chip", sh.x, sh.y - 30, 6, "#D9B27A"); setTimeout(function () { goView(VIEW.printer); }, 380); return; }
-      // The bandstand, the band on it and the now-playing sign over it: the music view
-      var bs = LAY.band, top0 = bs.y - 140 - (SIGN && MUSIC_T > 0.3 ? SIGN.h + 14 : 0);
-      if (VIEW.music && x > bs.x - 95 && x < bs.x + 95 && y > top0 && y < bs.y + 22) {
-        puff("note", bs.x + rand(-30, 30), bs.y - 100, 5, "#D9534F"); setTimeout(function () { goView(VIEW.music); }, 380); return; }
-      // The blue cottage, the family's house: the Home view (the room the panel lives in)
-      var ct = LAY.cottage;
-      if (VIEW.home && x > ct.x - 58 && x < ct.x + 58 && y > ct.y - 110 && y < ct.y + 10) {
-        puff("heart", ct.x + 18, ct.y - 50, 3, "#FF7FA0"); setTimeout(function () { goView(VIEW.home); }, 380); return; }
-    }
+    // The scene's landmarks (scene.hotspots): the school opens the School card, the others
+    // their view in VIEW, and a landmark whose view is null is scenery.
+    SV.sign = SIGN && MUSIC_T > 0.3 ? SIGN.h + 14 : 0;                  // the now-playing sign over the meadow's bandstand
+    for (i = 0; i < HOTSPOT_IDS.length; i++) if (tapHotspot(HOTSPOT_IDS[i], x, y)) return;
     // Everyone else just enjoys the attention.
     for (i = 0; i < things.length; i++) { t = things[i];
       if (t.kind !== "fam" && Math.abs(x - t.x) < t.r * 1.8 && Math.abs(y - (t.y - t.r)) < t.r * 1.8) {
         t.jump = 0.6; t.happy = 1.2; t.flee = 0; puff("heart", t.x, t.y - t.r * 2, 1, "#FF7FA0"); return; } }
   });
+
+  function tapHotspot(id, x, y) {
+    var h = (SCENE.hotspots || {})[id];
+    if (!h || h.robot || (id !== "school" && !VIEW[id])) return false;
+    var b = h.box(SV), tb = id === "school" && SCHOOL_CARD.tagBox;
+    if (!(x > b[0] && x < b[2] && y > b[1] && y < b[3]) && !(tb && x >= tb[0] - 10 && x <= tb[0] + tb[2] + 10 && y >= tb[1] - 10 && y <= tb[1] + tb[3] + 10)) return false;
+    h.tap(SV);
+    if (id === "school") setTimeout(openSchool, 320);
+    else setTimeout(function () { goView(VIEW[id]); }, 380);
+    return true;
+  }
 
   // Tell any idle or backlight timer on the page that the panel is in use.
   cv.addEventListener("pointerdown", function () {
@@ -3150,7 +3150,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
       office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView };
-    if (OPEN === "school") { if (VIL) setTimeout(openSchool, 900); }
+    if (OPEN === "school") { if (SCENE.hotspots && SCENE.hotspots.school) setTimeout(openSchool, 900); }
     else if (OPEN === "workshop") setTimeout(openShop, 900);
     else if (OPEN) setTimeout(function () { var t = fam.filter(function (f) { return f.person.name.toLowerCase() === OPEN.toLowerCase(); })[0]; if (t) openCard(t); }, 900);
   }

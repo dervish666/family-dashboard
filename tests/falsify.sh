@@ -2,7 +2,8 @@
 # Proves tests/check.mjs can fail. Breaks the card in known ways on temp copies and expects
 # the check to exit non-zero each time: two breaks in the built file (calendar parsing,
 # calendar mode), then the source ones below, each rebuilt with esbuild (creature and scene
-# registries, the school timetable and lunch parsers, the per-child school config). Exits 1
+# registries and their landmarks, the school timetable and lunch parsers, the per-child school
+# config). Exits 1
 # if any broken copy passes. Needs npm ci first.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -34,6 +35,9 @@ creatures/fox.js|s/^  anim: function (t, p, time, M) {/  move: function (t, p, t
 creatures/owl.js|s/id: "hedgehog", label: "Hedgehog"/id: "owl", label: "Owl"/|an owl module nobody registered
 scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside\];/export const SCENE_LIST = [meadow];/|the seaside dropped from the registry
 scenes/seaside.js|s/    ground: function (ctx, S, WX) {/    floor: function (ctx, S, WX) {/|the seaside loses weather.ground()
+scenes/seaside.js|s/    music:   { box: function () { var p = G.pav;/    musik:   { box: function () { var p = G.pav;/|the seaside's band on the pier loses its tap
+scenes/meadow.js|s/    office:  { robot: true }/    office:  null/|the meadow's office robot is no longer mapped
+scenes/seaside.js|s/return \[l.x - 40, l.y - 92, l.x + 40, l.y + 12\];/return [l.x - 10, l.y - 92, l.x + 10, l.y + 12];/|the lighthouse is too thin to tap
 school.js|s/(ref.i + weeksBetween(ref.at, mon))/(ref.i + weeksBetween(ref.at, mon) + 1)/|the timetable counts from the wrong week
 school.js|s/if (Object.prototype.hasOwnProperty.call(T.weekOf, key)) {/if (false) {/|the timetable ignores week_of
 school.js|s/const ref = before\[0\]/const ref = null/|the count does not restart at a week_of entry

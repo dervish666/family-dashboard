@@ -308,6 +308,7 @@ eq(sceneFiles.length, sids.length, "every scene in the registry has a module in 
 eq(m.SCENES.map(function (s) { return s.id; }), sids, "config's scenes are the registry's, in order");
 eq(sids[0], "meadow", "the meadow stays first, the default for configs with no scene");
 ok(new Set(sids).size === sids.length, "scene ids are unique");
+eq(m.HOTSPOT_IDS, ["school", "printer", "music", "home", "office"], "the landmark ids are the ones the engine taps");
 let sea = null; try { sea = m.normalize({ demo: true, scene: "seaside" }).scene; } catch (e) { sea = e.message; }
 eq(sea, "seaside", "the seaside is a valid scene");
 SL.forEach(function (sc) {
@@ -337,6 +338,22 @@ SL.forEach(function (sc) {
     else ok(a.x0 < a.x1 && a.y0 < a.y1 && a.x0 >= 0 && a.x1 <= S.W && a.y0 >= S.HZ && a.y1 <= S.H, who + ": area " + i + " is a rect on the ground");
   });
   sc.weather.ground(g, S, S.WX);
+  // every landmark the engine taps is mapped: a box on the card and a tap() that runs, or the robot
+  ok(sc.hotspots && typeof sc.hotspots === "object", who + ": has hotspots");
+  Object.keys(sc.hotspots || {}).forEach(function (k) { ok(m.HOTSPOT_IDS.indexOf(k) >= 0, who + ": hotspot " + k + " is one of " + m.HOTSPOT_IDS.join(", ")); });
+  m.HOTSPOT_IDS.forEach(function (id) {
+    const h = (sc.hotspots || {})[id];
+    ok(!!h, who + ": maps the " + id + " landmark");
+    if (h.robot) { ok(id === "office", who + ": only the office can be the robot"); return; }
+    ok(isFn(h.box) && isFn(h.tap), who + ": " + id + " has box() and tap()");
+    S.sign = id === "music" ? 40 : 0;
+    const b = h.box(S);
+    ok(Array.isArray(b) && b.length === 4 && b.every(isFinite) && b[0] < b[2] && b[1] < b[3], who + ": " + id + " box is [x0, y0, x1, y1]");
+    ok(b[2] - b[0] >= 40 && b[3] - b[1] >= 40, who + ": " + id + " is at least 40 px each way, big enough for a finger");
+    ok(b[0] < S.W && b[2] > 0 && b[1] < S.H && b[3] > S.HZ - 120, who + ": " + id + " is on the card");
+    h.tap(S);
+  });
+  if (L.lay && L.lay.school) ok(isFinite(L.lay.school.x) && isFinite(L.lay.school.y) && (!L.lay.school.cut || (L.lay.school.cut.length === 4 && L.lay.school.cut.every(isFinite))), who + ": the School tag's spot is a point");
   if (sc.start) for (let i = 0; i < 8; i++) { const p = sc.start(i, S); ok(p && (p.x === null || (isFinite(p.x) && isFinite(p.y))), who + ": start(" + i + ") is a point"); }
   if (sc.ambient) {
     sc.ambient.setup(S);
