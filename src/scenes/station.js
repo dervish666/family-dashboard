@@ -18,7 +18,7 @@
 //
 // No village population: school and away duties go out through the airlock, off the left
 // edge. The swimmers dive in the hydroponics pool.
-import { rand, pick, rr, rimmed, canvas, mix, shade } from "../engine/draw.js";
+import { rand, pick, rr, rimmed, canvas, mix, shade, aoShadow } from "../engine/draw.js";
 import { around } from "../engine/route.js";
 
 var G = null;
@@ -111,6 +111,9 @@ function space(g) {
   var gx = W * 0.24, gy = S * 0.62; g.save(); g.translate(gx, gy); g.rotate(-0.4);
   var gg = g.createRadialGradient(0, 0, 1, 0, 0, 30); gg.addColorStop(0, "rgba(255,240,220,.55)"); gg.addColorStop(1, "rgba(200,180,255,0)");
   g.fillStyle = gg; g.beginPath(); g.ellipse(0, 0, 30, 10, 0, 0, 7); g.fill(); g.restore();
+  var P = G.planet, at = g.createRadialGradient(P.x, P.y, P.r * 0.9, P.x, P.y, P.r * 1.3);                  // the planet's atmosphere, a warm haze round the limb
+  at.addColorStop(0, "rgba(255,200,170,.3)"); at.addColorStop(0.5, "rgba(255,190,170,.1)"); at.addColorStop(1, "rgba(255,190,170,0)");
+  g.fillStyle = at; g.beginPath(); g.arc(P.x, P.y, P.r * 1.3, 0, 7); g.fill();
   planet(g);
   moon(g, G.moon.x, G.moon.y, G.moon.r);
 }
@@ -168,6 +171,9 @@ function frame(g) {
   g.save(); g.beginPath(); g.rect(0, 0, W, S); g.clip();
   g.fillStyle = "rgba(255,255,255,.045)";
   [[0.08, 70], [0.15, 26], [0.57, 90], [0.63, 30]].forEach(function (s) { var x0 = W * s[0]; g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0 + s[1], 0); g.lineTo(x0 + s[1] - 140, S); g.lineTo(x0 - 140, S); g.closePath(); g.fill(); });
+  var vg = g.createRadialGradient(W * 0.5, S * 0.5, S * 0.5, W * 0.5, S * 0.5, W * 0.62);                     // the glass darkens into the corners
+  vg.addColorStop(0, "rgba(8,8,40,0)"); vg.addColorStop(1, "rgba(8,8,40,.38)");
+  g.fillStyle = vg; g.fillRect(0, 0, W, S);
   g.restore();
   // the mullions, with a bolt plate top and bottom
   G.mull.forEach(function (mx) {
@@ -182,7 +188,8 @@ function frame(g) {
   g.fillStyle = sg; g.fillRect(0, S - 6, W, WT - S + 6);
   g.fillStyle = "rgba(255,255,255,.6)"; g.fillRect(0, S - 6, W, 2);
   g.fillStyle = CORAL; g.fillRect(0, WT, W, 3);
-  g.fillStyle = "rgba(40,40,80,.18)"; g.fillRect(0, WT + 3, W, 6);
+  var ss = g.createLinearGradient(0, WT + 3, 0, WT + 26); ss.addColorStop(0, "rgba(40,40,90,.22)"); ss.addColorStop(1, "rgba(40,40,90,0)");   // the sill's shadow down the wall
+  g.fillStyle = ss; g.fillRect(0, WT + 3, W, 23);
   // on the ledge: a pot of space succulent, a mug, a toy rocket, a little telescope
   var y = S - 6;
   succulent(g, W * 0.29, y);
@@ -245,7 +252,8 @@ function deckFloor(g) {
   for (i = -14; i <= 14; i++) { var bx = vx + i * W / 9; g.beginPath(); g.moveTo(vx + (bx - vx) * (B - vy) / (H - vy), B); g.lineTo(bx, H); g.stroke(); }
   g.strokeStyle = "rgba(255,255,255,.18)"; g.lineWidth = 1;
   y = B; for (i = 0; y < H; i++) { y = B + 9 + Math.pow(i, 1.55) * 9; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-  g.fillStyle = "rgba(40,40,80,.16)"; g.fillRect(0, B, W, 6);
+  var ws = g.createLinearGradient(0, B, 0, B + 30); ws.addColorStop(0, "rgba(40,40,90,.22)"); ws.addColorStop(1, "rgba(40,40,90,0)");   // the wall's shadow on the deck
+  g.fillStyle = ws; g.fillRect(0, B, W, 30);
   // the deck ring under the holo table
   var t = G.table;
   [[170, 56, "rgba(95,194,190,.28)", 6], [150, 48, "rgba(255,255,255,.35)", 2], [196, 66, "rgba(95,194,190,.18)", 3]].forEach(function (q) {
@@ -393,7 +401,7 @@ function holoPanels(g) {
 
 // ── Furniture on the deck ─────────────────────────────────────────────────────
 function crates(g, x, y) {
-  g.fillStyle = "rgba(40,40,80,.24)"; g.beginPath(); g.ellipse(x, y + 4, 66, 10, 0, 0, 7); g.fill();
+  aoShadow(g, x, y + 4, 78, 13, 0.4, "40,40,90");
   [[-28, 0, 46, 34, "#7C9CD8"], [24, 0, 40, 30, CORAL], [-6, -32, 40, 30, SUN]].forEach(function (c) {
     var cx = x + c[0], cy = y + c[1], w = c[2], h = c[3];
     rimmed(g, shade(c[4], 0.6), c[4], 1.8, function (e) { rr(g, cx - w / 2 - e, cy - h - e, w + 2 * e, h + 2 * e, 5); g.fill(); });
@@ -402,7 +410,7 @@ function crates(g, x, y) {
     g.fillStyle = "rgba(255,255,255,.75)"; rr(g, cx - 8, cy - h / 2 + 4, 16, 8, 2); g.fill(); });
 }
 function pottedPlant(g, x, y, s) {
-  g.fillStyle = "rgba(40,40,80,.22)"; g.beginPath(); g.ellipse(x, y + 2, 22 * s, 5 * s, 0, 0, 7); g.fill();
+  aoShadow(g, x, y + 2, 28 * s, 7 * s, 0.38, "40,40,90");
   [[-0.5, 46, "#7BC4A8"], [0.1, 58, "#8FD6B8"], [0.55, 42, "#6AB898"], [-0.15, 36, "#A6E6C8"]].forEach(function (l) {
     g.save(); g.translate(x, y - 22 * s); g.rotate(l[0]);
     rimmed(g, "#4E9A80", l[2], 1.2, function (e) { g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(-10 * s - e, -l[1] * s * 0.5, 0, -l[1] * s - e); g.quadraticCurveTo(10 * s + e, -l[1] * s * 0.5, 0, 0); g.fill(); });
@@ -415,7 +423,7 @@ function pottedPlant(g, x, y, s) {
 // porthole with curtains, a welcome mat, a name plate and a pot of flowers.
 function habPod(g, x, y) {
   var r = 92;
-  g.fillStyle = "rgba(40,40,80,.26)"; g.beginPath(); g.ellipse(x, y + 4, r + 22, 16, 0, 0, 7); g.fill();
+  aoShadow(g, x, y + 4, r + 34, 20, 0.42, "40,40,90");
   // legs
   [-0.6, 0.6].forEach(function (k) { g.fillStyle = METAL_D; g.fillRect(x + k * r - 4, y - 20, 8, 22); g.fillStyle = METAL; rr(g, x + k * r - 12, y - 2, 24, 6, 3); g.fill(); });
   // the shell
@@ -455,7 +463,7 @@ function heartPath(g, x, y, s) {
 }
 // The holo table: a round table on a pedestal with a projector lens; the hologram is live.
 function holoTable(g, x, y) {
-  g.fillStyle = "rgba(40,40,80,.26)"; g.beginPath(); g.ellipse(x, y + 6, 104, 18, 0, 0, 7); g.fill();
+  aoShadow(g, x, y + 6, 120, 22, 0.42, "40,40,90");
   rimmed(g, INKY, METAL, 2, function (e) { g.beginPath(); g.moveTo(x - 30 - e, y + 4); g.lineTo(x - 20 - e, y - 26); g.lineTo(x + 20 + e, y - 26); g.lineTo(x + 30 + e, y + 4); g.closePath(); g.fill(); });
   g.fillStyle = METAL_L; g.fillRect(x - 16, y - 24, 6, 26);
   rimmed(g, INKY, "#E8E9F6", 2.5, function (e) { g.beginPath(); g.ellipse(x, y - 30, 96 + e, 26 + e, 0, 0, 7); g.fill(); });
@@ -480,7 +488,7 @@ function pool(g) {
 // Hydroponics: a curved planter of alien plants under a grow-light arch, and a mister.
 function garden(g, x, y) {
   var w = 230;
-  g.fillStyle = "rgba(40,40,80,.24)"; g.beginPath(); g.ellipse(x, y + 6, w / 2 + 10, 16, 0, 0, 7); g.fill();
+  aoShadow(g, x, y + 6, w / 2 + 24, 20, 0.4, "40,40,90");
   // the grow-light arch
   g.strokeStyle = METAL_D; g.lineWidth = 6; g.beginPath(); g.moveTo(x - w / 2 + 6, y - 30); g.quadraticCurveTo(x, y - 230, x + w / 2 - 6, y - 30); g.stroke();
   g.strokeStyle = METAL_L; g.lineWidth = 2; g.beginPath(); g.moveTo(x - w / 2 + 6, y - 30); g.quadraticCurveTo(x, y - 230, x + w / 2 - 6, y - 30); g.stroke();
