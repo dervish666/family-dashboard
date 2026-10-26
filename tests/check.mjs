@@ -95,4 +95,13 @@ eq(rows, [
   { who: "Alex", what: "Busy", day: "2026-10-29", all_day: false, start: "2026-10-29T18:00:00+01:00", at: "18:00" }], "calendar events become week rows");
 throws(function () { m.parseCalendarEvents({ message: "Entity not found" }, "Alex", range); }, /not a list/, "an error answer is not an empty week");
 
+// First install: the demo cast, picking up whatever calendars exist.
+const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
+eq([one.demo, one.people.length, one.people[5].calendar, one.sensors.weather], [true, 6, "calendar.home", "weather.forecast_home"], "one calendar goes to the household");
+const many = m.stubConfig({ states: { "calendar.a": {}, "calendar.b": {}, "calendar.c": {}, "calendar.d": {}, "calendar.e": {}, "calendar.family": {}, "calendar.f": {}, "calendar.g": {} } });
+eq(many.people.map(function (p) { return p.calendar; }), ["calendar.a", "calendar.b", "calendar.c", "calendar.d", "calendar.e", ["calendar.f", "calendar.g", "calendar.family"]], "several calendars go one per person, shared and left over ones to the household");
+eq(m.normalize(Object.assign({}, many, { demo: false })).calendarMode, true, "the stub with demo off reads the calendars");
+const none = m.stubConfig(null);
+eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
+
 console.log("ok: " + n + " checks passed");
