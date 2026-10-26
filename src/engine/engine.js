@@ -394,7 +394,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var R = t.rig, C = CREATURE[t.person.look], D = C.rig, rk = t.r * K, eye = eyeState(t);
     var g = t.gait, ph = t.phase, M = { g: g, ph: ph, air: Math.abs(Math.sin(ph)) * g, idle: 1 - g, time: time, spike: spike,
       wave: t.wave > 0 ? Math.min(1, t.wave / 0.3, (1.8 - t.wave) / 0.3 + 0.2) : 0,
-      stepL: -Math.max(0, Math.sin(ph)) * 0.14 * g, stepR: -Math.max(0, -Math.sin(ph)) * 0.14 * g, stiff: t.pronk > 0 ? 1 : 0 };
+      stepL: -Math.max(0, Math.sin(ph)) * 0.14 * g, stepR: -Math.max(0, -Math.sin(ph)) * 0.14 * g, stiff: t.pronk > 0 ? 1 : 0,
+      sleep: nightness > 0.6 ? 1 : 0 };                   // asleep: the same line the eyes shut on
     for (var i = 0; i < D.order.length; i++) {
       var p = D.order[i];
       if (p === "paw" && !(t.wave > 0)) continue;
@@ -1599,7 +1600,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       for (i = 0; i < n; i++) { var p = WX.drops[i]; ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + dx, p.y - 15); }
       ctx.stroke();
       ctx.strokeStyle = "rgba(255,255,255," + (0.5 * WX.rain).toFixed(3) + ")"; ctx.beginPath();
-      for (i = 0; i < 5; i++) { var a = rand(0, 6.28), rr_ = rand(0.1, 0.8); ctx.moveTo(POND.x + Math.cos(a) * POND.rx * rr_ + 5, POND.y + Math.sin(a) * POND.ry * rr_ * 0.6);
+      if (POND) for (i = 0; i < 5; i++) { var a = rand(0, 6.28), rr_ = rand(0.1, 0.8); ctx.moveTo(POND.x + Math.cos(a) * POND.rx * rr_ + 5, POND.y + Math.sin(a) * POND.ry * rr_ * 0.6);
         ctx.ellipse(POND.x + Math.cos(a) * POND.rx * rr_, POND.y + Math.sin(a) * POND.ry * rr_ * 0.6, 5, 1.6, 0, 0, 7); }
       ctx.stroke();
     }
@@ -3149,7 +3150,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     requestAnimationFrame(frame);
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
-      office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView };
+      office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone };
     if (OPEN === "school") { if (SCENE.hotspots && SCENE.hotspots.school) setTimeout(openSchool, 900); }
     else if (OPEN === "workshop") setTimeout(openShop, 900);
     else if (OPEN) setTimeout(function () { var t = fam.filter(function (f) { return f.person.name.toLowerCase() === OPEN.toLowerCase(); })[0]; if (t) openCard(t); }, 900);

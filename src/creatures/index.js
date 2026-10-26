@@ -11,7 +11,10 @@
 // and, for a rigged animal (all but the classic looks):
 //   rig: { order, eyesIn, piv, extra? }   the pieces in draw order, the piece that carries
 //                    the eyes, each piece's pivot from the feet in body radii, extra pieces
-//   anim(t, p, time, M)  [rotation, dx, dy] for piece p this frame (undefined = still)
+//   anim(t, p, time, M)  [rotation, dx, dy] for piece p this frame (undefined = still).
+//                    M.g is the walk (0 to 1), M.idle its opposite, M.sleep 1 once the
+//                    family is asleep (the eyes are shut by then; the pose is the module's)
+//   sleeps           true when anim() has its own sleeping pose for M.sleep (tests check it)
 //   hat              [x, y, tilt] of a party hat, sprite-local, in body radii
 //   timers           the habit timers on t that the engine counts down
 //   life(t, dt, still, A)   habits: sets timers at random. Nothing here moves a creature.

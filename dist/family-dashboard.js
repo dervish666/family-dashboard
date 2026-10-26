@@ -6159,7 +6159,8 @@ function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       wave: t.wave > 0 ? Math.min(1, t.wave / 0.3, (1.8 - t.wave) / 0.3 + 0.2) : 0,
       stepL: -Math.max(0, Math.sin(ph)) * 0.14 * g,
       stepR: -Math.max(0, -Math.sin(ph)) * 0.14 * g,
-      stiff: t.pronk > 0 ? 1 : 0
+      stiff: t.pronk > 0 ? 1 : 0,
+      sleep: nightness > 0.6 ? 1 : 0
     };
     for (var i = 0; i < D.order.length; i++) {
       var p = D.order[i];
@@ -8962,7 +8963,7 @@ function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       ctx.stroke();
       ctx.strokeStyle = "rgba(255,255,255," + (0.5 * WX.rain).toFixed(3) + ")";
       ctx.beginPath();
-      for (i = 0; i < 5; i++) {
+      if (POND) for (i = 0; i < 5; i++) {
         var a = rand(0, 6.28), rr_ = rand(0.1, 0.8);
         ctx.moveTo(POND.x + Math.cos(a) * POND.rx * rr_ + 5, POND.y + Math.sin(a) * POND.ry * rr_ * 0.6);
         ctx.ellipse(POND.x + Math.cos(a) * POND.rx * rr_, POND.y + Math.sin(a) * POND.ry * rr_ * 0.6, 5, 1.6, 0, 0, 7);
@@ -11615,7 +11616,8 @@ function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       nav: function() {
         return NAVS;
       },
-      go: goView
+      go: goView,
+      inZone
     };
     if (OPEN === "school") {
       if (SCENE.hotspots && SCENE.hotspots.school) setTimeout(openSchool, 900);
