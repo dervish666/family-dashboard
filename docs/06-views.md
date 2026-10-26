@@ -24,9 +24,11 @@ entry in the card's `view` option to `null` too, or its building will try to ope
 The `custom:family-dashboard-card` from this repo's `dist/`, full screen in a `panel` view. The family live in a small village as
 creatures, alongside puffballs that wander, eat, breed and occasionally get chased by a fox.
 The top left shows the time, date, outside temperature and the next thing on anyone's
-calendar. Tap a creature and a card opens with that person's today and week, any school
-items, kit and "heads up" flags, and a footer that says when the calendars and the school
-data were last checked, or that a source could not be checked.
+calendar. Tap a creature and a card opens with that person's today and week, a child's
+lessons and school lunch, any school items, kit and "heads up" flags, and a footer that says
+when the calendars and the school data were last checked, or that a source could not be
+checked. Tap the school for every child's week in one grid, today's lunches, what is coming
+up and the term dates.
 
 The scene follows the weather entity's condition (sun, cloud, rain, storm, fog, snow, wind),
 goes to sleep at night, and throws a party with hats on family birthdays, Halloween, bonfire
@@ -36,7 +38,8 @@ at the cottage instead.
 What else happens, all of it driven by data and none of it guessed:
 
 - **The day on a timetable.** On a school day the kids walk to the village school and back
-  at school hours. A timed calendar event sends its owner to the matching place: swimming to
+  at school hours. A child's own timetable or lunch menu decides that first (a closed day or
+  a weekend keeps them home), then the term dates. A timed calendar event sends its owner to the matching place: swimming to
   the pond, football to the pitch, band, choir or scouts to the bandstand, and anything else
   out along the road to the bus stop. They set off twenty minutes early and stay an hour,
   because the calendar sensor carries no end time. All-day events move nobody. When the data
@@ -143,6 +146,11 @@ people:
   or a nickname still finds the right creature for the party hat.
 - `school: true` counts this person's items on the School tag and card, and sends them to
   school on school days.
+- `timetable` and `lunch` are this child's school sensors: a `sensor.` entity id, or
+  `{ entity, attribute }` when the data is not in the `timetable` or `menu` attribute.
+  `choice` says packed lunch or school dinner: `packed`, `school`, a weekday map such as
+  `{ fri: packed }`, or an entity whose state says it. The attribute shapes, and four ways to
+  feed them, are in the README under "School data per child".
 - `bee: true` has a bee circle this one. One person only.
 - The last entry, House, is the household: bin day, the window cleaner, anything nobody owns.
 
@@ -158,7 +166,8 @@ config with no calendars keeps every default below:
 |---|---|---|
 | `week` | `sensor.family_week` | the week, when no person has a `calendar` (v1.0.0 setups) |
 | `extra` | `sensor.family_extra` | school items, kit, flags, term dates, "couldn't check" |
-| `timetable`, `kit`, `lunch` | `sensor.family_timetable` | per-child school sensors on the School card. `kit` also puts out the kit bag |
+| `kit` | `sensor.family_kit` | today's kit on the School card, and the kit bag by the cottage |
+| `timetable`, `lunch` | `sensor.family_timetable` | v1.1.0 only: one child's timetable and lunch, copied onto the person `schoolWho` names. Set `people[].timetable` and `.lunch` instead |
 | `sun`, `weather` | `sun.sun`, `weather.forecast_home` | how dark it is, and the scene's weather |
 | `printer` | `"sensor.a1mini_SERIAL_"` | the workshop. This one is a prefix, not an entity: the meadow appends `print_status`, `print_progress` and so on. `null` by default |
 | `letter` | `input_text.family_letter` | the postie |
@@ -166,8 +175,10 @@ config with no calendars keeps every default below:
 | `rain` | `sensor.rain_sensor` | extra rain on top of the forecast. `null` by default |
 | `trips` | `calendar.family` | holiday countdowns |
 
-**`schoolWho`** says whose card each per-child school sensor belongs to, for example
-`{ timetable: "Kid 2", kit: "Kid 3", lunch: "Kid 3" }`.
+**`schoolWho`** says who the kit sensor belongs to, and on a v1.1.0 config whose timetable
+and lunch sensors are those in `sensors`, for example `{ timetable: "Kid 2", kit: "Kid 3",
+lunch: "Kid 3" }`. A name that is not in `people` makes the console warn and the School card
+name the sensor that has no owner.
 
 **`sourceOwner`** maps source names in `family-extra.json` to people, as pairs of a pattern
 and a name. In YAML the pattern is a string, read as a case-insensitive regular expression:
@@ -426,6 +437,13 @@ keys as attributes. The shape is documented by
 | `kit` | standing weekly reminders, `who`, `what` |
 | `flags` | free-text warnings, shown on House |
 | `schools` | per child, term dates and closure days |
+
+**Lessons and lunch, per child.** Each child's `timetable` and `lunch` sensors carry the data
+as attributes: a rotation of weeks with periods, rooms and closed days, and a dated menu
+with options, allergens and a per-day choice. The README section "School data per child" has
+the exact shapes and worked examples, and `configuration.example.yaml` has a timetable read
+from a JSON file with a week override helper, and a lunch rotation written out for the next
+14 days.
 
 We fill ours with a private script that reads school websites and email. How you fill it is
 up to you: by hand, a script, an automation. Keep `checked_at` honest, and list a source

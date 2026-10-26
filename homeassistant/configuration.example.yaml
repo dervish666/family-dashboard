@@ -1,7 +1,7 @@
 # The wall panel's share of configuration.yaml. This is NOT a whole file:
 # merge each block into your own configuration.yaml by hand. If you already
-# have a homeassistant:, frontend:, lovelace:, media_player:,
-# template:, command_line:, sensor:, input_select: or input_text: key, add
+# have a homeassistant:, frontend:, lovelace:, media_player:, template:,
+# command_line:, sensor:, input_select:, input_text: or recorder: key, add
 # these entries under it rather than pasting a second copy of the key (YAML
 # keeps only the last one, silently).
 #
@@ -83,6 +83,14 @@ input_select:
     options:
       - Speaker
       - TV
+  # A child's lunch choice for the Meadow card (people[].choice). The card
+  # reads "Packed lunch" and "School dinner" as they are.
+  kid_2_lunch:
+    name: Kid 2 lunch
+    icon: mdi:food-apple-outline
+    options:
+      - School dinner
+      - Packed lunch
 
 # The Meadow's postie. Type "Kid 3: tea's at six" here (or run
 # script.family_send_letter) and the postie carries it to Kid 3. The Meadow
@@ -92,6 +100,13 @@ input_text:
     name: Family letter
     icon: mdi:email-outline
     max: 255
+  # Type a week's letter here when the school swaps the rotation ("B"). It
+  # applies to the week it was typed in only; sensor.kid_1_timetable below
+  # turns it into week_of for that Monday.
+  kid_1_week:
+    name: Kid 1 timetable week this week
+    icon: mdi:calendar-week
+    max: 8
 
 # ── Today's family agenda ──────────────────────────────────────────────────
 # One trigger-based template sensor calls calendar.get_events across every
@@ -235,6 +250,75 @@ template:
             {% endfor %}
             {{ ns.rows | sort(attribute='start') }}
 
+# ── School data per child (the Meadow card, v1.2.0) ─────────────────────────
+# Shapes in README.md, "School data per child". Two examples:
+#
+# Kid 1's timetable: the JSON file is read by sensor.kid_1_timetable_file
+# under command_line: below, and this sensor adds this week's override from
+# input_text.kid_1_week. Card: people[].timetable: sensor.kid_1_timetable
+  - sensor:
+      - name: Kid 1 Timetable
+        unique_id: kid_1_timetable
+        state: "{{ 'ok' if state_attr('sensor.kid_1_timetable_file', 'timetable') is mapping else 'unavailable' }}"
+        attributes:
+          timetable: >-
+            {% set t = state_attr('sensor.kid_1_timetable_file', 'timetable') %}
+            {% set o = states('input_text.kid_1_week') | trim %}
+            {% set mon = now().date() - timedelta(days=now().weekday()) %}
+            {% set typed = states.input_text.kid_1_week.last_changed if states.input_text.kid_1_week else none %}
+            {% if t is mapping and o and typed and as_local(typed).date() >= mon %}
+              {{ dict(t, week_of=dict(t.get('week_of', {}), **{mon.isoformat(): o})) }}
+            {% elif t is mapping %}{{ t }}{% else %}{{ none }}{% endif %}
+
+# Kid 2's lunch: a two-week menu rotation written out for the next 14 days,
+# with closures. Rewritten at midnight and at startup. Update rota, start and
+# menu_ends when the school prints a new menu; past menu_ends the card says
+# the menu ran out instead of repeating the old one.
+# Card: people[].lunch: sensor.kid_2_lunch, choice: input_select.kid_2_lunch
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time
+        at: "00:05:00"
+    sensor:
+      - name: Kid 2 Lunch
+        unique_id: kid_2_lunch
+        state: "{{ now().date().isoformat() }}"
+        attributes:
+          menu_ends: "2026-12-18"
+          menu: >-
+            {% set start = as_datetime('2026-09-07').date() %}
+            {% set ends = as_datetime('2026-12-18').date() %}
+            {% set closed = {'2026-11-13': 'INSET', '2026-12-18': 'Christmas lunch on Thursday'} %}
+            {% set rota = [
+              [
+                {'options': [{'name': 'Pasta bake', 'kind': 'main', 'allergens': ['Gluten', 'Milk']}, {'name': 'Jacket potato', 'kind': 'veg', 'allergens': ['Milk']}], 'pudding': {'name': 'Apple crumble', 'allergens': ['Gluten', 'Milk']}},
+                {'options': [{'name': 'Fish fingers', 'kind': 'main', 'allergens': ['Fish', 'Gluten']}, {'name': 'Veggie fingers', 'kind': 'veg', 'allergens': ['Gluten', 'Soya']}], 'pudding': 'Yoghurt'},
+                {'options': [{'name': 'Roast chicken', 'kind': 'main', 'allergens': ['Celery']}, {'name': 'Lentil roast', 'kind': 'veg', 'allergens': ['Celery', 'Mustard']}], 'pudding': 'Fruit jelly'},
+                {'options': [{'name': 'Beef chilli', 'kind': 'main', 'allergens': ['Celery']}, {'name': 'Bean chilli', 'kind': 'vegan', 'allergens': []}], 'pudding': 'Flapjack'},
+                {'options': [{'name': 'Fish and chips', 'kind': 'main', 'allergens': ['Fish', 'Gluten']}, {'name': 'Cheese pizza', 'kind': 'veg', 'allergens': ['Gluten', 'Milk']}], 'pudding': 'Shortbread'}
+              ],
+              [
+                {'options': [{'name': 'Sausage and mash', 'kind': 'main', 'allergens': ['Sulphites']}, {'name': 'Veggie sausage', 'kind': 'veg', 'allergens': ['Soya']}], 'pudding': 'Rice pudding'},
+                {'options': [{'name': 'Chicken curry', 'kind': 'main', 'allergens': ['Celery', 'Mustard']}, {'name': 'Chickpea curry', 'kind': 'vegan', 'allergens': ['Mustard']}], 'pudding': 'Fruit'},
+                {'options': [{'name': 'Roast pork', 'kind': 'main', 'allergens': ['Celery']}, {'name': 'Quorn roast', 'kind': 'veg', 'allergens': ['Eggs']}], 'pudding': 'Sponge and custard'},
+                {'options': [{'name': 'Lasagne', 'kind': 'main', 'allergens': ['Gluten', 'Milk', 'Eggs']}, {'name': 'Vegetable lasagne', 'kind': 'veg', 'allergens': ['Gluten', 'Milk', 'Eggs']}], 'pudding': 'Cookie'},
+                {'options': [{'name': 'Fish and chips', 'kind': 'main', 'allergens': ['Fish', 'Gluten']}, {'name': 'Veggie burger', 'kind': 'veg', 'allergens': ['Gluten', 'Soya']}], 'pudding': 'Ice cream'}
+              ]
+            ] %}
+            {% set ns = namespace(m={}) %}
+            {% for i in range(14) %}
+              {% set d = now().date() + timedelta(days=i) %}
+              {% set key = d.isoformat() %}
+              {% if d.weekday() < 5 and key in closed %}
+                {% set ns.m = dict(ns.m, **{key: {'status': 'closed', 'note': closed[key]}}) %}
+              {% elif d.weekday() < 5 and start <= d <= ends %}
+                {% set w = ((d - start).days // 7) % rota | length %}
+                {% set ns.m = dict(ns.m, **{key: dict(rota[w][d.weekday()], status='served')}) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.m }}
+
 # ── School and club data the calendars cannot hold ─────────────────────────
 # www/family-extra.json, in the shape of www/family-extra.example.json: dated
 # items (kit, homework, term dates), standing kit, flags, schools and which
@@ -261,6 +345,19 @@ command_line:
         - flags
         - schools
       scan_interval: 300
+
+  # ── Kid 1's timetable file (the Meadow card, v1.2.0) ─────────────────────
+  # The JSON is { "timetable": { "weeks": [...], ... } } in the shape in
+  # README.md. Not in /config/www/: everything there is public. Read by
+  # sensor.kid_1_timetable under template: above, which adds the override.
+  - sensor:
+      name: Kid 1 Timetable File
+      unique_id: kid_1_timetable_file
+      command: "cat /config/school/kid_1_timetable.json"
+      value_template: "{{ value_json.timetable.weeks | join(',') }}"
+      json_attributes:
+        - timetable
+      scan_interval: 3600
 
   # ── Bin day (optional, Home view) ────────────────────────────────────────
   # No script ships for this: every council publishes collections its own
@@ -329,3 +426,14 @@ sensor:
 #
 # (add the "- sensor:" entry under the template: key above, not a second
 # template: key).
+
+# ── Keep the school sensors out of the recorder ────────────────────────────
+# A two-week timetable or a fortnight of menus can pass the recorder's 16 KB
+# limit on attributes, which logs a warning on every change. Nobody needs
+# their history. Merge into your recorder: key if you have one.
+recorder:
+  exclude:
+    entities:
+      - sensor.kid_1_timetable
+      - sensor.kid_1_timetable_file
+      - sensor.kid_2_lunch
