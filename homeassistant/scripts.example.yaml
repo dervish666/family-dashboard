@@ -36,7 +36,8 @@ family_announce:
   alias: 'Family: announce on the wall'
   description: 'Shows a message in the Family Dashboard card''s announcement banner
     (announcement: input_text.family_announcement) for a set time, then clears it.
-    Empties the helper first, so the same words twice still count as new.'
+    Empties the helper first, so the same words twice still count as new, and the
+    card''s town crier (v1.7.0) walks out and reads each one.'
   mode: restart
   fields:
     message:

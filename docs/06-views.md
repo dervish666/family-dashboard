@@ -105,6 +105,7 @@ put the same hooks in the card's `query` option. Test hooks:
 | `letter=Kid%203:hello` | delivers a letter a few seconds after boot (URL-encode it) |
 | `music=on` | the speaker is playing. `mtitle=` and `martist=` set the sign's text |
 | `office=quiet` | fakes the office robot: `off`, `quiet`, `ask:Name`, or `Name:what it is doing` |
+| `announce=Dinner%27s%20ready` | sends the town crier out with this message 2.5 s after boot, over the announcement entity (or a made-up one if none is set). `45%7CName%7Ctext` and `Name:%20text` work too. Never written to Home Assistant |
 | `fps` | frame rate and per-frame JavaScript time, bottom right |
 | `warm=20` | runs 20 seconds of the simulation before the first frame, for screenshots |
 
@@ -243,6 +244,10 @@ over the canvas, so the scene and the creatures behave exactly as without them. 
 |---|---|---|
 | `announcement` | `input_text.announcement` | a banner under the countdowns while the entity holds text. `input_text`, `text`, `input_select` or `sensor`. `"30\|Parent 2\|Dinner's ready"` lasts 30 minutes and says who it is from; `"Parent 2: Dinner's ready"` names the sender when the name is in `people`; anything else stays until the entity is emptied. A tap hides it on this screen until the text changes |
 | `announcement_title` | `Announcement` | an optional heading over the text |
+| `announcement_crier` | `false` | v1.7.0, default `true`: a town crier walks out, rings and reads a **new** message on a scroll, then the banner takes over. A message already there at load, or older than `announcement_late` minutes when it arrives, gets the banner only |
+| `announcement_sound` | `true` | default `false`: a WebAudio handbell with the crier's ring |
+| `announcement_clear` | `true` | default `false`: a tap on the scroll or the banner empties the entity (`input_text` or `text` only). Off, a tap hides it on this screen and writes nothing |
+| `announcement_late` | `5` | default `1`: minutes after which a message counts as already running, so no crier |
 | `due` | `sensor.due_times`, or `{ entity, attribute }` | a row of chips under the countdowns, soonest first: anything overdue and anything due in the next 18 hours, as many as fit. Each person's card lists all of their items under **Due**; items with no person go on the household's card. The attribute (default `items`) is a list of `{ label, due, person }` where `due` is `"15:30"` (today), `"2026-11-02"` (that day) or `"2026-11-02T08:00"` |
 | `status_tiles` | see below | up to four small tiles under the corner hint, one entity each. A tap opens Home Assistant's more-info dialog, history included |
 

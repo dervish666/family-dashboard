@@ -9,7 +9,8 @@ Assistant calendars.
 
 Kids walk to school, the workshop builds whatever the 3D printer is printing, a postie
 delivers notes typed on a phone, and everyone dances when music plays. Optional extras put
-an announcement, what is due when, and a few status tiles in the sky. The scene follows the
+an announcement (read out by a town crier when it is new), what is due when, and a few status
+tiles in the sky. The scene follows the
 weather entity, goes to sleep at night and throws a party on birthdays and the big days.
 
 | A person's week | Christmas Eve, snowing, bedtime |
@@ -414,6 +415,49 @@ Anything else stays up until it is cleared. The helper and a script that announc
 time are in [`configuration.example.yaml`](homeassistant/configuration.example.yaml) and
 [`scripts.example.yaml`](homeassistant/scripts.example.yaml).
 
+**The town crier** (v1.7.0). When the announcement changes to a new message, a crier walks out
+of a building, rings a handbell, shouts "Hear ye!" and unrolls a scroll with the message in
+letters big enough to read across the room. The words wrap and shrink to fit; a very long
+message is cut with an ellipsis rather than run off the scroll. The scroll stays up for 20
+seconds to a minute, by length, then the crier rolls it up and walks home, and the banner
+carries the message from there until it ends. A tap on the scroll or the crier takes it down
+early.
+
+![The town crier's scroll in the meadow](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/crier.png)
+
+![The crier at the seaside, and the station's herald with its holo sheet](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/crier-scenes.png)
+
+| Scene | Comes out of | Stands |
+|---|---|---|
+| Meadow | the cottage, down the woodcutter's lane | on the grass above the pond, scroll to the left |
+| Seaside | beach hut No. 7, along the promenade and down the slipway | on the sand at its foot, scroll over the beach |
+| Winter village | the church door, through the lychgate (the village has no hall) | on the green, scroll to the right |
+| Forest camp | the bell tent | at the front of the camp, scroll over the clearing |
+| Space station | the airlock: an alien herald with a holo sheet, "Attention!" | at the front of the deck |
+
+The crier only comes for a **new** message. One that is already there when the card loads,
+or that arrives after changing more than `announcement_late` minutes ago (say after a dropped
+connection), gets the banner only, so a v1.6.0 setup looks the same until the next
+announcement. A message that changed within that minute does bring the crier: that is the
+panel being woken up for it. The same words coming back after the entity was unavailable (a
+Home Assistant restart) do not walk again. With `prefers-reduced-motion` set the card shows the
+banner only.
+
+```yaml
+announcement: input_text.announcement
+announcement_crier: true      # default true; false keeps v1.6.0's banner only
+announcement_sound: false     # true also rings a bell sound (WebAudio); default false
+announcement_clear: false     # true: a tap on the scroll or banner empties the entity
+announcement_late: 1          # minutes; older than this when first seen means banner only
+```
+
+A tap only writes to Home Assistant when `announcement_clear: true`, and only to an
+`input_text` or `text` entity (the card refuses the option for a sensor). It clears the
+message it took down, never one that replaced it in the meantime, and never in the demo or
+for the `announce=` test hook. Without it a tap hides the message on that screen only.
+Browsers can hold sound back until the page has been touched once, so `announcement_sound` may
+stay quiet on a panel nobody has tapped since it loaded.
+
 **Due times.** Chips under the countdowns for things with a time on them: library books back
 at 15:15, bins out by 7, homework due tomorrow. Anything overdue and anything due in the next
 18 hours shows, soonest first, as many as fit, with a badge that counts down (`25m`, `7h`,
@@ -481,6 +525,7 @@ a grey dashed "Announcements unavailable", "Due times unavailable" or a tile tha
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
 | `announcement`, `announcement_title` | none | a banner while the entity holds text, with an optional heading. See [Announcements, due times and status tiles](#announcements-due-times-and-status-tiles) |
+| `announcement_crier`, `announcement_sound`, `announcement_clear`, `announcement_late` | `true`, `false`, `false`, `1` | the town crier for a new announcement, its bell sound, whether a tap empties the entity, and the minutes after which a message counts as late (banner only). See [The town crier](#announcements-due-times-and-status-tiles) |
 | `due` | none | a sensor whose `items` attribute lists `{ label, due, person }`: chips in the sky and a **Due** list on each card |
 | `status_tiles` | none | up to four `{ entity, label, icon, unit, min, max, thresholds, on_color, off_color }` tiles under the corner hint |
 | `demo` | `false` | run on the built-in demo cast |
@@ -520,6 +565,8 @@ Then open `http://localhost:8000/demo/`. The page's query string goes to the car
 hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night, and `/demo/?scene=seaside`
 shows the seaside (`scene=winter` and `scene=forest` the other two). Add `extras` for the
 announcement, due times and status tiles on made-up states: `/demo/?extras&scene=station`.
+`announce=` sends the town crier out with a message two and a half seconds after load:
+`/demo/?scene=winter&announce=45%7CParent%202%7CDinner%27s%20at%20six` (`%7C` is `|`).
 
 ## Working on the card
 
@@ -553,8 +600,11 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 - Birthday parties need `dates.birthdays` in YAML. The editor does not edit dates yet.
 - The editor sets a child's timetable and lunch sensor ids. `choice`, and an attribute other
   than `timetable` or `menu`, are YAML only.
-- A tap on the announcement hides it on that screen only. It does not empty the helper, so
-  phones and other panels keep showing it until the text changes, is cleared or runs out.
+- Without `announcement_clear: true`, a tap on the announcement or the crier's scroll hides it
+  on that screen only. Phones and other panels keep showing it until the text changes, is
+  cleared or runs out.
+- The crier's scroll is drawn on the canvas, under the HTML clock and corner. Each scene hangs
+  it below them at 1280x800; on a much shorter card the clock can sit over its top.
 - The HUD (clock, countdowns, announcement, due times, tiles) is laid out in fixed pixels for
   1280x800. On a narrow card the announcement and the tiles can overlap.
 - The 3D printer workshop speaks the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)'s
