@@ -258,7 +258,7 @@ eq(ids.slice(0, 6), m.normalize({}).people.map(function (p) { return p.look; }),
 ok(new Set(ids).size === ids.length, "creature ids are unique");
 C.forEach(function (c) {
   const who = "creature " + (c && c.id);
-  ok(c && typeof c.id === "string" && /^[a-z]+$/.test(c.id), who + ": id is a lower-case word");
+  ok(c && typeof c.id === "string" && /^(alien_)?[a-z]+$/.test(c.id), who + ": id is a lower-case word (an alien's is alien_<word>)");
   ok(typeof c.label === "string" && c.label.length > 0, who + ": has a label");
   ok(isFn(c.sprite), who + ": has sprite()");
   ok(c.tg == null || (typeof c.tg === "number" && c.tg > 0), who + ": tg is a positive number");
@@ -297,6 +297,10 @@ C.forEach(function (c) {
   const A = { rand: function (a, b) { return (a + b) / 2; }, puff: function () {}, water: { x: 600, y: 600, rx: 100, ry: 30 } };
   for (let i = 0; i < 90; i++) { if (c.life) c.life(t, 1 / 30, true, A); if (c.habits) c.habits(t, 1 / 30, A); }
 });
+// The space station's aliens: rigged, in the editor, with a sleep pose, and alien_ ids that no animal uses.
+["alien_gloop", "alien_tetra", "alien_zib", "alien_rock"].forEach(function (id) { const c = C.filter(function (x) { return x.id === id; })[0];
+  ok(!!c && !!c.rig && c.editor === true && c.sleeps === true, "creature " + id + ": registered, rigged, in the editor, with a sleep pose"); });
+ok(ids.filter(function (id) { return /^alien_/.test(id); }).length === 4, "four aliens, and only aliens take the alien_ prefix");
 // The v1.4.0 animals are rigged, in the editor, and sleep in a pose of their own.
 ["owl", "rabbit", "frog", "cat"].forEach(function (id) { const c = C.filter(function (x) { return x.id === id; })[0];
   ok(!!c && !!c.rig && c.editor === true && c.sleeps === true, "creature " + id + ": registered, rigged, in the editor, with a sleep pose"); });

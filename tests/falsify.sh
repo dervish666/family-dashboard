@@ -61,6 +61,12 @@ school.js|s/if (t) return { text: t, from: conf.entity, err: "" };//|the live ch
 school.js|s/: fallback) : end;/: fallback) : LESSONS_FALLBACK;/|the card ignores the last lesson's end and waits for 15:30
 school.js|s/v > end) end = v;/v < 0) end = v;/|the day ends at its first lesson's end, not its last
 school.js|s/getMinutes() >= cut;/getMinutes() > cut;/|the minute the last lesson ends still counts as lessons on
+creatures/index.js|s/  alienGloop, alienTetra, alienZib, alienRock,/  alienGloop, alienTetra, alienRock,/|Zib dropped from the registry
+creatures/alien_rock.js|s/tg: 2.55, editor: true, sleeps: true,/tg: 2.55, editor: true,/|Boulder does not say it sleeps
+creatures/alien_gloop.js|s/var sl = M.sleep .. 0, aw = 1 - sl;/var sl = 0, aw = 1 - sl;/|Gloop has no sleeping pose
+creatures/alien_zib.js|s/^  anim: function (t, p, time, M) {/  anim: function (t, p, time, M) { return;/|Zib floats stock still, moving or not
+creatures/alien_tetra.js|s/var breathe = sl \* (0.05 + 0.014 \* Math.sin(time \* 1.3))/var breathe = sl * 0.05/|Tetra stops breathing in its sleep
+creatures/cat.js|s/id: "cat", label: "Cat"/id: "alien_cat", label: "Cat"/|an animal takes the alien_ prefix
 config.js|s#!/^sensor#!/^[a-z_]*#|a timetable from any domain is accepted
 config.js|s/if (owner) { if (!owner\[k\]) owner\[k\]/if (owner) { if (false) owner[k]/|v1.1.0 school sensors are not copied onto their owner
 config.js|s/      warnOnce("sensors." + k/      void ("sensors." + k/|a missing schoolWho owner does not warn

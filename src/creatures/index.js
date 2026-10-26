@@ -3,7 +3,8 @@
 // so keep them first. A new animal is a module in this folder plus one line below.
 //
 // A creature module's default export:
-//   id, label        the look's name in config and in the editor
+//   id, label        the look's name in config and in the editor (a lower-case word; the space
+//                    station's aliens are alien_<word>)
 //   sprite(o, eyes, k)  draws the whole animal (or, while rig.part is set, one piece) on a
 //                    new canvas: { c, ax, ay, k }, anchored at the feet
 //   editor           true to offer it in the visual editor's animal list
@@ -34,10 +35,15 @@ import owl from "./owl.js";
 import rabbit from "./rabbit.js";
 import frog from "./frog.js";
 import cat from "./cat.js";
+import alienGloop from "./alien_gloop.js";
+import alienTetra from "./alien_tetra.js";
+import alienZib from "./alien_zib.js";
+import alienRock from "./alien_rock.js";
 
 function classic(id, label, editor) { return { id: id, label: label, editor: editor, sprite: classicSprite }; }
 
 export const CREATURES = [crow, capybara, deer, shark, otter, snail, fox, hedgehog, owl, rabbit, frog, cat,
+  alienGloop, alienTetra, alienZib, alienRock,
   classic("bear", "Bear", true), classic("bunny", "Bunny (classic)", true),
   classic("phones", "Phones", false), classic("curls", "Curls", false), classic("flower", "Flower", false)];
 
@@ -45,7 +51,7 @@ export const CREATURE = {};
 CREATURES.forEach(function (c) { CREATURE[c.id] = c; });
 
 // Shared helper modules in this folder that are not creatures themselves.
-export const HELPERS = ["index.js", "classic.js", "front.js", "swim.js"];
+export const HELPERS = ["index.js", "classic.js", "front.js", "swim.js", "alien.js"];
 
 // o: { r, col, look, ... } a person or a stand-in. Unknown looks (the meadow's grazers,
 // foxes and villagers) are classic sprites.
