@@ -3807,6 +3807,22 @@ function parseTimetable(state, date, today, attribute) {
   out.lessons = g.days[dow - 1].lessons;
   return out;
 }
+var LESSONS_FALLBACK = 15 * 60 + 30;
+function lessonsEnd(day) {
+  let end = null;
+  (day && day.lessons || []).forEach(function(l) {
+    const m = /^(\d{1,2}):(\d\d)/.exec(str(l.end));
+    if (m) {
+      const v = +m[1] * 60 + +m[2];
+      if (end === null || v > end) end = v;
+    }
+  });
+  return end;
+}
+function lessonsOver(day, at, fallback) {
+  const end = lessonsEnd(day), cut = end === null ? fallback == null ? LESSONS_FALLBACK : fallback : end;
+  return at.getHours() * 60 + at.getMinutes() >= cut;
+}
 function allergensOf(v) {
   const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(/\s*,\s*/) : [];
   const out = [];
@@ -10082,7 +10098,6 @@ function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function soft(s) {
     return ' <span class="soft">' + esc(s) + "</span>";
   }
-  var LESSONS_UNTIL = 15.5;
   function empty(t) {
     return '<div class="empty">' + esc(t) + "</div>";
   }
@@ -10162,7 +10177,7 @@ function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         out.html += "<h2>Lessons</h2>" + empty("Timetable can't tell which week this is");
         out.foot.push("Timetable " + src.timetable.entity + ": " + t.reason + ". Add anchor or week_of.");
       } else {
-        if (t.status === "ok" && d.getHours() + d.getMinutes() / 60 < LESSONS_UNTIL) {
+        if (t.status === "ok" && !lessonsOver(t, d)) {
           shown = td;
           sh = t;
           head = "Lessons today";
@@ -10974,6 +10989,8 @@ export {
   SCENE_LIST,
   bakeRig,
   calendarPath,
+  lessonsEnd,
+  lessonsOver,
   lunchChoice,
   normalize,
   parseCalendarEvents,

@@ -3,7 +3,7 @@ import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, cla
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST } from "../scenes/index.js";
-import { parseTimetable, parseLunch, lunchChoice, addDays, mondayOf } from "../school.js";
+import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -2773,7 +2773,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // Lessons and lunch from people[].timetable and .lunch, parsed by school.js. Every empty
   // state says which one it is: a sensor that is set but missing says unavailable and names
   // itself, never a blank that reads as a day off.
-  var LESSONS_UNTIL = 15.5;                       // after half past three a card shows the next school day
+  // A card shows the next school day once today's last lesson has ended (lessonsOver in
+  // school.js), or after half past three when the timetable gives no end times.
   function empty(t) { return '<div class="empty">' + esc(t) + "</div>"; }
   function weekName(w) { return /^week\b/i.test(w) ? w : "Week " + w; }      // "A" reads "Week A", "Week 1" stays
   function shortDate(ds) { var x = new Date(ds + "T12:00:00"); return DAYS[x.getDay()] + " " + x.getDate() + " " + MONTHS[x.getMonth()]; }
@@ -2840,7 +2841,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       else if (t.status === "no_week") { out.html += "<h2>Lessons</h2>" + empty("Timetable can't tell which week this is");
         out.foot.push("Timetable " + src.timetable.entity + ": " + t.reason + ". Add anchor or week_of."); }
       else {
-        if (t.status === "ok" && d.getHours() + d.getMinutes() / 60 < LESSONS_UNTIL) { shown = td; sh = t; head = "Lessons today"; }
+        if (t.status === "ok" && !lessonsOver(t, d)) { shown = td; sh = t; head = "Lessons today"; }
         else {
           if (t.status !== "ok") out.html += "<h2>Lessons today</h2>" + empty("No school today" + (t.note && t.status === "closed" ? " (" + t.note + ")" : ""));
           var nx = nextLessonDay(name, d);

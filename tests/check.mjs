@@ -192,6 +192,19 @@ eq([pt("2026-10-26", { state: "x", attributes: { timetable: sevenP } }).week, pt
 const noAnchor = { weeks: ["A", "B"], days: TT.days };
 eq(pt("2026-10-26", { state: "x", attributes: { timetable: noAnchor } }).status, "no_week", "two weeks with nothing to count from cannot say");
 eq(m.parseTimetable({ state: "x", attributes: { tt: JSON.stringify(TT) } }, "2026-10-26", null, "tt").week, "B", "a JSON string in another attribute parses");
+// lessonsOver: the card moves to the next school day at the last lesson's end, else at 15:30
+const at = function (h, mi) { return new Date(2026, 9, 19, h, mi); };
+const monA = pt("2026-10-19"), wedB = pt("2026-11-04");
+eq(m.lessonsEnd(monA), 10 * 60 + 50, "a day ends when its last period does");
+eq([m.lessonsOver(monA, at(10, 49)), m.lessonsOver(monA, at(10, 50)), m.lessonsOver(monA, at(15, 0))], [false, true, true], "lessons are over from the minute the last one ends");
+eq([wedB.lessons.map(function (l) { return l.start + "-" + l.end; }), m.lessonsEnd(wedB)], [["11:00-12:10"], 12 * 60 + 10], "a lesson's own start keeps its period's end");
+const late = { state: "x", attributes: { timetable: { weeks: ["A"], periods: [{ p: 1, start: "13:00", end: "14:00" }], days: { A: { mon: [{ p: 1, subject: "Art" }, { p: 2, subject: "Club", start: "15:30", end: "16:45" }] } } } } };
+eq(m.lessonsEnd(pt("2026-10-26", late)), 16 * 60 + 45, "a lesson's own end time past the periods counts");
+eq([m.lessonsOver(pt("2026-10-26", late), at(16, 0)), m.lessonsOver(pt("2026-10-26", late), at(16, 45))], [false, true], "a late club day stays on today until it ends");
+eq([m.lessonsEnd(fl0()), m.lessonsOver(fl0(), at(15, 29)), m.lessonsOver(fl0(), at(15, 30))], [null, false, true], "no end times falls back to 15:30");
+eq(m.lessonsOver(fl0(), at(15, 0), 15 * 60), true, "the fallback can be moved");
+eq([m.lessonsEnd(null), m.lessonsEnd(pt("2026-10-24"))], [null, null], "no day, or a day with no lessons, has no end");
+function fl0() { return m.parseTimetable({ state: "Week 1", attributes: { open_today: true, lessons_today: ["Maths|M1", "English|E2"] } }, "2026-10-26", "2026-10-26"); }
 // unavailable says why, and never reads as a day with no lessons
 eq([pt("2026-10-26", null).status, pt("2026-10-26", null).reason], ["unavailable", "not found"], "a missing entity is unavailable");
 eq(pt("2026-10-26", { state: "unavailable", attributes: {} }).reason, "is unavailable", "an unavailable entity says so");

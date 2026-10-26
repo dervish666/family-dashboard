@@ -4,6 +4,7 @@
 //   parseTimetable(state, date[, today])  what lessons a day holds, and that week's grid
 //   parseLunch(state, date[, today])      what lunch a day holds
 //   lunchChoice(conf, date, live, fromData)  packed lunch or school dinner, and where it came from
+//   lessonsOver(day, at[, fallback])      whether a day's lessons have ended by the time at
 //
 // state is a Home Assistant state object ({ state, attributes }), or null when the entity is
 // missing. date is a Date or "YYYY-MM-DD". today is only read by the v1.1.0 flat shapes, which
@@ -164,6 +165,26 @@ export function parseTimetable(state, date, today, attribute) {
   out.status = "ok";
   out.lessons = g.days[dow - 1].lessons;
   return out;
+}
+
+// When a day's lessons are over, so a child's card can move on to the next school day: the
+// end of the last lesson that has an end time, as minutes past midnight. No end time on any
+// lesson (v1.1.0's flat lessons, periods listed without "end") is null, and the caller falls
+// back to a fixed time.
+export const LESSONS_FALLBACK = 15 * 60 + 30;
+export function lessonsEnd(day) {
+  let end = null;
+  ((day && day.lessons) || []).forEach(function (l) {
+    const m = /^(\d{1,2}):(\d\d)/.exec(str(l.end));
+    if (m) { const v = +m[1] * 60 + +m[2]; if (end === null || v > end) end = v; }
+  });
+  return end;
+}
+// true once the clock at is past that end (on the minute it ends counts as over), or past
+// fallback (default 15:30) when the day has no end times.
+export function lessonsOver(day, at, fallback) {
+  const end = lessonsEnd(day), cut = end === null ? (fallback == null ? LESSONS_FALLBACK : fallback) : end;
+  return at.getHours() * 60 + at.getMinutes() >= cut;
 }
 
 // ── Lunch ─────────────────────────────────────────────────────────────────────

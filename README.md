@@ -71,8 +71,8 @@ It looks best alone in a `panel` view.
 ## School data per child
 
 Each child can have a lesson timetable and a school lunch menu, each read from a sensor
-attribute. Tap the child and their card shows today's lessons (tomorrow's after half past
-three, or the next school day when there is no school), the week's grid folded under them,
+attribute. Tap the child and their card shows today's lessons (the next school day's once
+today's last lesson has ended, or when there is no school), the week's grid folded under them,
 and lunch today and on the next school day with the options, their allergens and whether the
 child takes a packed lunch. Tap the school and every child's week sits in one grid, one lane
 each, with today's lunches below.
@@ -131,6 +131,9 @@ day with no lessons.
   `"Subject|Room"` string, numbered by position.
 - `closed` lists days with no school, plain or with a note. The card says
   `No school today (INSET)` and shows the next school day.
+- The `end` times decide when a child's card moves on to the next school day: at the end of
+  that child's last lesson today, to the minute. A day where no lesson has an end time (a
+  period listed without `end`, or a v1.1.0 sensor) moves on at 15:30.
 
 Saturdays and Sundays are always the weekend. A rotation of two or more weeks with no
 `anchor` and no `week_of` cannot say which week it is, and the card says so.

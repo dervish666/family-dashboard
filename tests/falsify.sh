@@ -19,11 +19,11 @@ for break in 's/at: allDay ? "" : s.slice(11, 16)/at: allDay ? "" : s.slice(11, 
   n=$((n + 1))
 done
 
-# file | sed expression | what it breaks. A file that does not exist yet is created from
+# file | sed expression | what it breaks. No "|" inside an expression: it splits the line. A file that does not exist yet is created from
 # hedgehog.js, so the sabotage is a new module.
 while IFS='|' read -r f expr what; do
   rm -rf "$tmp/src"; cp -R "$here/src" "$tmp/src"
-  if [ -f "$tmp/src/$f" ]; then sed "$expr" "$tmp/src/$f" > "$tmp/x.js"; cmp -s "$tmp/x.js" "$tmp/src/$f" && { echo "sabotage did not apply: $what"; exit 1; }
+  if [ -f "$tmp/src/$f" ]; then sed "$expr" "$tmp/src/$f" > "$tmp/x.js" || { echo "sed failed: $what"; exit 1; }; cmp -s "$tmp/x.js" "$tmp/src/$f" && { echo "sabotage did not apply: $what"; exit 1; }
   else sed "$expr" "$tmp/src/creatures/hedgehog.js" > "$tmp/x.js"; fi
   mv "$tmp/x.js" "$tmp/src/$f"
   "$esbuild" "$tmp/src/index.js" --bundle --format=esm --log-level=error --outfile="$tmp/fd.js" || { echo "sabotaged source did not build: $what"; exit 1; }
@@ -46,6 +46,9 @@ school.js|s/else if (out.menuEnds \&\& out.date > out.menuEnds) out.status = "en
 school.js|s/? st : out.options.length/? "served" : out.options.length/|a closed lunch day reads as served
 school.js|s/menu\[ymdOf(d)\] = { status: st/menu.x = { status: st/|v1.1.0 lunch sensors stop parsing
 school.js|s/if (t) return { text: t, from: conf.entity, err: "" };//|the live choice entity is ignored
+school.js|s/: fallback) : end;/: fallback) : LESSONS_FALLBACK;/|the card ignores the last lesson's end and waits for 15:30
+school.js|s/v > end) end = v;/v < 0) end = v;/|the day ends at its first lesson's end, not its last
+school.js|s/getMinutes() >= cut;/getMinutes() > cut;/|the minute the last lesson ends still counts as lessons on
 config.js|s#!/^sensor#!/^[a-z_]*#|a timetable from any domain is accepted
 config.js|s/if (owner) { if (!owner\[k\]) owner\[k\]/if (owner) { if (false) owner[k]/|v1.1.0 school sensors are not copied onto their owner
 config.js|s/      warnOnce("sensors." + k/      void ("sensors." + k/|a missing schoolWho owner does not warn
