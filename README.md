@@ -1,8 +1,8 @@
 # Family Dashboard
 
 A Lovelace card for a Home Assistant wall panel. It draws a small animated world, a village
-meadow, a British seaside, a village under snow or a camp in the woods, where each member of
-the household lives as a creature. Tap one to see that person's week, pulled from your Home
+meadow, a British seaside, a village under snow, a camp in the woods or a space station, where
+each member of the household lives as a creature (an animal, or an alien on the station). Tap one to see that person's week, pulled from your Home
 Assistant calendars.
 
 ![The meadow by day, with the band playing and a print on the go](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/meadow.png)
@@ -82,6 +82,7 @@ It looks best alone in a `panel` view.
 | Seaside | `seaside` | a British beach: the promenade on its sea wall, beach huts, a pier with a pavilion, rock pools, deckchairs, chalk cliffs and a lighthouse | the fingerpost up the lane to school: the School card. Beach hut No. 7: `view.home`. The band in the pier's pavilion: `view.music`. The boat shed: `view.printer`. The lighthouse: `view.office` |
 | Winter village | `winter` | a British village under snow: the school with its bell, the church, The Robin pub, the post office, the smithy, Christmas lights between the lamps, the village tree, a frozen pond, snowmen and the family's cottage on the green | the school: the School card. The cottage: `view.home`. The church, where carol singers gather: `view.music`. The smithy: `view.printer`. The post office: `view.office` |
 | Forest camp | `forest` | a clearing in a wood: the family's bell tent, a campfire with log seats and a kettle, a string of paper lanterns, the woodpile, a stream running down to a pool, and a lookout up in the old oak | the fingerpost on the trail to school: the School card. The bell tent: `view.home`. The campfire: `view.music`. The woodpile: `view.printer`. The lookout: `view.office` |
+| Space station | `station` | the observation deck of a little station under a big window onto space (stars, a nebula, a ringed planet, passing ships): the family's hab pod, the holo table, cargo crates, a corridor, and a hydroponics corner with a pool | the airlock to the shuttles: the School card. The hab pod: `view.home`. The comms console: `view.music`. The fabricator: `view.printer`. The bridge: `view.office` |
 
 | Winter village at dusk | Forest camp at night |
 |---|---|
@@ -91,7 +92,7 @@ Pick one in the editor's **Scene** drop-down, or in YAML:
 
 ```yaml
 type: custom:family-dashboard-card
-scene: winter        # or meadow, seaside, forest
+scene: winter        # or meadow, seaside, forest, station
 ```
 
 A config without `scene` gets the meadow, so older cards look exactly as they did. The kids
@@ -117,10 +118,39 @@ The meadow's village life stays in the meadow: the walkers and their errands, th
 building up with a print's progress, the postie on foot (at the seaside letters come by air),
 the kit bag by the cottage, the house party and the office robot.
 
-Coming soon: the Space station. A draft is in, unfinished and likely to change: `scene: station`,
-listed as "Space station (draft)" in the editor. It is an observation deck under a big window
-onto space, and its cast are aliens rather than animals (`alien_gloop`, `alien_tetra`,
-`alien_zib`, `alien_rock`). Try it if you like, but do not build on it yet.
+### The space station
+
+![The space station by day: the big window onto space with its ringed planet, the airlock, comms console, corridor, fabricator and bridge along the wall, and the aliens round the holo table](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/station.png)
+
+The station's day and night are its lighting cycle: after dark the wall lights dim, the floor
+guide lights, screens and the hab pod's window glow, and the planet's night side shows its
+cities. Your weather becomes what the window shows: cloud and fog are drifting nebula, rain is a
+meteor shower (and the hydroponics misters run), a storm is a solar flare with the shields up
+and amber beacons turning, snow is an ice field drifting past with frost on the glass, and a
+rainbow is an aurora over the planet. Wind is ignored indoors. The next event is towed past the
+window by a little tug instead of a plane, and a party's glitter ball hangs from the sill.
+
+The kids leave for school through the airlock (its door opens for them) and come back the same
+way. The fabricator shows your printer's progress, the comms console's screen and the hologram
+on the table dance when your speaker plays, a cleaning bot potters about the deck, a drone
+waters the plants, and now and then a space whale drifts past. The swimmers dive in the
+hydroponics pool.
+
+With no `people` in the config (the demo cast), the station casts six aliens instead of
+animals; a cast you set keeps the looks you gave it. Any animal can live on the station and any
+alien in another scene.
+
+```yaml
+type: custom:family-dashboard-card
+scene: station
+people:
+  - { name: Parent 1, role: adult, look: alien_tetra, col: "#F4C95D", calendar: calendar.parent_1, glasses: true }
+  - { name: Parent 2, role: adult, look: alien_rock, col: "#7FC8D2", calendar: calendar.parent_2 }
+  - { name: Kid 1, role: kid, look: alien_zib, col: "#E68AB0", calendar: calendar.kid_1, school: true, phones: true }
+  - { name: Kid 2, role: kid, look: alien_gloop, col: "#E86A5B", calendar: calendar.kid_2, school: true }
+  - { name: Kid 3, role: kid, look: alien_bloom, col: "#9A72C8", calendar: calendar.kid_3, school: true }
+  - { name: House, look: alien_dome, col: "#5FC2BE", calendar: calendar.family }
+```
 
 ## Animals
 
@@ -135,15 +165,15 @@ the four added in v1.4.0 also settle into a sleeping pose.
 | Crow | `crow` | hops, cocks its head, stoops for anything shiny | meadow, seaside, winter, forest |
 | Capybara | `capybara` | chews, flicks its ears, balances a yuzu | meadow, seaside, winter |
 | Deer | `deer` | twitches its ears, grazes, pronks | meadow, winter, forest |
-| Shark | `shark` | swims across dry land in its own puddle, dives in the water | meadow, seaside |
-| Otter | `otter` | twitches its whiskers, floats on its back in the water | meadow, seaside, forest |
+| Shark | `shark` | swims across dry land in its own puddle, dives in the water | meadow, seaside, station |
+| Otter | `otter` | twitches its whiskers, floats on its back in the water | meadow, seaside, forest, station |
 | Snail | `snail` | carries the house about, slowly | every scene |
 | Fox | `fox` | flicks its ears, swishes its brush, pounces on nothing | every scene |
 | Hedgehog | `hedgehog` | snuffles, bristles when startled | meadow, seaside, winter, forest |
-| Owl | `owl` | turns its head right round, tilts it to listen, rouses with a flap; waddles; sleeps sunk into its feathers | winter, forest (and the meadow) |
+| Owl | `owl` | turns its head right round, tilts it to listen, rouses with a flap; waddles; sleeps sunk into its feathers | winter, forest, station (and the meadow) |
 | Bunny | `rabbit` | ears that twitch one at a time, a nose that never stops, a binky when happy, a thump when startled; sleeps with its ears laid back | winter, forest, meadow |
-| Frog | `frog` | croaks with its cheek sacs, sits still then leaps; sleeps low with its eyes drawn down | forest (the stream), meadow (the pond) |
-| Cat | `cat` | a slow blink, ear flicks, a tail swish, washes a paw; wears a collar in the person's colour; sleeps with its tail laid out | winter, forest, meadow, seaside |
+| Frog | `frog` | croaks with its cheek sacs, sits still then leaps; sleeps low with its eyes drawn down | forest (the stream), meadow (the pond), station (the hydroponics pool) |
+| Cat | `cat` | a slow blink, ear flicks, a tail swish, washes a paw; wears a collar in the person's colour; sleeps with its tail laid out | winter, forest, meadow, seaside, station |
 | Bear, Bunny (classic) | `bear`, `bunny` | the older whole-sprite looks, unchanged | |
 
 ```yaml
@@ -160,6 +190,24 @@ people:
 same; `look: rabbit` is the new rigged one, listed as **Bunny** in the editor (the old one is
 **Bunny (classic)**). The cat's collar takes the person's `col`; the other new animals keep
 their own colours, like the fox and hedgehog.
+
+### Aliens
+
+![The six aliens in their poses: idle, walking, a habit, waving, asleep, and as grown-ups with and without glasses](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/aliens.png)
+
+The space station's cast, rigged like the animals, each with a habit and a sleeping pose of its
+own. Pick one in the editor's **Animal** drop-down (they are listed with "(alien)" after the
+name) or set `look:` in YAML. Each species has its own colour; the person's `col` goes on one
+thing it wears or grows, so the family still reads by colour.
+
+| Alien | `look:` | Its habits | The person's colour |
+|---|---|---|---|
+| Gloop | `alien_gloop` | a one-eyed mint jelly: wobbles, gives itself a jiggle, settles into a puddle asleep. Glasses become a monocle | the bow on its curl |
+| Tetra | `alien_tetra` | tall, four arms, always a cup of tea: sips it, tilts its head, nods off with the cup lowered | the bow tie |
+| Zib | `alien_zib` | a little floater with tentacles: bobs, leans in as it goes, boings, settles onto its tentacles to sleep | the bulb on its antenna |
+| Boulder | `alien_rock` | a gentle stone giant with a sprout on its head: stomps, pats the sprout, hunkers down | the crystals on its shoulder |
+| Bloom | `alien_bloom` | a walking plant: flaps its leaves, shakes out pollen, its flower droops shut at night | the petals |
+| Domo | `alien_dome` | scuttles on six legs with its home, a glass dome with a garden, on its back: peers about on its eye stalks, polishes the dome | the band round the dome |
 
 ## School data per child
 
@@ -350,7 +398,7 @@ setup stays editable.
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
 | `demo` | `false` | run on the built-in demo cast |
-| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest`. `station` is a draft of the Space station, coming soon |
+| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter`, `forest` or `station` |
 | `query` | none | test hooks, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | card height. Use `100vh` with the header hidden |
 
@@ -410,6 +458,8 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 ## Known limits
 
 - Built and tuned for 1280x800. Other sizes work but every scene was laid out for that one.
+  At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
+  the space station's wall most of all; use a wide card there.
 - On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
   since the template sensor tags each event with its owner's name. Calendars set on people
   have no such rule.
