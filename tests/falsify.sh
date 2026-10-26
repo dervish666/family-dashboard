@@ -35,8 +35,8 @@ creatures/cat.js|s/editor: true, sleeps: true,/editor: true,/|the cat does not s
 creatures/cat.js|s/sl \* (0.04 + 0.012 \* Math.sin(time \* 1.5))/sl * 0.04/|the sleeping cat stops breathing
 creatures/frog.js|s/^  anim: function (t, p, time, M) {/  anim: function (t, p, time, M) { return;/|the frog stands stock still, walking or not
 creatures/frog.js|s/var breathe = aw \* 0.01 \* Math.sin(time \* 3.2) \* M.idle;/var breathe = 0;/|the idle frog never stirs
-scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside, winter, forest\];/export const SCENE_LIST = [meadow, winter, forest];/|the seaside dropped from the registry
-scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside, winter, forest\];/export const SCENE_LIST = [meadow, seaside, winter];/|the forest camp dropped from the registry
+scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside, winter, forest, station\];/export const SCENE_LIST = [meadow, winter, forest, station];/|the seaside dropped from the registry
+scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside, winter, forest, station\];/export const SCENE_LIST = [meadow, seaside, winter, station];/|the forest camp dropped from the registry
 scenes/winter.js|s/    office:  { box: function () { var p = G.post;/    offis:   { box: function () { var p = G.post;/|the winter village's post office loses its tap
 scenes/winter.js|s/var h = G.home; return \[h.x - 86, h.y - 150, h.x + 86, h.y + 30\];/var h = G.post; return [h.x - 56, h.y - 110, h.x + 70, h.y + 14];/|home's tap box sits on the post office
 scenes/forest.js|s/return \[f.x - 80, f.y - 78, f.x + 80, f.y + 20\];/return [f.x - 10, f.y - 78, f.x + 10, f.y + 20];/|the campfire is too thin to tap
@@ -61,6 +61,15 @@ school.js|s/if (t) return { text: t, from: conf.entity, err: "" };//|the live ch
 school.js|s/: fallback) : end;/: fallback) : LESSONS_FALLBACK;/|the card ignores the last lesson's end and waits for 15:30
 school.js|s/v > end) end = v;/v < 0) end = v;/|the day ends at its first lesson's end, not its last
 school.js|s/getMinutes() >= cut;/getMinutes() > cut;/|the minute the last lesson ends still counts as lessons on
+scenes/index.js|s/export const SCENE_LIST = \[meadow, seaside, winter, forest, station\];/export const SCENE_LIST = [meadow, seaside, winter, forest];/|the space station dropped from the registry
+scenes/station.js|s/    school:  { box: function () { var l = G.lock;/    skool:   { box: function () { var l = G.lock;/|the station's airlock loses its tap
+scenes/station.js|s/return \[p.x - 104, p.y - 172, p.x + 104, p.y + 10\];/return [p.x - 14, p.y - 172, p.x + 14, p.y + 10];/|the hab pod is too thin to tap
+scenes/station.js|s/off: { x: -60, y: B + 12 }/off: { x: 60, y: B + 12 }/|the airlock leads nowhere: the school run ends on the card
+scenes/station.js|s/return around(t, dest, G.big, 30,/return null; void around(t, dest, G.big, 30,/|duty walks go straight through the holo table
+scenes/station.js|s/  indoor: true, darkSky: true,/  darkSky: true,/|the station gets the sky's clouds and rain
+scenes/station.js|s/id: "station", label: "Space station (draft)", experimental: true,/id: "station", label: "Space station",/|the draft station passes for finished
+scenes/station.js|s/  demoCast: \[/  castDemo: [/|the station's demo cast stay animals
+config.js|s/const cast = !raw.people \&\& /const cast = /|a cast someone chose is recast as aliens
 creatures/index.js|s/  alienGloop, alienTetra, alienZib, alienRock,/  alienGloop, alienTetra, alienRock,/|Zib dropped from the registry
 creatures/alien_rock.js|s/tg: 2.55, editor: true, sleeps: true,/tg: 2.55, editor: true,/|Boulder does not say it sleeps
 creatures/alien_gloop.js|s/var sl = M.sleep .. 0, aw = 1 - sl;/var sl = 0, aw = 1 - sl;/|Gloop has no sleeping pose

@@ -21,6 +21,8 @@
 //                    snow, mist, lightning and blown leaves stay off; the scene draws its weather
 //   darkSky          true when the top of the card is always dark: the clock and corner go light
 //   flyer(ctx, x, y, dir, time, S)  draws the craft that tows the next-event banner (the plane)
+//   demoCast         looks for the default cast, by position, when the config names no people
+//   experimental     true for a draft: the editor says so
 //   start(i, S)      where person i starts; swimSpot(S) where the swimmers go for a dip
 //   via(t, dest, S)  a waypoint on the way from t to dest, or null for a straight walk
 //   ambient          { setup(S), update(dt, S), under, back, front, light (ctx, time, S) }:
@@ -39,8 +41,9 @@ import meadow from "./meadow.js";
 import seaside from "./seaside.js";
 import winter from "./winter.js";
 import forest from "./forest.js";
+import station from "./station.js";
 
-export const SCENE_LIST = [meadow, seaside, winter, forest];
+export const SCENE_LIST = [meadow, seaside, winter, forest, station];
 // Every scene maps each of these to a landmark, in this order of tap priority.
 export const HOTSPOT_IDS = ["school", "printer", "music", "home", "office"];
 export const SCENE_BY_ID = {};

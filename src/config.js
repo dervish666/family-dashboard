@@ -243,6 +243,10 @@ export function normalize(raw) {
   out.scene = out.scene == null ? SCENES[0].id : out.scene;
   if (!SCENES.some(function (s) { return s.id === out.scene; }))
     throw cfgError("scene must be one of " + SCENES.map(function (s) { return s.id; }).join(", ") + ", got " + JSON.stringify(out.scene));
+  // A scene can recast the default cast as its own characters (the station's aliens), by
+  // position. Only a config that names no people: a cast someone chose keeps its looks.
+  const cast = !raw.people && SCENE_LIST.filter(function (s) { return s.id === out.scene; })[0].demoCast;
+  if (cast) people.forEach(function (p, i) { if (cast[i] && LOOKS.indexOf(cast[i]) >= 0) { p.look = cast[i]; p.tg = LOOK_TG[cast[i]] || p.tg; } });
 
   // The school door queue: keep the given order for names that exist, then any other
   // school kid, so a renamed cast never stacks everyone on one spot.

@@ -117,7 +117,10 @@ The meadow's village life stays in the meadow: the walkers and their errands, th
 building up with a print's progress, the postie on foot (at the seaside letters come by air),
 the kit bag by the cottage, the house party and the office robot.
 
-Coming: a Space station.
+Coming soon: the Space station. A draft is in, unfinished and likely to change: `scene: station`,
+listed as "Space station (draft)" in the editor. It is an observation deck under a big window
+onto space, and its cast are aliens rather than animals (`alien_gloop`, `alien_tetra`,
+`alien_zib`, `alien_rock`). Try it if you like, but do not build on it yet.
 
 ## Animals
 
@@ -347,7 +350,7 @@ setup stays editable.
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
 | `officeUrl` | `null` | a JSON status URL for the optional office robot |
 | `demo` | `false` | run on the built-in demo cast |
-| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest`. A Space station is coming |
+| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest`. `station` is a draft of the Space station, coming soon |
 | `query` | none | test hooks, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | card height. Use `100vh` with the header hidden |
 

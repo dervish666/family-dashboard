@@ -123,7 +123,7 @@ Four options exist only on the card:
 | `demo` | `false` | runs on the built-in demo cast and ignores Home Assistant |
 | `query` | none | test hooks as a query string, for example `hour=21.5&weather=snow` |
 | `height` | `calc(100vh - var(--header-height, 56px))` | CSS height of the card. Use `100vh` when the header is hidden |
-| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest` (README, "Scenes"). A Space station is coming |
+| `scene` | `meadow` | which scene to draw: `meadow`, `seaside`, `winter` or `forest` (README, "Scenes"). `station` is a draft of the Space station, coming soon |
 
 **`people`**, one entry per creature:
 

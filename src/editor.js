@@ -190,7 +190,10 @@ class FamilyDashboardCardEditor extends HTMLElement {
     });
     // the hint is each scene's own blurb, so a new scene describes itself here
     const blurbs = SCENE_LIST.map(function (s) { return s.blurb; }).filter(Boolean).map(function (b) { return b.charAt(0).toUpperCase() + b.slice(1) + ". "; }).join("");
-    const ss = sec("Scene", blurbs + "A space station is coming. The demo cast runs on made-up data, so turn it off to see your calendars.");
+    // a scene marked experimental is a draft, and the hint says so
+    const drafts = SCENE_LIST.filter(function (s) { return s.experimental; }).map(function (s) { return s.label.replace(/ \(draft\)$/, ""); });
+    const draftNote = drafts.length ? "The " + drafts.join(" and ").toLowerCase() + (drafts.length > 1 ? " are drafts" : " is a draft") + ": it may change before it is finished. " : "";
+    const ss = sec("Scene", blurbs + draftNote + "The demo cast runs on made-up data, so turn it off to see your calendars.");
     ss.appendChild(F.top.el);
     F.suits = document.createElement("p"); F.suits.className = "hint suits"; ss.appendChild(F.suits);
     const ps = sec("People", "One creature each. Give each person their calendar. The last one is the household: bin day and anything nobody owns.");

@@ -330,9 +330,18 @@ eq(m.SCENES.map(function (s) { return s.id; }), sids, "config's scenes are the r
 eq(sids[0], "meadow", "the meadow stays first, the default for configs with no scene");
 ok(new Set(sids).size === sids.length, "scene ids are unique");
 eq(m.HOTSPOT_IDS, ["school", "printer", "music", "home", "office"], "the landmark ids are the ones the engine taps");
-["seaside", "winter", "forest"].forEach(function (id) { let got = null; try { got = m.normalize({ demo: true, scene: id }).scene; } catch (e) { got = e.message; }
+["seaside", "winter", "forest", "station"].forEach(function (id) { let got = null; try { got = m.normalize({ demo: true, scene: id }).scene; } catch (e) { got = e.message; }
   eq(got, id, "the " + id + " is a valid scene"); });
-eq(sids.slice(0, 4), ["meadow", "seaside", "winter", "forest"], "the scenes, in the editor's order");
+eq(sids.slice(0, 5), ["meadow", "seaside", "winter", "forest", "station"], "the scenes, in the editor's order");
+// The space station is a draft: marked experimental, labelled so, under a roof, light HUD text,
+// its own banner tug, and the default cast recast as its aliens (a cast someone chose keeps its looks).
+const ST = SL.filter(function (s) { return s.id === "station"; })[0] || {};
+ok(ST.experimental === true && /draft/i.test(ST.label || ""), "scene station: marked experimental and labelled a draft");
+ok(ST.indoor === true && ST.darkSky === true && isFn(ST.flyer), "scene station: indoor, dark sky, its own flyer");
+eq(m.normalize({ demo: true, scene: "station" }).people.map(function (p) { return p.look; }), ST.demoCast, "the station's demo cast are its aliens");
+eq(m.normalize({ demo: true, scene: "station" }).people.map(function (p) { return p.tg; }), (ST.demoCast || []).map(function (id) { return m.CREATURES.filter(function (c) { return c.id === id; })[0].tg; }), "and their tags sit at the aliens' heights");
+eq(m.normalize({ demo: true, scene: "station", people: [{ name: "A", look: "fox" }, { name: "H" }] }).people.map(function (p) { return p.look; }), ["fox", "capybara"], "a cast someone chose keeps its looks on the station");
+eq(m.normalize({ demo: true, scene: "forest" }).people.map(function (p) { return p.look; }), m.normalize({}).people.map(function (p) { return p.look; }), "other scenes keep the default cast's animals");
 SL.forEach(function (sc) {
   const who = "scene " + (sc && sc.id);
   ok(sc && typeof sc.id === "string" && /^[a-z]+$/.test(sc.id), who + ": id is a lower-case word");
@@ -383,9 +392,9 @@ SL.forEach(function (sc) {
     const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
     ok(ix * iy <= 0.1 * Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])), who + ": the " + m.HOTSPOT_IDS[i] + " and " + m.HOTSPOT_IDS[j] + " landmarks do not overlap"); }
   // a walk on a duty that a scene routes (via) goes round its obstacles: step it there and back
-  if (sc.via && L.lay && (L.lay.fire || L.lay.pond)) {
-    const z = L.lay.fire || L.lay.pond;
-    ok(isFinite(z.x) && isFinite(z.y) && z.rx > 0 && z.ry > 0, who + ": lay." + (L.lay.fire ? "fire" : "pond") + " is the obstacle's ellipse");
+  if (sc.via && L.lay && (L.lay.fire || L.lay.pond || L.lay.table)) {
+    const z = L.lay.fire || L.lay.pond || L.lay.table, zn = L.lay.fire ? "campfire" : L.lay.pond ? "pond" : "holo table";
+    ok(isFinite(z.x) && isFinite(z.y) && z.rx > 0 && z.ry > 0, who + ": the " + zn + " is the obstacle's ellipse");
     const inZ = function (x, y) { return L.zones.some(function (q) { const dx = (x - q.x) / (q.rx * 0.9), dy = (y - q.y) / (q.ry * 0.9); return dx * dx + dy * dy < 1; }); };
     const S2 = Object.assign({}, S, { inZone: function (x, y, pad) { return L.zones.filter(function (q) { const dx = (x - q.x) / (q.rx + pad), dy = (y - q.y) / (q.ry + pad); return dx * dx + dy * dy < 1; })[0] || null; } });
     [[-1, 1], [1, -1]].forEach(function (d) {
@@ -393,9 +402,10 @@ SL.forEach(function (sc) {
       let crossed = false, k = 0;
       for (; k < 3000 && Math.hypot(dest.x - w.x, dest.y - w.y) > 3; k++) { const v = sc.via(w, dest, S2) || dest, dx = v.x - w.x, dy = v.y - w.y, l = Math.hypot(dx, dy) || 1;
         w.x += dx / l * Math.min(3, l); w.y += dy / l * Math.min(3, l); if (inZ(w.x, w.y)) crossed = true; }
-      ok(!crossed && k > 20 && k < 3000, who + ": a duty walk across the " + (L.lay.fire ? "campfire" : "pond") + " goes round it and arrives");
+      ok(!crossed && k > 20 && k < 3000, who + ": a duty walk across the " + zn + " goes round it and arrives");
     });
   }
+  if (sc.flyer) { ok(isFn(sc.flyer), who + ": flyer is a function"); sc.flyer(g, 600, 160, 1, 2, S); sc.flyer(g, 600, 160, -1, 2.5, S); }
   if (L.lay && L.lay.school) ok(isFinite(L.lay.school.x) && isFinite(L.lay.school.y) && (!L.lay.school.cut || (L.lay.school.cut.length === 4 && L.lay.school.cut.every(isFinite))), who + ": the School tag's spot is a point");
   if (sc.start) for (let i = 0; i < 8; i++) { const p = sc.start(i, S); ok(p && (p.x === null || (isFinite(p.x) && isFinite(p.y))), who + ": start(" + i + ") is a point"); }
   if (sc.ambient) {
