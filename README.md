@@ -46,8 +46,9 @@ The editor covers:
 - **People**: add, remove and reorder. Each has a name, adult or kid, an animal (see
   [Animals](#animals)), a colour,
   accessories (glasses, headphones, a daisy, the bee), whether they go to school, and one or
-  more calendars. A child who goes to school also gets a timetable and a lunch menu sensor.
-  The last person is the household.
+  more calendars, and their own letter helper for [room panel](#room-panels-optional) letters.
+  A child who goes to school also gets a timetable and a lunch menu sensor. The last person is
+  the household.
 - **Sensors**: weather, music speaker, letter helper, trips calendar, 3D printer, and the
   school data and kit sensors. All optional. Empty means that part of the scene stays off.
 - **Scene**: the meadow, the seaside, the winter village or the forest camp, from a
@@ -517,7 +518,7 @@ a grey dashed "Announcements unavailable", "Due times unavailable" or a tile tha
 
 | Option | Default | What it does |
 |---|---|---|
-| `people` | a demo cast of six | one creature each: `name`, `calendar` (one or a list), `col`, `look`, `role` (`adult` or `kid`), `r`, `tg`, the school sources `timetable`, `lunch` and `choice`, plus flags `adult`, `school`, `glasses`, `phones`, `daisy`, `bee`. The last entry is the household |
+| `people` | a demo cast of six | one creature each: `name`, `calendar` (one or a list), `col`, `look`, `role` (`adult` or `kid`), `r`, `tg`, the school sources `timetable`, `lunch` and `choice`, their own letter helper `letter` (an `input_text` or `text` entity holding `from\|text`, see [Room panels](#room-panels-optional)), plus flags `adult`, `school`, `glasses`, `phones`, `daisy`, `bee`. The last entry is the household |
 | `sensors` | with calendars: `sun` and `weather` only. Without: `sensor.family_week` and friends | entity ids: `week`, `extra`, `kit`, `sun`, `weather`, `printer`, `letter`, `music`, `rain`, `trips`. `timetable` and `lunch` are the v1.1.0 way, see above |
 | `dates` | demo birthdays, Halloween to New Year's Eve | `birthdays` (name to `MM-DD`) and `fixed` days, shown as countdowns in the sky |
 | `view` | with calendars: all `null`. Without: `/wall-panel/...` paths | which view a tap on a landmark opens: `home`, `music`, `printer` and `office`, see [Scenes](#scenes). `null` leaves that landmark as scenery |
@@ -537,7 +538,8 @@ Objects such as `sensors` and `view` merge with the defaults, so you only list w
 Lists such as `people` replace the default. Unknown keys are ignored. A config the card
 cannot draw (a duplicate name, an unknown animal, a calendar id that is not a calendar)
 shows an error on the card that says what to change. So does a `timetable` or `lunch` that is
-not a `sensor.` entity. [docs/06-views.md](docs/06-views.md) covers each
+not a `sensor.` entity, or a `letter` that is not an `input_text.` or `text.` entity, is shared
+by two people, or is the postie's `sensors.letter`. [docs/06-views.md](docs/06-views.md) covers each
 option, the looks, and the test hooks.
 
 ## The rest of the wall panel
@@ -571,10 +573,13 @@ kitchen panel shows today, lunch and kit, what is due, and four preset announcem
   [`homeassistant/panels.example.yaml`](homeassistant/panels.example.yaml).
 - Panels use the encrypted native API only: no web server, no cloud, no "allow actions".
 
-Until v1.8 the wall card sees a panel letter through the postie (the script copies it there).
-Coming in v1.8: card integration, a per-person `letter:` entity that the card shows and clears
-when that person's card is opened. Setup, hardware and flashing:
-[esphome/README.md](esphome/README.md). The contracts: [docs/07](docs/07-room-panels.md).
+The wall card reads the same helpers. Give each child `letter: input_text.letter_kid_a` in the
+card's `people` (or fill in **Own letter helper** in the editor) and their letters reach them on
+the wall like the postie's do; opening their card empties the helper, so the panel drops it too.
+A missing or unavailable helper says "Letters unavailable" in the corner and on their card. The
+package's copy to the postie (`input_text.family_letter`) is now optional: the card shows each
+letter once, copy or not. Setup, hardware and flashing: [esphome/README.md](esphome/README.md).
+The contracts and the card's rules: [docs/07](docs/07-room-panels.md#the-wall-card).
 
 ## Try it without Home Assistant
 

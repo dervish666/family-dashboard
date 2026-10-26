@@ -44,11 +44,8 @@ helper:
 - a panel's **Done** fires `esphome.family_letter_read` with `child` and `sent`, and the
   `family_panel_letter_read` automation empties the helper. Home Assistant accepts `esphome.*`
   events from an adopted device without the "allow actions" option.
-- the wall card: see [Card v1.8](#card-v18) below. Until then the script also copies each
-  letter to the card's postie, `input_text.family_letter`, as `Kid A: From Parent 1: Tea's at
-  six`, and when the card empties the postie the `family_panel_letter_read_on_card` automation
-  clears the panel letter it came from. The postie holds one letter, so a second letter to
-  another child replaces the first on the wall (not on the panels).
+- the wall card: opening that person's card empties the helper, the same thing a panel's
+  **Done** does. See [The wall card](#the-wall-card) below.
 
 **Offline.** The letter waits in the helper, which Home Assistant restores after a restart. A
 panel that was off shows it when it reconnects. A **Done** pressed while the panel was offline
@@ -57,26 +54,44 @@ hides the letter on that panel and is sent again when the API reconnects.
 **Expiry.** `family_panel_letter_expire` clears unread letters older than `expire_days` (3) at
 03:30. Set `expire_days: 0` to keep them until read.
 
-## Card v1.8
+## The wall card
 
-The card will read these helpers directly. The contract it will follow, so the panels need no
-change:
+Card v1.8.0 reads these helpers itself. Give each child their helper in the card's `people`,
+or in the card editor's **Own letter helper** field:
 
 ```yaml
 people:
-  - name: Kid A
-    letter: input_text.letter_kid_a              # from|text, as above
-    letter_sent: input_datetime.letter_kid_a_sent  # optional, for "sent 2 h ago" and staleness
+  - name: Kid A                       # as the script's recipients spell it
+    letter: input_text.letter_kid_a   # an input_text or a text entity, from|text as above
 ```
 
-- The creature wears a letter while the helper holds one, and the person's card shows it with
-  the sender.
-- Opening that person's card empties the helper (`input_text.set_value`, value `""`), the same
-  thing a panel's **Done** does.
-- `unavailable` reads "Letter unavailable", never as no letter.
+- The card polls the helper with its other live entities, every 45 seconds. A letter there goes
+  to that person the way the postie's letters do: the postie walks it over in the meadow, and
+  in the other scenes it drops onto their name tag. They wear it until someone opens their card,
+  which shows it under "A letter from Parent 1" with the time the helper last changed.
+- Opening the card with a tap empties the helper (`input_text.set_value` or `text.set_value`,
+  value `""`), only if it still holds the letter that was read, so a newer letter that landed in
+  the meantime stays. The demo, the test hooks and a card opened with `?open=` never write.
+- A helper emptied elsewhere (a panel's **Done**, the expiry) takes the letter back off the wall
+  at the next poll, even if the postie is on the road with it. A new letter replaces an unread
+  one in the same envelope.
+- `unavailable`, or a helper that does not exist, says "Letters unavailable: Kid A" in the
+  corner and names the entity on Kid A's card. It never reads as "no letter". `unknown` (never
+  set) is an empty mailbox.
+- One letter at a time per person: a second letter for someone already wearing one (a postie
+  letter typed by hand, say) waits at the post office until the first is read.
 
-Once the card does this, set `postie: ''` in the script and delete the
-`family_panel_letter_read_on_card` automation; the postie goes back to being only the postie.
+**The bridge, now optional.** The script still copies each letter to the postie,
+`input_text.family_letter`, as `Kid A: From Parent 1: Tea's at six`, for a wall card before
+v1.8 or a child with no `letter:`. Card v1.8 shows a letter once either way: a postie value that
+is exactly the copy of a letter it has from a per-person helper is the same letter, and if the
+copy arrived first the per-person letter takes over its envelope. Reading it empties the
+child's helper and the postie too if it still holds the copy. To turn the bridge off, set
+`postie: ''` in the script and delete the `family_panel_letter_read_on_card` automation. The
+names in the script's `recipients` must match the card's `people` names for the copy to match.
+
+`input_datetime.letter_<slug>_sent` stays for the panels and the expiry; the card does not read
+it. After a Home Assistant restart the card's time for an unread letter is the restart time.
 
 ## Announcements
 

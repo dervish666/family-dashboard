@@ -146,9 +146,10 @@ Change both, word for word, or the button logs a warning and announces nothing.
 1. Someone runs `script.family_send_panel_letter` with `to: kid_a`. The script slugifies `to`,
    refuses a child not in `recipients`, a missing helper or an empty text, and writes
    `Parent 1|Tea's at six` to `input_text.letter_kid_a` and the time to
-   `input_datetime.letter_kid_a_sent`. Until card v1.8 it also copies the letter to the card's
-   postie (`input_text.family_letter`) as `Kid A: From Parent 1: Tea's at six`, so the wall
-   shows it too.
+   `input_datetime.letter_kid_a_sent`. If the bridge is on (the default) it also copies the
+   letter to the card's postie (`input_text.family_letter`) as `Kid A: From Parent 1: Tea's at
+   six`, for a wall card before v1.8 or a child with no `letter:` on the card. Card v1.8 with
+   `letter: input_text.letter_kid_a` reads the helper itself and shows the letter once.
 2. Kid A's panel sees the helper change, shows the red dot and brightens.
 3. Kid A taps the envelope, reads it, taps **Done**. The panel fires
    `esphome.family_letter_read` with `child: kid_a` and the sent time it saw.
@@ -156,8 +157,9 @@ Change both, word for word, or the button logs a warning and announces nothing.
    Every screen drops it. If the sent time does not match, a newer letter arrived in between and
    stays.
 
-If the letter is read on the wall card first, the card empties the postie and a second
-automation clears the panel. A panel that was off or offline shows the letter when it comes
+If the letter is read on the wall card first, a v1.8 card with `letter:` empties the child's
+helper (and the postie copy) itself; an older card empties the postie and a second automation
+clears the panel. A panel that was off or offline shows the letter when it comes
 back, and a **Done** pressed while offline is sent again when the panel reconnects. Unread
 letters older than `expire_days` (3) go at 03:30.
 

@@ -95,6 +95,11 @@ input_select:
 # The Meadow's postie. Type "Kid 3: tea's at six" here (or run
 # script.family_send_letter) and the postie carries it to Kid 3. The Meadow
 # clears it once the letter is read. A UI helper works just as well.
+# Since card v1.8 a person can also have a helper of their own, the room
+# panels' input_text.letter_<slug> in "from|text" form (panels.example.yaml):
+# set `letter: input_text.letter_kid_3` on them in the card's people. This
+# one keeps working for everyone else, and a panel letter's copy here is
+# shown once, not twice.
 input_text:
   family_letter:
     name: Family letter

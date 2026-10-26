@@ -40,8 +40,10 @@
 # clears a newer one that arrived meanwhile, and the daily expiry uses it.
 # Without it the expiry falls back to the helper's last change.
 #
-# Read once, gone everywhere: whoever reads it first (the panel's Done, or,
-# from card v1.8, opening that child on the wall card) empties the helper,
+# Read once, gone everywhere: whoever reads it first (the panel's Done, or
+# opening that child on the wall card, which reads the helper itself when the
+# card's people option gives them `letter: input_text.letter_<slug>`) empties
+# the helper,
 # and every screen drops it. Until then it waits in the helper: a panel that
 # was off or offline shows it when it comes back.
 #
@@ -90,9 +92,10 @@ script:
       Writes "sender|text" to input_text.letter_<slug> and the time to
       input_datetime.letter_<slug>_sent. `to` is a slug (kid_a) or a name
       (Kid A). Stops with an error for a recipient it does not know, a missing
-      helper or an empty text. Also copies the letter to the card's postie
-      (input_text.family_letter) so the wall card shows it today; set postie
-      to '' below once the card reads letter_<slug> itself (v1.8).
+      helper or an empty text. Optionally copies the letter to the card's
+      postie (input_text.family_letter) too, the bridge for a wall card
+      before v1.8 or a child with no `letter:` on the card. The card shows a
+      letter once either way; set postie to '' below to turn the bridge off.
     icon: mdi:email-fast
     mode: queued
     max: 10
@@ -249,11 +252,13 @@ automation:
             data:
               value: ""
 
-  # The bridge until card v1.8: the wall card empties input_text.family_letter
-  # when that person's card is opened. If what it emptied was a copy of a
-  # panel letter, that letter was read on the wall, so clear the panel too.
-  # Delete this automation (and set postie to '' in the script) once the card
-  # reads input_text.letter_<slug> itself.
+  # The bridge, optional since card v1.8. A card before v1.8, or a child with
+  # no `letter:` on the card, only sees the postie copy and empties
+  # input_text.family_letter when that person's card is opened. If what it
+  # emptied was a copy of a panel letter, that letter was read on the wall, so
+  # clear the panel too. Card v1.8 with `letter:` on every child empties the
+  # child's helper itself (and the copy): set postie to '' in the script and
+  # delete this automation if you like, nothing depends on them.
   - id: family_panel_letter_read_on_card
     alias: "Family: a panel letter was read on the wall card"
     mode: queued

@@ -53,6 +53,9 @@ What else happens, all of it driven by data and none of it guessed:
   `family_send_letter` script from `scripts.example.yaml` on a phone. The postie carries it to
   that person, who wears the letter above their tag until someone opens their card. Opening
   the card shows it and clears the helper. A name the meadow does not know goes to House.
+  A person with their own helper (`people[].letter`, the room panels' `from|text` letters, see
+  [07 Room panels](07-room-panels.md#the-wall-card)) gets those letters the same way, with the
+  sender on the card; opening it empties their helper.
 - **The kit bag.** When the kit sensor names kit for today, a bag sits by the cottage door
   before school.
 - **Countdowns** in the sky: birthdays and the fixed days in `dates`, Easter, the end of term
@@ -103,6 +106,7 @@ put the same hooks in the card's `query` option. Test hooks:
 | `party=christmas` | starts a party. A name from `people` works too, or `friend:Pat` for a house party |
 | `printer=running:45` | fakes the printer: `running:N`, `pause:N`, `prepare`, `finish`, `failed`, `idle`, `offline` |
 | `letter=Kid%203:hello` | delivers a letter a few seconds after boot (URL-encode it) |
+| `pletter=Kid%203%7CParent%201%7Chello` | delivers a per-person letter (`people[].letter`, `from\|text`) to Kid 3, as if their helper held `Parent 1\|hello`. Never written to Home Assistant |
 | `music=on` | the speaker is playing. `mtitle=` and `martist=` set the sign's text |
 | `office=quiet` | fakes the office robot: `off`, `quiet`, `ask:Name`, or `Name:what it is doing` |
 | `announce=Dinner%27s%20ready` | sends the town crier out with this message 2.5 s after boot, over the announcement entity (or a made-up one if none is set). `45%7CName%7Ctext` and `Name:%20text` work too. Never written to Home Assistant |
@@ -158,6 +162,10 @@ people:
   `choice` says packed lunch or school dinner: `packed`, `school`, a weekday map such as
   `{ fri: packed }`, or an entity whose state says it. The attribute shapes, and four ways to
   feed them, are in the README under "School data per child".
+- `letter` is this person's own letter helper, an `input_text.` or `text.` entity holding
+  `from|text` (the room panels' letters, `input_text.letter_<slug>`). Their letters come the
+  postie's way and opening their card empties the helper. Each person needs their own, and it
+  cannot be `sensors.letter`. The rules are in [07 Room panels](07-room-panels.md#the-wall-card).
 - `bee: true` has a bee circle this one. One person only.
 - The last entry, House, is the household: bin day, the window cleaner, anything nobody owns.
 
@@ -177,7 +185,7 @@ config with no calendars keeps every default below:
 | `timetable`, `lunch` | `sensor.family_timetable` | v1.1.0 only: one child's timetable and lunch, copied onto the person `schoolWho` names. Set `people[].timetable` and `.lunch` instead |
 | `sun`, `weather` | `sun.sun`, `weather.forecast_home` | how dark it is, and the scene's weather |
 | `printer` | `"sensor.a1mini_SERIAL_"` | the workshop. This one is a prefix, not an entity: the meadow appends `print_status`, `print_progress` and so on. `null` by default |
-| `letter` | `input_text.family_letter` | the postie |
+| `letter` | `input_text.family_letter` | the postie, for everyone. A person's own helper is `people[].letter` |
 | `music` | `media_player.music` | dancing and the bandstand show |
 | `rain` | `sensor.rain_sensor` | extra rain on top of the forecast. `null` by default |
 | `trips` | `calendar.family` | holiday countdowns |

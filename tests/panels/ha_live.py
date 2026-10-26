@@ -177,7 +177,7 @@ def main() -> int:
         settle()
         check(state(token, "input_text.letter_kid_b") == "Pa/rent|42", "a '|' in the sender is replaced; '42' stays text")
         check(state(token, "input_text.family_letter") == "Kid B: From Pa/rent: 42",
-              "the postie holds the newest letter (one slot, until card v1.8)")
+              "the postie holds the newest letter (one slot, the optional bridge)")
 
         print("read on the panel:")
         fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": "2001-01-01 00:00:00"})
