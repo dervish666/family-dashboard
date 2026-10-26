@@ -2,7 +2,7 @@
 # Proves tests/check.mjs can fail. Breaks the card in known ways on temp copies and expects
 # the check to exit non-zero each time: two breaks in the built file (calendar parsing,
 # calendar mode), then the source ones below, each rebuilt with esbuild (creature and scene
-# registries, the school timetable and lunch parsers). Exits 1
+# registries, the school timetable and lunch parsers, the per-child school config). Exits 1
 # if any broken copy passes. Needs npm ci first.
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -46,5 +46,8 @@ school.js|s/else if (out.menuEnds \&\& out.date > out.menuEnds) out.status = "en
 school.js|s/? st : out.options.length/? "served" : out.options.length/|a closed lunch day reads as served
 school.js|s/menu\[ymdOf(d)\] = { status: st/menu.x = { status: st/|v1.1.0 lunch sensors stop parsing
 school.js|s/if (t) return { text: t, from: conf.entity, err: "" };//|the live choice entity is ignored
+config.js|s#!/^sensor#!/^[a-z_]*#|a timetable from any domain is accepted
+config.js|s/if (owner) { if (!owner\[k\]) owner\[k\]/if (owner) { if (false) owner[k]/|v1.1.0 school sensors are not copied onto their owner
+config.js|s/      warnOnce("sensors." + k/      void ("sensors." + k/|a missing schoolWho owner does not warn
 EOF
 echo "ok: all $n sabotaged copies failed the check"

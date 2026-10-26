@@ -1,6 +1,7 @@
 // Card config: the defaults, normalize() and the first-install stub.
 import { CREATURES } from "./creatures/index.js";
 import { SCENE_LIST } from "./scenes/index.js";
+import { TIMETABLE_ATTR, LUNCH_ATTR, DAY_KEYS } from "./school.js";
 
 // ══ CONFIG ═══════════════════════════════════════════════════════════════════
 // Everything household-specific lives in this one object. Edit it and nothing else.
@@ -19,6 +20,10 @@ import { SCENE_LIST } from "./scenes/index.js";
 //   glasses  round reading glasses.   bee: a bee circles this one (one person only).
 //   phones   headphones.   daisy: a daisy behind one ear.   Both work on any animal.
 //   school   this person's items count on the School tag and card.
+//   timetable, lunch   this child's school sensors: an entity id, or { entity, attribute }
+//            when the data is not in the default attribute (timetable / menu). See school.js.
+//   choice   packed lunch or school dinner: "packed", "school", a weekday map
+//            ({ fri: packed }) or an entity whose state says it (input_select.kid_lunch).
 // The last entry, "House", is the household: bin day, window cleaner, anything nobody owns.
 // Swapping someone's animal is changing their look (and tg if the tag sits wrong).
 export const DEFAULTS = {
@@ -37,9 +42,9 @@ export const DEFAULTS = {
   sensors: {
     week: "sensor.family_week",        // every event on every calendar for the next 7 days, tagged who/what/day/at/all_day
     extra: "sensor.family_extra",      // school items, kit, flags, term dates, and which sources could not be checked
-    timetable: "sensor.family_timetable", // a two-week lesson grid; shown on the School card
+    timetable: "sensor.family_timetable", // v1.1.0: one child's lessons; now people[].timetable
     kit: "sensor.family_kit",          // what kit is needed today
-    lunch: "sensor.family_lunch",      // the school lunch menu, today and tomorrow
+    lunch: "sensor.family_lunch",      // v1.1.0: one child's lunch menu; now people[].lunch
     sun: "sun.sun",
     weather: "weather.forecast_home",
     // Optional extras. null switches that part of the meadow off and nothing else.
@@ -49,7 +54,8 @@ export const DEFAULTS = {
     rain: null,                         // e.g. "sensor.rain_sensor": adds rain the forecast misses (see rainStates)
     trips: "calendar.family"            // events titled "Holiday ..." on this calendar become countdowns
   },
-  // Whose card the optional school sensors belong to.
+  // Whose card the optional school sensors belong to. For timetable and lunch this is the
+  // v1.1.0 way: normalize() copies them onto that person (people[].timetable, .lunch).
   schoolWho: { timetable: "Kid 2", kit: "Kid 3", lunch: "Kid 3" },
   // sensor.family_extra names its sources, not people. Map a source name (regex) to the
   // person whose card should say "couldn't check", so a missing source does not read
@@ -140,9 +146,42 @@ function normPerson(p, i) {
   out.r = isFinite(+p.r) && +p.r > 0 ? +p.r : out.adult ? 37 : 34;
   out.tg = isFinite(+p.tg) && +p.tg > 0 ? +p.tg : LOOK_TG[look] || 2.3;
   out.calendars = calendarsOf(p, i);
+  out.timetable = schoolSource(p.timetable, TIMETABLE_ATTR, name, "timetable");
+  out.lunch = schoolSource(p.lunch, LUNCH_ATTR, name, "lunch");
+  out.choice = lunchChoiceConf(p.choice, name);
   delete out.calendar; delete out.role;
   return out;
 }
+// people[].timetable and .lunch: a sensor id, or { entity, attribute } for data kept in an
+// attribute with another name. Normalised to { entity, attribute } or null.
+function schoolSource(v, attr, name, key) {
+  if (v == null || v === "") return null;
+  const o = typeof v === "string" ? { entity: v } : v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  const bad = name + ": " + key + " must be a sensor entity id like sensor.kid_" + key + ", or { entity, attribute }, got " + JSON.stringify(v);
+  if (!o || typeof o.entity !== "string" || !/^sensor\.[a-z0-9_]+$/.test(o.entity.trim())) throw cfgError(bad);
+  if (o.attribute != null && (typeof o.attribute !== "string" || !o.attribute.trim())) throw cfgError(name + ": " + key + ".attribute must be an attribute name, got " + JSON.stringify(o.attribute));
+  return { entity: o.entity.trim(), attribute: o.attribute ? o.attribute.trim() : attr };
+}
+// people[].choice: a word ("packed", "school"), a weekday map ({ fri: packed }), or an entity
+// whose state is the word. Normalised to { value }, { days } or { entity }, or null.
+function lunchChoiceConf(v, name) {
+  if (v == null || v === "") return null;
+  if (typeof v === "string") return /^[a-z_]+\.[a-z0-9_]+$/.test(v.trim()) ? { entity: v.trim() } : { value: v.trim() };
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    if (typeof v.entity === "string" && /^[a-z_]+\.[a-z0-9_]+$/.test(v.entity)) return { entity: v.entity };
+    const days = {};
+    Object.keys(v).forEach(function (k) {
+      const key = String(k).toLowerCase().slice(0, 3);
+      if (DAY_KEYS.indexOf(key) < 0 || typeof v[k] !== "string") throw cfgError(name + ": choice days must be weekdays mapped to words, like { fri: packed }, got " + JSON.stringify(k) + ": " + JSON.stringify(v[k]));
+      days[key] = v[k];
+    });
+    return { days: days };
+  }
+  throw cfgError(name + ": choice must be a word (packed, school), a weekday map or an entity id, got " + JSON.stringify(v));
+}
+// normalize() runs on every keystroke in the editor, so each warning prints once.
+const WARNED = {};
+function warnOnce(msg) { if (WARNED[msg]) return; WARNED[msg] = 1; console.warn("family-dashboard-card: " + msg); }
 
 export function normalize(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw cfgError("config must be an object");
@@ -182,6 +221,21 @@ export function normalize(raw) {
     const v = out.sensors[k];
     if (v === "" || v === undefined) out.sensors[k] = null;
     else if (v !== null && typeof v !== "string") throw cfgError("sensors." + k + " must be an entity id or null, got " + JSON.stringify(v));
+  });
+  // v1.1.0 kept one child's timetable and lunch in sensors, owned through schoolWho. Copy
+  // each onto its owner unless that person names their own. An owner who is not in the
+  // cast is a config error the card cannot guess around: warn, and list it on the School
+  // card, but only when the config asked for that sensor or owner (not for a default).
+  out.schoolOrphans = [];
+  ["timetable", "lunch"].forEach(function (k) {
+    const id = out.sensors[k];
+    if (!id) return;
+    const who = out.schoolWho && out.schoolWho[k], owner = people.filter(function (p) { return p.name === who; })[0];
+    if (owner) { if (!owner[k]) owner[k] = { entity: id, attribute: k === "timetable" ? TIMETABLE_ATTR : LUNCH_ATTR, legacy: true }; return; }
+    if ((raw.sensors && raw.sensors[k]) || (raw.schoolWho && raw.schoolWho[k])) {
+      warnOnce("sensors." + k + " (" + id + ") belongs to schoolWho." + k + " = " + JSON.stringify(who) + ", who is not in people. Set people[]." + k + " on the child instead.");
+      out.schoolOrphans.push({ key: k, entity: id, who: who == null ? null : String(who) });
+    }
   });
   if (!out.demo && !calendarMode && !out.sensors.week)
     throw cfgError("give at least one person a calendar (people[].calendar), or set sensors.week, or set demo: true");

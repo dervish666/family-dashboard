@@ -121,6 +121,47 @@ const none = m.stubConfig(null);
 eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
 
 // ── School data per child (v1.2.0) ──────────────────────────────────────────────
+// Config: people[].timetable / .lunch / .choice, and v1.1.0's sensors + schoolWho mapped on.
+const sc = m.normalize({ people: [
+  { name: "Ash", school: true, calendar: "calendar.ash", timetable: "sensor.ash_timetable", lunch: { entity: "sensor.ash_school", attribute: "lunch" }, choice: "packed" },
+  { name: "Bea", school: true, timetable: { entity: "sensor.bea_tt" }, choice: { fri: "packed", Monday: "school" } },
+  { name: "Cy", school: true, lunch: "sensor.cy_lunch", choice: "input_select.cy_lunch" },
+  { name: "Home" }] });
+eq(sc.people[0].timetable, { entity: "sensor.ash_timetable", attribute: "timetable" }, "a timetable entity id gets the default attribute");
+eq(sc.people[0].lunch, { entity: "sensor.ash_school", attribute: "lunch" }, "a lunch source keeps its own attribute");
+eq(sc.people[1].timetable, { entity: "sensor.bea_tt", attribute: "timetable" }, "{ entity } alone gets the default attribute");
+eq(sc.people[2].lunch, { entity: "sensor.cy_lunch", attribute: "menu" }, "lunch defaults to the menu attribute");
+eq([sc.people[0].choice, sc.people[1].choice, sc.people[2].choice], [{ value: "packed" }, { days: { fri: "packed", mon: "school" } }, { entity: "input_select.cy_lunch" }], "choice is a word, a weekday map or an entity");
+eq([sc.people[3].timetable, sc.people[3].lunch, sc.people[3].choice], [null, null, null], "no school sources is null, not undefined");
+eq(sc.schoolOrphans, [], "a calendar config with no legacy school sensors has nothing orphaned");
+throws(function () { m.normalize({ people: [{ name: "A", timetable: "calendar.a", calendar: "calendar.a" }] }); }, /timetable must be a sensor entity id/, "a timetable that is not a sensor");
+throws(function () { m.normalize({ people: [{ name: "A", lunch: { entity: "input_text.a" }, calendar: "calendar.a" }] }); }, /lunch must be a sensor entity id/, "a lunch source that is not a sensor");
+throws(function () { m.normalize({ people: [{ name: "A", lunch: ["sensor.a"], calendar: "calendar.a" }] }); }, /lunch must be a sensor entity id/, "a lunch source as a list");
+throws(function () { m.normalize({ people: [{ name: "A", timetable: { entity: "sensor.a", attribute: "" }, calendar: "calendar.a" }] }); }, /attribute must be an attribute name/, "an empty attribute name");
+throws(function () { m.normalize({ people: [{ name: "A", choice: { someday: "packed" }, calendar: "calendar.a" }] }); }, /choice days must be weekdays/, "a choice map with a key that is not a day");
+throws(function () { m.normalize({ people: [{ name: "A", choice: 3, calendar: "calendar.a" }] }); }, /choice must be a word/, "a choice that is a number");
+
+// v1.0.0 defaults: the default cast's Kid 2 owns sensor.family_timetable, Kid 3 sensor.family_lunch.
+const d0 = m.normalize({});
+eq([d0.people[3].timetable, d0.people[4].lunch], [{ entity: "sensor.family_timetable", attribute: "timetable", legacy: true }, { entity: "sensor.family_lunch", attribute: "menu", legacy: true }], "v1.0.0 school sensors land on their schoolWho owners");
+eq([d0.people[2].timetable, d0.people[3].lunch, d0.schoolOrphans], [null, null, []], "and on nobody else");
+// v1.1.0 calendar config naming the sensors and their owner.
+const leg = m.normalize({ people: [{ name: "Sky", school: true, calendar: "calendar.sky" }, { name: "Rue", school: true, timetable: "sensor.rue_own" }, { name: "Home" }],
+  sensors: { timetable: "sensor.old_tt", lunch: "sensor.old_lunch" }, schoolWho: { timetable: "Rue", lunch: "Sky" } });
+eq(leg.people[1].timetable, { entity: "sensor.rue_own", attribute: "timetable" }, "a person's own timetable wins over the v1.1.0 one");
+eq(leg.people[0].lunch, { entity: "sensor.old_lunch", attribute: "menu", legacy: true }, "v1.1.0 sensors.lunch is copied onto schoolWho.lunch");
+// An owner who is not in the cast warns once and is listed for the School card.
+const warns = [], warn0 = console.warn;
+console.warn = function (msg) { warns.push(String(msg)); };
+const orph = m.normalize({ people: [{ name: "Sky", school: true, calendar: "calendar.sky" }, { name: "Home" }], sensors: { timetable: "sensor.lost_tt" }, schoolWho: { timetable: "Nobody" } });
+m.normalize({ people: [{ name: "Sky", school: true, calendar: "calendar.sky" }, { name: "Home" }], sensors: { timetable: "sensor.lost_tt" }, schoolWho: { timetable: "Nobody" } });
+const quiet = m.normalize({ people: [{ name: "Sky", calendar: "calendar.sky" }, { name: "Home" }] });
+console.warn = warn0;
+eq(warns.length, 1, "a schoolWho owner missing from people warns, once");
+ok(/sensors\.timetable \(sensor\.lost_tt\).*"Nobody"/.test(warns[0] || ""), "the warning names the sensor and the missing owner");
+eq(orph.schoolOrphans, [{ key: "timetable", entity: "sensor.lost_tt", who: "Nobody" }], "the orphaned sensor is listed for the School card");
+eq([orph.people[0].timetable, quiet.schoolOrphans], [null, []], "an orphan is not handed to someone else, and a default is not an orphan");
+
 // parseTimetable: a two-week rotation counted from the anchor, week_of overrides, closures.
 const TT = { weeks: ["A", "B"], anchor: "2026-09-07", week_of: { "2026-11-02": "B", "2026-12-21": null },
   periods: [{ p: 1, start: "08:50", end: "09:50" }, { p: 2, start: "09:50", end: "10:50" }, { p: 3, start: "11:10", end: "12:10" }],

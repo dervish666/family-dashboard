@@ -3582,6 +3582,323 @@ SCENE_LIST.forEach(function(s) {
   SCENE_BY_ID[s.id] = s;
 });
 
+// src/school.js
+var DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+var WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri"];
+var TIMETABLE_ATTR = "timetable";
+var LUNCH_ATTR = "menu";
+var LONG = { sunday: "sun", monday: "mon", tuesday: "tue", wednesday: "wed", thursday: "thu", friday: "fri", saturday: "sat" };
+var DAY_MS = 864e5;
+function pad22(n) {
+  return (n < 10 ? "0" : "") + n;
+}
+function ymdOf(d) {
+  return d.getFullYear() + "-" + pad22(d.getMonth() + 1) + "-" + pad22(d.getDate());
+}
+function toDay(v) {
+  if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate(), 12);
+  const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(v == null ? "" : v));
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], 12) : null;
+}
+function addDays(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 12);
+}
+function mondayOf(d) {
+  return addDays(d, -((d.getDay() + 6) % 7));
+}
+function weeksBetween(a, b) {
+  return Math.round((b - a) / (7 * DAY_MS));
+}
+function dayKey(k) {
+  const s = String(k).toLowerCase();
+  return LONG[s] || (DAY_KEYS.indexOf(s.slice(0, 3)) >= 0 ? s.slice(0, 3) : null);
+}
+function str(v) {
+  return v == null ? "" : String(v).trim();
+}
+function isObj(v) {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+function attrOf(state, attribute) {
+  const a = state && state.attributes || {};
+  let v = a[attribute];
+  if (typeof v === "string") {
+    try {
+      v = JSON.parse(v);
+    } catch (e) {
+      v = void 0;
+    }
+  }
+  return v;
+}
+function unavailable(state, attribute) {
+  if (!state) return "not found";
+  if (/^(unavailable|unknown)$/.test(String(state.state))) return "is " + state.state;
+  return "has no " + attribute + " attribute";
+}
+function lessonOf(l, i) {
+  if (typeof l === "string") {
+    const s = l.split("|");
+    return { p: i + 1, subject: s[0].trim(), room: str(s[1]) === "—" ? "" : str(s[1]) };
+  }
+  if (!isObj(l)) return null;
+  return { p: l.p == null || l.p === "" ? i + 1 : l.p, subject: str(l.subject), room: str(l.room), start: str(l.start), end: str(l.end) };
+}
+function normTimetable(t) {
+  const days = {};
+  Object.keys(isObj(t.days) ? t.days : {}).forEach(function(w) {
+    const src = t.days[w], out = {};
+    if (isObj(src)) Object.keys(src).forEach(function(k) {
+      const key = dayKey(k);
+      if (key && Array.isArray(src[k])) out[key] = src[k].map(lessonOf).filter(function(l) {
+        return l && l.subject;
+      });
+    });
+    days[String(w)] = out;
+  });
+  const weeks = (Array.isArray(t.weeks) && t.weeks.length ? t.weeks : Object.keys(days)).map(String);
+  const periods = (Array.isArray(t.periods) ? t.periods : []).filter(isObj).map(function(p, i) {
+    return { p: p.p == null ? i + 1 : p.p, start: str(p.start), end: str(p.end) };
+  });
+  const closed = {};
+  (Array.isArray(t.closed) ? t.closed : []).forEach(function(c) {
+    const d = toDay(isObj(c) ? c.date : c);
+    if (d) closed[ymdOf(d)] = isObj(c) ? str(c.note) : "";
+  });
+  const weekOf = {};
+  Object.keys(isObj(t.week_of) ? t.week_of : {}).forEach(function(k) {
+    const d = toDay(k);
+    if (d) weekOf[ymdOf(mondayOf(d))] = t.week_of[k] == null || t.week_of[k] === "" ? null : String(t.week_of[k]);
+  });
+  const anchor = toDay(t.anchor);
+  return { weeks, days, periods, closed, weekOf, anchor: anchor ? mondayOf(anchor) : null };
+}
+function weekFor(T, mon) {
+  const key = ymdOf(mon);
+  if (Object.prototype.hasOwnProperty.call(T.weekOf, key)) {
+    const v = T.weekOf[key];
+    if (v === null) return { week: null, off: true };
+    return T.weeks.indexOf(v) >= 0 ? { week: v } : { week: null, reason: "week_of " + key + " names week " + v + ", which is not in weeks" };
+  }
+  if (T.weeks.length === 1) return { week: T.weeks[0] };
+  if (!T.weeks.length) return { week: null, reason: "no weeks" };
+  const refs = [];
+  if (T.anchor) refs.push({ at: T.anchor, i: 0 });
+  Object.keys(T.weekOf).forEach(function(k) {
+    const i2 = T.weeks.indexOf(T.weekOf[k]);
+    if (i2 >= 0) refs.push({ at: toDay(k), i: i2 });
+  });
+  if (!refs.length) return { week: null, reason: "no anchor or week_of to count from" };
+  const before = refs.filter(function(r) {
+    return r.at <= mon;
+  }).sort(function(a, b) {
+    return b.at - a.at;
+  });
+  const ref = before[0] || refs.sort(function(a, b) {
+    return a.at - b.at;
+  })[0];
+  const n = T.weeks.length, i = ((ref.i + weeksBetween(ref.at, mon)) % n + n) % n;
+  return { week: T.weeks[i] };
+}
+function withTimes(T, list) {
+  const at = {};
+  T.periods.forEach(function(p) {
+    at[String(p.p)] = p;
+  });
+  return list.map(function(l) {
+    const p = at[String(l.p)] || {};
+    return { p: l.p, start: l.start || p.start || "", end: l.end || p.end || "", subject: l.subject, room: l.room };
+  });
+}
+function gridFor(T, d) {
+  const mon = mondayOf(d), wk = weekFor(T, mon), lessons = wk.week ? T.days[wk.week] || {} : {};
+  const order = T.periods.map(function(p) {
+    return String(p.p);
+  });
+  const days = WEEKDAY_KEYS.map(function(k, i) {
+    const date = ymdOf(addDays(mon, i)), off = Object.prototype.hasOwnProperty.call(T.closed, date);
+    const list = withTimes(T, lessons[k] || []);
+    list.forEach(function(l) {
+      if (order.indexOf(String(l.p)) < 0) order.push(String(l.p));
+    });
+    return { key: k, date, closed: off || !!wk.off, note: off ? T.closed[date] : "", lessons: list };
+  });
+  const rows = order.map(function(p) {
+    const per = T.periods.filter(function(x) {
+      return String(x.p) === p;
+    })[0] || {};
+    return {
+      p: per.p != null ? per.p : p,
+      start: per.start || "",
+      end: per.end || "",
+      cells: days.map(function(dd) {
+        return dd.closed ? null : dd.lessons.filter(function(l) {
+          return String(l.p) === p;
+        })[0] || null;
+      })
+    };
+  });
+  return { monday: ymdOf(mon), week: wk.week, off: !!wk.off, reason: wk.reason || "", days, rows };
+}
+function fromLegacy(state, today) {
+  const a = state.attributes || {}, wk = str(state.state), t0 = toDay(today), t1 = addDays(t0, 1);
+  const grid = isObj(a.grid) ? a.grid : {}, days = {};
+  Object.keys(grid).forEach(function(w) {
+    days[w] = grid[w];
+  });
+  if (!days[wk]) days[wk] = {};
+  const wt = str(a.week_tomorrow) || wk;
+  if (!days[wt]) days[wt] = {};
+  function fill(w, d, list) {
+    const k = DAY_KEYS[d.getDay()];
+    if (Array.isArray(list) && list.length && !(days[w][k] || days[w][LONG_NAME[k]])) days[w][k] = list;
+  }
+  fill(wk, t0, a.lessons_today);
+  fill(wt, t1, a.lessons_tomorrow);
+  const closed = [];
+  if (a.open_today === false) closed.push(ymdOf(t0));
+  if (a.open_tomorrow === false) closed.push(ymdOf(t1));
+  const weekOf = {};
+  weekOf[ymdOf(mondayOf(t0))] = wk;
+  if (ymdOf(mondayOf(t1)) !== ymdOf(mondayOf(t0))) weekOf[ymdOf(mondayOf(t1))] = wt;
+  return { weeks: Object.keys(days), days, week_of: weekOf, closed };
+}
+var LONG_NAME = { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" };
+function isLegacyTimetable(a) {
+  return !!a && ("lessons_today" in a || "open_today" in a || isObj(a.grid));
+}
+function parseTimetable(state, date, today, attribute) {
+  const d = toDay(date), attr = attribute || TIMETABLE_ATTR;
+  const out = { status: "unavailable", date: d ? ymdOf(d) : "", day: d ? DAY_KEYS[d.getDay()] : "", week: null, lessons: [], note: "", reason: "", grid: null };
+  if (!d) {
+    out.reason = "no date";
+    return out;
+  }
+  let raw = attrOf(state, attr);
+  if (!isObj(raw) && state && isLegacyTimetable(state.attributes)) raw = fromLegacy(state, today || d);
+  if (!isObj(raw) || !isObj(raw.days)) {
+    out.reason = isObj(raw) ? "no days in the " + attr + " attribute" : unavailable(state, attr);
+    return out;
+  }
+  const T = normTimetable(raw), g = gridFor(T, d);
+  out.grid = g;
+  out.week = g.week;
+  const dow = d.getDay();
+  if (dow === 0 || dow === 6) {
+    out.status = "weekend";
+    return out;
+  }
+  if (Object.prototype.hasOwnProperty.call(T.closed, out.date)) {
+    out.status = "closed";
+    out.note = T.closed[out.date];
+    return out;
+  }
+  if (g.off) {
+    out.status = "closed";
+    out.note = "not a timetable week";
+    return out;
+  }
+  if (!g.week) {
+    out.status = "no_week";
+    out.reason = g.reason;
+    return out;
+  }
+  out.status = "ok";
+  out.lessons = g.days[dow - 1].lessons;
+  return out;
+}
+function allergensOf(v) {
+  const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(/\s*,\s*/) : [];
+  const out = [];
+  list.forEach(function(x) {
+    const s = str(x);
+    if (s && out.indexOf(s) < 0) out.push(s);
+  });
+  return out;
+}
+function dishOf(v) {
+  if (typeof v === "string") return v.trim() ? { name: v.trim(), kind: "", allergens: [] } : null;
+  if (!isObj(v) || !str(v.name)) return null;
+  return { name: str(v.name), kind: str(v.kind), allergens: allergensOf(v.allergens) };
+}
+function fromLegacyLunch(a, d, today) {
+  const t0 = toDay(today), k = ymdOf(d) === ymdOf(t0) ? "today" : ymdOf(d) === ymdOf(addDays(t0, 1)) ? "tomorrow" : null;
+  const menu = {};
+  if (k) {
+    const st = str(a["status_" + k]) || (a["served_" + k] ? "served" : "");
+    if (st) menu[ymdOf(d)] = {
+      status: st,
+      pudding: a["pudding_" + k],
+      options: [{ name: a["main_" + k], kind: "main" }, { name: a["veg_" + k], kind: "veg" }].filter(function(o) {
+        return str(o.name);
+      })
+    };
+  }
+  return { menu, menu_ends: a.menu_ends };
+}
+function parseLunch(state, date, today, attribute) {
+  const d = toDay(date), attr = attribute || LUNCH_ATTR;
+  const out = { status: "unavailable", date: d ? ymdOf(d) : "", options: [], pudding: null, note: "", choice: "", menuEnds: "", reason: "" };
+  if (!d) {
+    out.reason = "no date";
+    return out;
+  }
+  const a = state && state.attributes || {};
+  let raw = attrOf(state, attr), menu, ends;
+  if (isObj(raw) && isObj(raw.menu)) {
+    menu = raw.menu;
+    ends = raw.menu_ends;
+  } else if (isObj(raw)) {
+    menu = raw;
+    ends = a.menu_ends;
+  } else if (state && ("status_today" in a || "main_today" in a)) {
+    const L = fromLegacyLunch(a, d, today || d);
+    menu = L.menu;
+    ends = L.menu_ends;
+  } else {
+    out.reason = unavailable(state, attr);
+    return out;
+  }
+  const e = toDay(ends);
+  out.menuEnds = e ? ymdOf(e) : "";
+  const entry = menu[out.date], dow = d.getDay();
+  if (isObj(entry)) {
+    out.options = (Array.isArray(entry.options) ? entry.options : []).map(dishOf).filter(Boolean);
+    out.pudding = dishOf(entry.pudding);
+    out.note = str(entry.note);
+    out.choice = str(entry.choice);
+    const st = str(entry.status);
+    out.status = st === "served" || st === "closed" || st === "no_menu" ? st : out.options.length ? "served" : "no_menu";
+    return out;
+  }
+  if (dow === 0 || dow === 6) out.status = "weekend";
+  else if (out.menuEnds && out.date > out.menuEnds) out.status = "ended";
+  else out.status = "no_menu";
+  return out;
+}
+function choiceText(v) {
+  const s = str(v);
+  if (!s || /^(none|off|unknown|unavailable|-)$/i.test(s)) return "";
+  if (/^pack/i.test(s)) return "Packed lunch";
+  if (/^(school|dinner|hot|school (dinner|lunch|meal))$/i.test(s)) return "School dinner";
+  if (/^home$/i.test(s)) return "Lunch at home";
+  return s;
+}
+function lunchChoice(conf, date, live, fromData) {
+  const d = toDay(date);
+  let err = "";
+  if (conf && conf.entity) {
+    const t = live ? choiceText(live.state) : "";
+    if (t) return { text: t, from: conf.entity, err: "" };
+    err = conf.entity + (live ? " is " + (str(live.state) || "empty") : " not found");
+  }
+  const fd = choiceText(fromData);
+  if (fd) return { text: fd, from: "menu", err };
+  const fixed = conf && conf.days && d ? choiceText(conf.days[DAY_KEYS[d.getDay()]]) : conf && conf.value ? choiceText(conf.value) : "";
+  if (fixed) return { text: fixed, from: "config", err };
+  return err ? { text: "", from: "", err } : null;
+}
+
 // src/config.js
 var DEFAULTS = {
   people: [
@@ -3602,11 +3919,11 @@ var DEFAULTS = {
     extra: "sensor.family_extra",
     // school items, kit, flags, term dates, and which sources could not be checked
     timetable: "sensor.family_timetable",
-    // a two-week lesson grid; shown on the School card
+    // v1.1.0: one child's lessons; now people[].timetable
     kit: "sensor.family_kit",
     // what kit is needed today
     lunch: "sensor.family_lunch",
-    // the school lunch menu, today and tomorrow
+    // v1.1.0: one child's lunch menu; now people[].lunch
     sun: "sun.sun",
     weather: "weather.forecast_home",
     // Optional extras. null switches that part of the meadow off and nothing else.
@@ -3621,7 +3938,8 @@ var DEFAULTS = {
     trips: "calendar.family"
     // events titled "Holiday ..." on this calendar become countdowns
   },
-  // Whose card the optional school sensors belong to.
+  // Whose card the optional school sensors belong to. For timetable and lunch this is the
+  // v1.1.0 way: normalize() copies them onto that person (people[].timetable, .lunch).
   schoolWho: { timetable: "Kid 2", kit: "Kid 3", lunch: "Kid 3" },
   // sensor.family_extra names its sources, not people. Map a source name (regex) to the
   // person whose card should say "couldn't check", so a missing source does not read
@@ -3712,9 +4030,41 @@ function normPerson(p, i) {
   out.r = isFinite(+p.r) && +p.r > 0 ? +p.r : out.adult ? 37 : 34;
   out.tg = isFinite(+p.tg) && +p.tg > 0 ? +p.tg : LOOK_TG[look] || 2.3;
   out.calendars = calendarsOf(p, i);
+  out.timetable = schoolSource(p.timetable, TIMETABLE_ATTR, name, "timetable");
+  out.lunch = schoolSource(p.lunch, LUNCH_ATTR, name, "lunch");
+  out.choice = lunchChoiceConf(p.choice, name);
   delete out.calendar;
   delete out.role;
   return out;
+}
+function schoolSource(v, attr, name, key) {
+  if (v == null || v === "") return null;
+  const o = typeof v === "string" ? { entity: v } : v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  const bad = name + ": " + key + " must be a sensor entity id like sensor.kid_" + key + ", or { entity, attribute }, got " + JSON.stringify(v);
+  if (!o || typeof o.entity !== "string" || !/^sensor\.[a-z0-9_]+$/.test(o.entity.trim())) throw cfgError(bad);
+  if (o.attribute != null && (typeof o.attribute !== "string" || !o.attribute.trim())) throw cfgError(name + ": " + key + ".attribute must be an attribute name, got " + JSON.stringify(o.attribute));
+  return { entity: o.entity.trim(), attribute: o.attribute ? o.attribute.trim() : attr };
+}
+function lunchChoiceConf(v, name) {
+  if (v == null || v === "") return null;
+  if (typeof v === "string") return /^[a-z_]+\.[a-z0-9_]+$/.test(v.trim()) ? { entity: v.trim() } : { value: v.trim() };
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    if (typeof v.entity === "string" && /^[a-z_]+\.[a-z0-9_]+$/.test(v.entity)) return { entity: v.entity };
+    const days = {};
+    Object.keys(v).forEach(function(k) {
+      const key = String(k).toLowerCase().slice(0, 3);
+      if (DAY_KEYS.indexOf(key) < 0 || typeof v[k] !== "string") throw cfgError(name + ": choice days must be weekdays mapped to words, like { fri: packed }, got " + JSON.stringify(k) + ": " + JSON.stringify(v[k]));
+      days[key] = v[k];
+    });
+    return { days };
+  }
+  throw cfgError(name + ": choice must be a word (packed, school), a weekday map or an entity id, got " + JSON.stringify(v));
+}
+var WARNED = {};
+function warnOnce(msg) {
+  if (WARNED[msg]) return;
+  WARNED[msg] = 1;
+  console.warn("family-dashboard-card: " + msg);
 }
 function normalize(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw cfgError("config must be an object");
@@ -3760,6 +4110,22 @@ function normalize(raw) {
     const v = out.sensors[k];
     if (v === "" || v === void 0) out.sensors[k] = null;
     else if (v !== null && typeof v !== "string") throw cfgError("sensors." + k + " must be an entity id or null, got " + JSON.stringify(v));
+  });
+  out.schoolOrphans = [];
+  ["timetable", "lunch"].forEach(function(k) {
+    const id = out.sensors[k];
+    if (!id) return;
+    const who = out.schoolWho && out.schoolWho[k], owner = people.filter(function(p) {
+      return p.name === who;
+    })[0];
+    if (owner) {
+      if (!owner[k]) owner[k] = { entity: id, attribute: k === "timetable" ? TIMETABLE_ATTR : LUNCH_ATTR, legacy: true };
+      return;
+    }
+    if (raw.sensors && raw.sensors[k] || raw.schoolWho && raw.schoolWho[k]) {
+      warnOnce("sensors." + k + " (" + id + ") belongs to schoolWho." + k + " = " + JSON.stringify(who) + ", who is not in people. Set people[]." + k + " on the child instead.");
+      out.schoolOrphans.push({ key: k, entity: id, who: who == null ? null : String(who) });
+    }
   });
   if (!out.demo && !calendarMode && !out.sensors.week)
     throw cfgError("give at least one person a calendar (people[].calendar), or set sensors.week, or set demo: true");
@@ -3838,9 +4204,7 @@ var SENSOR_FIELDS = [
   ["trips", "calendar", "Trips calendar (Holiday events become countdowns)"],
   ["printer", null, "3D printer sensor prefix (Bambu Lab)"],
   ["extra", "sensor", "School data (family_extra)"],
-  ["timetable", "sensor", "School timetable"],
-  ["kit", "sensor", "School kit"],
-  ["lunch", "sensor", "School lunch"]
+  ["kit", "sensor", "School kit"]
 ];
 var LABELS = {
   name: "Name",
@@ -3850,6 +4214,8 @@ var LABELS = {
   calendar: "Calendar",
   accessories: "Accessories",
   school: "Goes to school",
+  timetable: "Timetable sensor",
+  lunch: "Lunch menu sensor",
   demo: "Demo cast (no Home Assistant data)",
   scene: "Scene",
   week: "Week template sensor (v1.0.0 setups)"
@@ -3870,7 +4236,7 @@ var TOP_SCHEMA = [{ type: "grid", name: "", schema: [
   }) } } },
   { name: "demo", selector: { boolean: {} } }
 ] }];
-var PERSON_SCHEMA = [
+var PERSON_BASE = [
   { type: "grid", name: "", schema: [
     { name: "name", required: true, selector: { text: {} } },
     { name: "role", required: true, selector: { select: { mode: "dropdown", options: [{ value: "adult", label: "Adult" }, { value: "kid", label: "Kid" }] } } }
@@ -3887,6 +4253,13 @@ var PERSON_SCHEMA = [
   }) } } },
   { name: "school", selector: { boolean: {} } }
 ];
+var SCHOOL_FIELDS = [{ type: "grid", name: "", schema: [entityField("timetable", "sensor"), entityField("lunch", "sensor")] }];
+function personSchema(school) {
+  return school ? PERSON_BASE.concat(SCHOOL_FIELDS) : PERSON_BASE;
+}
+function entityOf(v) {
+  return v == null || v === "" ? "" : typeof v === "string" ? v : v.entity || "";
+}
 function sensorSchema(withWeek) {
   const s = SENSOR_FIELDS.map(function(f) {
     return entityField(f[0], f[1]);
@@ -4090,7 +4463,10 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
     const people = this._people(), withWeek = !!(this._config.sensors && this._config.sensors.week) || Array.isArray(this._config.people) && !this._config.people.some(function(p) {
       return p && (p.calendar || p.calendars);
     });
-    if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek) this._build(people.length, withWeek);
+    const mask = people.map(function(p) {
+      return p && p.school ? 1 : 0;
+    }).join("");
+    if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek || this._forms.mask !== mask) this._build(people.length, withWeek, mask);
     let eff = null;
     try {
       eff = normalize(this._config);
@@ -4101,9 +4477,18 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
     this._forms.top.set({ scene: this._config.scene || SCENES[0].id, demo: this._config.demo === true });
     this._forms.sensors.set(sensors);
     const self = this;
+    this._shown = [];
     people.forEach(function(p, i) {
       const cal = p.calendar != null ? p.calendar : p.calendars;
+      const ep = eff && eff.people[i], shown = {};
+      ["timetable", "lunch"].forEach(function(k) {
+        shown[k] = entityOf(p[k]) || (ep && ep[k] && ep[k].legacy ? ep[k].entity : "");
+        shown[k + "Legacy"] = !entityOf(p[k]) && !!shown[k];
+      });
+      self._shown[i] = shown;
       self._forms.people[i].set({
+        timetable: shown.timetable,
+        lunch: shown.lunch,
         name: p.name == null ? "" : String(p.name),
         role: p.adult || p.role === "adult" ? "adult" : "kid",
         look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || "crow",
@@ -4118,10 +4503,10 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
       self._forms.heads[i].querySelector("b").textContent = (p.name || "Unnamed") + (i === people.length - 1 && people.length > 1 ? " (household)" : "");
     });
   }
-  _build(n, withWeek) {
+  _build(n, withWeek, mask) {
     const self = this, sr = this.shadowRoot;
     sr.innerHTML = "<style>" + EDITOR_STYLE + "</style>";
-    const F = { n, week: withWeek, people: [], heads: [], all: [] };
+    const F = { n, week: withWeek, mask, people: [], heads: [], all: [] };
     function sec(title, hint) {
       const s = document.createElement("div");
       s.className = "sec";
@@ -4161,7 +4546,7 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
         self._remove(i);
       });
       head.appendChild(rm);
-      const f = makeForm(PERSON_SCHEMA, function(d) {
+      const f = makeForm(personSchema(mask && mask[i] === "1"), function(d) {
         self._person(i, d);
       });
       box.appendChild(head);
@@ -4213,6 +4598,20 @@ var FamilyDashboardCardEditor = class extends HTMLElement {
     });
     if (d.school) p.school = true;
     else delete p.school;
+    const shown = this._shown && this._shown[i] || {};
+    ["timetable", "lunch"].forEach(function(k) {
+      if (!(k in d)) return;
+      const v = (d[k] || "").trim();
+      if (v === (shown[k] || "")) return;
+      if (!v) {
+        delete p[k];
+        if (shown[k + "Legacy"]) {
+          c.sensors = Object.assign({}, c.sensors || {});
+          c.sensors[k] = null;
+        }
+      } else if (p[k] && typeof p[k] === "object") p[k] = Object.assign({}, p[k], { entity: v });
+      else p[k] = v;
+    });
     c.people = people;
     this._emit(c);
   }
@@ -10306,323 +10705,6 @@ if (!window.customCards.some(function(c) {
     documentationURL: "https://github.com/dervish666/family-dashboard"
   });
 console.info("family-dashboard-card " + VERSION);
-
-// src/school.js
-var DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-var WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri"];
-var TIMETABLE_ATTR = "timetable";
-var LUNCH_ATTR = "menu";
-var LONG = { sunday: "sun", monday: "mon", tuesday: "tue", wednesday: "wed", thursday: "thu", friday: "fri", saturday: "sat" };
-var DAY_MS = 864e5;
-function pad22(n) {
-  return (n < 10 ? "0" : "") + n;
-}
-function ymdOf(d) {
-  return d.getFullYear() + "-" + pad22(d.getMonth() + 1) + "-" + pad22(d.getDate());
-}
-function toDay(v) {
-  if (v instanceof Date) return new Date(v.getFullYear(), v.getMonth(), v.getDate(), 12);
-  const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(v == null ? "" : v));
-  return m ? new Date(+m[1], +m[2] - 1, +m[3], 12) : null;
-}
-function addDays(d, n) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 12);
-}
-function mondayOf(d) {
-  return addDays(d, -((d.getDay() + 6) % 7));
-}
-function weeksBetween(a, b) {
-  return Math.round((b - a) / (7 * DAY_MS));
-}
-function dayKey(k) {
-  const s = String(k).toLowerCase();
-  return LONG[s] || (DAY_KEYS.indexOf(s.slice(0, 3)) >= 0 ? s.slice(0, 3) : null);
-}
-function str(v) {
-  return v == null ? "" : String(v).trim();
-}
-function isObj(v) {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
-function attrOf(state, attribute) {
-  const a = state && state.attributes || {};
-  let v = a[attribute];
-  if (typeof v === "string") {
-    try {
-      v = JSON.parse(v);
-    } catch (e) {
-      v = void 0;
-    }
-  }
-  return v;
-}
-function unavailable(state, attribute) {
-  if (!state) return "not found";
-  if (/^(unavailable|unknown)$/.test(String(state.state))) return "is " + state.state;
-  return "has no " + attribute + " attribute";
-}
-function lessonOf(l, i) {
-  if (typeof l === "string") {
-    const s = l.split("|");
-    return { p: i + 1, subject: s[0].trim(), room: str(s[1]) === "—" ? "" : str(s[1]) };
-  }
-  if (!isObj(l)) return null;
-  return { p: l.p == null || l.p === "" ? i + 1 : l.p, subject: str(l.subject), room: str(l.room), start: str(l.start), end: str(l.end) };
-}
-function normTimetable(t) {
-  const days = {};
-  Object.keys(isObj(t.days) ? t.days : {}).forEach(function(w) {
-    const src = t.days[w], out = {};
-    if (isObj(src)) Object.keys(src).forEach(function(k) {
-      const key = dayKey(k);
-      if (key && Array.isArray(src[k])) out[key] = src[k].map(lessonOf).filter(function(l) {
-        return l && l.subject;
-      });
-    });
-    days[String(w)] = out;
-  });
-  const weeks = (Array.isArray(t.weeks) && t.weeks.length ? t.weeks : Object.keys(days)).map(String);
-  const periods = (Array.isArray(t.periods) ? t.periods : []).filter(isObj).map(function(p, i) {
-    return { p: p.p == null ? i + 1 : p.p, start: str(p.start), end: str(p.end) };
-  });
-  const closed = {};
-  (Array.isArray(t.closed) ? t.closed : []).forEach(function(c) {
-    const d = toDay(isObj(c) ? c.date : c);
-    if (d) closed[ymdOf(d)] = isObj(c) ? str(c.note) : "";
-  });
-  const weekOf = {};
-  Object.keys(isObj(t.week_of) ? t.week_of : {}).forEach(function(k) {
-    const d = toDay(k);
-    if (d) weekOf[ymdOf(mondayOf(d))] = t.week_of[k] == null || t.week_of[k] === "" ? null : String(t.week_of[k]);
-  });
-  const anchor = toDay(t.anchor);
-  return { weeks, days, periods, closed, weekOf, anchor: anchor ? mondayOf(anchor) : null };
-}
-function weekFor(T, mon) {
-  const key = ymdOf(mon);
-  if (Object.prototype.hasOwnProperty.call(T.weekOf, key)) {
-    const v = T.weekOf[key];
-    if (v === null) return { week: null, off: true };
-    return T.weeks.indexOf(v) >= 0 ? { week: v } : { week: null, reason: "week_of " + key + " names week " + v + ", which is not in weeks" };
-  }
-  if (T.weeks.length === 1) return { week: T.weeks[0] };
-  if (!T.weeks.length) return { week: null, reason: "no weeks" };
-  const refs = [];
-  if (T.anchor) refs.push({ at: T.anchor, i: 0 });
-  Object.keys(T.weekOf).forEach(function(k) {
-    const i2 = T.weeks.indexOf(T.weekOf[k]);
-    if (i2 >= 0) refs.push({ at: toDay(k), i: i2 });
-  });
-  if (!refs.length) return { week: null, reason: "no anchor or week_of to count from" };
-  const before = refs.filter(function(r) {
-    return r.at <= mon;
-  }).sort(function(a, b) {
-    return b.at - a.at;
-  });
-  const ref = before[0] || refs.sort(function(a, b) {
-    return a.at - b.at;
-  })[0];
-  const n = T.weeks.length, i = ((ref.i + weeksBetween(ref.at, mon)) % n + n) % n;
-  return { week: T.weeks[i] };
-}
-function withTimes(T, list) {
-  const at = {};
-  T.periods.forEach(function(p) {
-    at[String(p.p)] = p;
-  });
-  return list.map(function(l) {
-    const p = at[String(l.p)] || {};
-    return { p: l.p, start: l.start || p.start || "", end: l.end || p.end || "", subject: l.subject, room: l.room };
-  });
-}
-function gridFor(T, d) {
-  const mon = mondayOf(d), wk = weekFor(T, mon), lessons = wk.week ? T.days[wk.week] || {} : {};
-  const order = T.periods.map(function(p) {
-    return String(p.p);
-  });
-  const days = WEEKDAY_KEYS.map(function(k, i) {
-    const date = ymdOf(addDays(mon, i)), off = Object.prototype.hasOwnProperty.call(T.closed, date);
-    const list = withTimes(T, lessons[k] || []);
-    list.forEach(function(l) {
-      if (order.indexOf(String(l.p)) < 0) order.push(String(l.p));
-    });
-    return { key: k, date, closed: off || !!wk.off, note: off ? T.closed[date] : "", lessons: list };
-  });
-  const rows = order.map(function(p) {
-    const per = T.periods.filter(function(x) {
-      return String(x.p) === p;
-    })[0] || {};
-    return {
-      p: per.p != null ? per.p : p,
-      start: per.start || "",
-      end: per.end || "",
-      cells: days.map(function(dd) {
-        return dd.closed ? null : dd.lessons.filter(function(l) {
-          return String(l.p) === p;
-        })[0] || null;
-      })
-    };
-  });
-  return { monday: ymdOf(mon), week: wk.week, off: !!wk.off, reason: wk.reason || "", days, rows };
-}
-function fromLegacy(state, today) {
-  const a = state.attributes || {}, wk = str(state.state), t0 = toDay(today), t1 = addDays(t0, 1);
-  const grid = isObj(a.grid) ? a.grid : {}, days = {};
-  Object.keys(grid).forEach(function(w) {
-    days[w] = grid[w];
-  });
-  if (!days[wk]) days[wk] = {};
-  const wt = str(a.week_tomorrow) || wk;
-  if (!days[wt]) days[wt] = {};
-  function fill(w, d, list) {
-    const k = DAY_KEYS[d.getDay()];
-    if (Array.isArray(list) && list.length && !(days[w][k] || days[w][LONG_NAME[k]])) days[w][k] = list;
-  }
-  fill(wk, t0, a.lessons_today);
-  fill(wt, t1, a.lessons_tomorrow);
-  const closed = [];
-  if (a.open_today === false) closed.push(ymdOf(t0));
-  if (a.open_tomorrow === false) closed.push(ymdOf(t1));
-  const weekOf = {};
-  weekOf[ymdOf(mondayOf(t0))] = wk;
-  if (ymdOf(mondayOf(t1)) !== ymdOf(mondayOf(t0))) weekOf[ymdOf(mondayOf(t1))] = wt;
-  return { weeks: Object.keys(days), days, week_of: weekOf, closed };
-}
-var LONG_NAME = { sun: "Sunday", mon: "Monday", tue: "Tuesday", wed: "Wednesday", thu: "Thursday", fri: "Friday", sat: "Saturday" };
-function isLegacyTimetable(a) {
-  return !!a && ("lessons_today" in a || "open_today" in a || isObj(a.grid));
-}
-function parseTimetable(state, date, today, attribute) {
-  const d = toDay(date), attr = attribute || TIMETABLE_ATTR;
-  const out = { status: "unavailable", date: d ? ymdOf(d) : "", day: d ? DAY_KEYS[d.getDay()] : "", week: null, lessons: [], note: "", reason: "", grid: null };
-  if (!d) {
-    out.reason = "no date";
-    return out;
-  }
-  let raw = attrOf(state, attr);
-  if (!isObj(raw) && state && isLegacyTimetable(state.attributes)) raw = fromLegacy(state, today || d);
-  if (!isObj(raw) || !isObj(raw.days)) {
-    out.reason = isObj(raw) ? "no days in the " + attr + " attribute" : unavailable(state, attr);
-    return out;
-  }
-  const T = normTimetable(raw), g = gridFor(T, d);
-  out.grid = g;
-  out.week = g.week;
-  const dow = d.getDay();
-  if (dow === 0 || dow === 6) {
-    out.status = "weekend";
-    return out;
-  }
-  if (Object.prototype.hasOwnProperty.call(T.closed, out.date)) {
-    out.status = "closed";
-    out.note = T.closed[out.date];
-    return out;
-  }
-  if (g.off) {
-    out.status = "closed";
-    out.note = "not a timetable week";
-    return out;
-  }
-  if (!g.week) {
-    out.status = "no_week";
-    out.reason = g.reason;
-    return out;
-  }
-  out.status = "ok";
-  out.lessons = g.days[dow - 1].lessons;
-  return out;
-}
-function allergensOf(v) {
-  const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(/\s*,\s*/) : [];
-  const out = [];
-  list.forEach(function(x) {
-    const s = str(x);
-    if (s && out.indexOf(s) < 0) out.push(s);
-  });
-  return out;
-}
-function dishOf(v) {
-  if (typeof v === "string") return v.trim() ? { name: v.trim(), kind: "", allergens: [] } : null;
-  if (!isObj(v) || !str(v.name)) return null;
-  return { name: str(v.name), kind: str(v.kind), allergens: allergensOf(v.allergens) };
-}
-function fromLegacyLunch(a, d, today) {
-  const t0 = toDay(today), k = ymdOf(d) === ymdOf(t0) ? "today" : ymdOf(d) === ymdOf(addDays(t0, 1)) ? "tomorrow" : null;
-  const menu = {};
-  if (k) {
-    const st = str(a["status_" + k]) || (a["served_" + k] ? "served" : "");
-    if (st) menu[ymdOf(d)] = {
-      status: st,
-      pudding: a["pudding_" + k],
-      options: [{ name: a["main_" + k], kind: "main" }, { name: a["veg_" + k], kind: "veg" }].filter(function(o) {
-        return str(o.name);
-      })
-    };
-  }
-  return { menu, menu_ends: a.menu_ends };
-}
-function parseLunch(state, date, today, attribute) {
-  const d = toDay(date), attr = attribute || LUNCH_ATTR;
-  const out = { status: "unavailable", date: d ? ymdOf(d) : "", options: [], pudding: null, note: "", choice: "", menuEnds: "", reason: "" };
-  if (!d) {
-    out.reason = "no date";
-    return out;
-  }
-  const a = state && state.attributes || {};
-  let raw = attrOf(state, attr), menu, ends;
-  if (isObj(raw) && isObj(raw.menu)) {
-    menu = raw.menu;
-    ends = raw.menu_ends;
-  } else if (isObj(raw)) {
-    menu = raw;
-    ends = a.menu_ends;
-  } else if (state && ("status_today" in a || "main_today" in a)) {
-    const L = fromLegacyLunch(a, d, today || d);
-    menu = L.menu;
-    ends = L.menu_ends;
-  } else {
-    out.reason = unavailable(state, attr);
-    return out;
-  }
-  const e = toDay(ends);
-  out.menuEnds = e ? ymdOf(e) : "";
-  const entry = menu[out.date], dow = d.getDay();
-  if (isObj(entry)) {
-    out.options = (Array.isArray(entry.options) ? entry.options : []).map(dishOf).filter(Boolean);
-    out.pudding = dishOf(entry.pudding);
-    out.note = str(entry.note);
-    out.choice = str(entry.choice);
-    const st = str(entry.status);
-    out.status = st === "served" || st === "closed" || st === "no_menu" ? st : out.options.length ? "served" : "no_menu";
-    return out;
-  }
-  if (dow === 0 || dow === 6) out.status = "weekend";
-  else if (out.menuEnds && out.date > out.menuEnds) out.status = "ended";
-  else out.status = "no_menu";
-  return out;
-}
-function choiceText(v) {
-  const s = str(v);
-  if (!s || /^(none|off|unknown|unavailable|-)$/i.test(s)) return "";
-  if (/^pack/i.test(s)) return "Packed lunch";
-  if (/^(school|dinner|hot|school (dinner|lunch|meal))$/i.test(s)) return "School dinner";
-  if (/^home$/i.test(s)) return "Lunch at home";
-  return s;
-}
-function lunchChoice(conf, date, live, fromData) {
-  const d = toDay(date);
-  let err = "";
-  if (conf && conf.entity) {
-    const t = live ? choiceText(live.state) : "";
-    if (t) return { text: t, from: conf.entity, err: "" };
-    err = conf.entity + (live ? " is " + (str(live.state) || "empty") : " not found");
-  }
-  const fd = choiceText(fromData);
-  if (fd) return { text: fd, from: "menu", err };
-  const fixed = conf && conf.days && d ? choiceText(conf.days[DAY_KEYS[d.getDay()]]) : conf && conf.value ? choiceText(conf.value) : "";
-  if (fixed) return { text: fixed, from: "config", err };
-  return err ? { text: "", from: "", err } : null;
-}
 export {
   CREATURES,
   HELPERS as CREATURE_HELPERS,

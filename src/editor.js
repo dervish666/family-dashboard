@@ -16,12 +16,10 @@ const SENSOR_FIELDS = [
   ["trips", "calendar", "Trips calendar (Holiday events become countdowns)"],
   ["printer", null, "3D printer sensor prefix (Bambu Lab)"],
   ["extra", "sensor", "School data (family_extra)"],
-  ["timetable", "sensor", "School timetable"],
-  ["kit", "sensor", "School kit"],
-  ["lunch", "sensor", "School lunch"]
+  ["kit", "sensor", "School kit"]
 ];
 const LABELS = { name: "Name", role: "Role", look: "Animal", col: "Colour", calendar: "Calendar", accessories: "Accessories",
-  school: "Goes to school", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
+  school: "Goes to school", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
 SENSOR_FIELDS.forEach(function (f) { LABELS[f[0]] = f[2]; });
 
 function hexRgb(h) { const v = parseInt(String(h).slice(1), 16); return [v >> 16, (v >> 8) & 255, v & 255]; }
@@ -31,7 +29,7 @@ function entityField(name, domain) {
 const TOP_SCHEMA = [{ type: "grid", name: "", schema: [
   { name: "scene", required: true, selector: { select: { mode: "dropdown", options: SCENES.map(function (s) { return { value: s.id, label: s.name }; }) } } },
   { name: "demo", selector: { boolean: {} } }] }];
-const PERSON_SCHEMA = [
+const PERSON_BASE = [
   { type: "grid", name: "", schema: [{ name: "name", required: true, selector: { text: {} } },
     { name: "role", required: true, selector: { select: { mode: "dropdown", options: [{ value: "adult", label: "Adult" }, { value: "kid", label: "Kid" }] } } }] },
   { type: "grid", name: "", schema: [
@@ -41,6 +39,11 @@ const PERSON_SCHEMA = [
   { name: "accessories", selector: { select: { multiple: true, mode: "list", options: ACCESSORIES.map(function (a) { return { value: a, label: ACCESSORY_LABELS[a] }; }) } } },
   { name: "school", selector: { boolean: {} } }
 ];
+// A child who goes to school also gets their timetable and lunch menu sensors (school.js
+// reads them; the shapes are in the README).
+const SCHOOL_FIELDS = [{ type: "grid", name: "", schema: [entityField("timetable", "sensor"), entityField("lunch", "sensor")] }];
+function personSchema(school) { return school ? PERSON_BASE.concat(SCHOOL_FIELDS) : PERSON_BASE; }
+function entityOf(v) { return v == null || v === "" ? "" : typeof v === "string" ? v : v.entity || ""; }
 function sensorSchema(withWeek) {
   const s = SENSOR_FIELDS.map(function (f) { return entityField(f[0], f[1]); });
   return withWeek ? [entityField("week", "sensor")].concat(s) : s;
@@ -143,25 +146,33 @@ class FamilyDashboardCardEditor extends HTMLElement {
     // The v1.0.0 week sensor field shows for configs that read it: a cast with no calendars.
     const people = this._people(), withWeek = !!(this._config.sensors && this._config.sensors.week) ||
       (Array.isArray(this._config.people) && !this._config.people.some(function (p) { return p && (p.calendar || p.calendars); }));
-    if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek) this._build(people.length, withWeek);
+    // ...and when someone's school switch flips, since that adds or removes their school fields.
+    const mask = people.map(function (p) { return p && p.school ? 1 : 0; }).join("");
+    if (!this._forms || this._forms.n !== people.length || this._forms.week !== withWeek || this._forms.mask !== mask) this._build(people.length, withWeek, mask);
     let eff = null; try { eff = normalize(this._config); } catch (e) { eff = null; }
     const sensors = eff ? eff.sensors : Object.assign({}, this._config.sensors);
     this._forms.top.set({ scene: this._config.scene || SCENES[0].id, demo: this._config.demo === true });
     this._forms.sensors.set(sensors);
     const self = this;
+    this._shown = [];
     people.forEach(function (p, i) {
       const cal = p.calendar != null ? p.calendar : p.calendars;
-      self._forms.people[i].set({ name: p.name == null ? "" : String(p.name), role: p.adult || p.role === "adult" ? "adult" : "kid",
+      // School sensors: the person's own, else the v1.1.0 sensors.timetable / lunch normalize()
+      // gave them, so a legacy card shows what it reads.
+      const ep = eff && eff.people[i], shown = {};
+      ["timetable", "lunch"].forEach(function (k) { shown[k] = entityOf(p[k]) || (ep && ep[k] && ep[k].legacy ? ep[k].entity : ""); shown[k + "Legacy"] = !entityOf(p[k]) && !!shown[k]; });
+      self._shown[i] = shown;
+      self._forms.people[i].set({ timetable: shown.timetable, lunch: shown.lunch, name: p.name == null ? "" : String(p.name), role: p.adult || p.role === "adult" ? "adult" : "kid",
         look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || "crow", col: hexRgb(/^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length]),
         calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school });
       self._forms.heads[i].querySelector(".dot").style.background = /^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length];
       self._forms.heads[i].querySelector("b").textContent = (p.name || "Unnamed") + (i === people.length - 1 && people.length > 1 ? " (household)" : "");
     });
   }
-  _build(n, withWeek) {
+  _build(n, withWeek, mask) {
     const self = this, sr = this.shadowRoot;
     sr.innerHTML = "<style>" + EDITOR_STYLE + "</style>";
-    const F = { n: n, week: withWeek, people: [], heads: [], all: [] };
+    const F = { n: n, week: withWeek, mask: mask, people: [], heads: [], all: [] };
     function sec(title, hint) {
       const s = document.createElement("div"); s.className = "sec";
       s.innerHTML = "<h3>" + title + "</h3>" + (hint ? '<p class="hint">' + hint + "</p>" : ""); sr.appendChild(s); return s;
@@ -183,7 +194,7 @@ class FamilyDashboardCardEditor extends HTMLElement {
         bt.addEventListener("click", function () { self._move(i, b[1]); }); head.appendChild(bt); });
       const rm = document.createElement("button"); rm.textContent = "Remove"; rm.disabled = n < 2;
       rm.addEventListener("click", function () { self._remove(i); }); head.appendChild(rm);
-      const f = makeForm(PERSON_SCHEMA, function (d) { self._person(i, d); });
+      const f = makeForm(personSchema(mask && mask[i] === "1"), function (d) { self._person(i, d); });
       box.appendChild(head); box.appendChild(f.el); ps.appendChild(box);
       F.people.push(f); F.heads.push(head);
     }
@@ -208,6 +219,16 @@ class FamilyDashboardCardEditor extends HTMLElement {
     ACCESSORIES.forEach(function (a) { if (acc.indexOf(a) >= 0) p[a] = true; else delete p[a]; });
     if (p.bee) people.forEach(function (q, k) { if (k !== i) delete q.bee; });
     if (d.school) p.school = true; else delete p.school;
+    // Only a field the user changed is written, so a v1.1.0 sensor shown here stays where it is.
+    const shown = (this._shown && this._shown[i]) || {};
+    ["timetable", "lunch"].forEach(function (k) {
+      if (!(k in d)) return;
+      const v = (d[k] || "").trim();
+      if (v === (shown[k] || "")) return;
+      if (!v) { delete p[k]; if (shown[k + "Legacy"]) { c.sensors = Object.assign({}, c.sensors || {}); c.sensors[k] = null; } }
+      else if (p[k] && typeof p[k] === "object") p[k] = Object.assign({}, p[k], { entity: v });
+      else p[k] = v;
+    });
     c.people = people; this._emit(c);
   }
   _add() {
