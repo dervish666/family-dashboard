@@ -20,13 +20,14 @@ nothing else.
 
 ## Pick a board
 
-| Board | Screen | Touch | Chip | Rough price | Board file |
-|---|---|---|---|---|---|
-| Guition JC3248W535 | 3.5" 320x480 IPS | capacitive | ESP32-S3, 16 MB flash, 8 MB PSRAM | £12 to £20 | `guition_jc3248w535` |
-| Guition JC2432W328C | 2.8" 320x240 IPS | capacitive | ESP32, 4 MB flash | £10 to £15 | `jc2432w328` |
-| ESP32-2432S028R ("Cheap Yellow Display") | 2.8" 320x240 TFT | resistive | ESP32, 4 MB flash | £8 to £12 | `esp32_2432s028` |
+| Board | Screen | Touch | Chip | Board file |
+|---|---|---|---|---|
+| Guition JC3248W535 | 3.5" 320x480 IPS | capacitive | ESP32-S3, 16 MB flash, 8 MB PSRAM | `guition_jc3248w535` |
+| Guition JC2432W328C | 2.8" 320x240 IPS | capacitive | ESP32, 4 MB flash | `jc2432w328` |
+| ESP32-2432S028R ("Cheap Yellow Display") | 2.8" 320x240 TFT | resistive | ESP32, 4 MB flash | `esp32_2432s028` |
 
-The prices are rough guides before postage, not quotes; check a current listing.
+All three are cheap boards sold by many shops, and prices move with the seller, the case and
+the postage, so this guide quotes none: check a few current listings.
 
 **JC3248W535.** The better board, and the one the kitchen profile is laid out for. It runs in
 portrait: the panel has no hardware rotation, and it only draws reliably when LVGL redraws the
