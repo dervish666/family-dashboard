@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-09-20T08:00:00+01:00",
+  "sources": {
+    "ok": ["school-website", "homework-platform", "school-newsletter-pdf"],
+    "unavailable": ["second-mailbox"]
+  },
+  "needs_human": 1,
+  "items": [
+    { "who": "Kid 2", "date": "2026-09-23", "kind": "kit", "what": "PE kit" },
+    { "who": "Kid 2", "date": "2026-09-21", "kind": "homework", "what": "Maths homework due" },
+    { "who": "Kid 3", "date": "2026-09-24", "kind": "kit", "what": "Swimming kit" },
+    { "who": "Kid 3", "date": "2026-09-25", "kind": "event", "what": "Class assembly, parents welcome" },
+    { "who": "Parent 1", "date": "2026-10-09", "kind": "deadline", "what": "Trip consent form closes" },
+    { "who": "Kid 2", "date": "2026-10-23", "kind": "term-date", "what": "Last day of term" }
+  ],
+  "kit": [
+    { "who": "Kid 2", "what": "Reading book every day" }
+  ],
+  "flags": [
+    "Kid 3's last day of term unconfirmed: website and letter disagree"
+  ],
+  "schools": [
+    {
+      "who": "Kid 2",
+      "school": "Example Secondary",
+      "terms": [{ "label": "Term 1", "from": "2026-09-01", "to": "2026-10-23" }],
+      "days": [{ "date": "2026-11-02", "what": "INSET, closed" }]
+    },
+    {
+      "who": "Kid 3",
+      "school": "Example Primary",
+      "terms": [{ "label": "Term 1", "from": "2026-09-02", "to": "2026-10-23" }],
+      "days": []
+    }
+  ]
+}

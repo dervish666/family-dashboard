@@ -1,0 +1,329 @@
+# The wall panel's share of configuration.yaml. This is NOT a whole file:
+# merge each block into your own configuration.yaml by hand. If you already
+# have a homeassistant:, frontend:, lovelace:, media_player:,
+# template:, command_line:, sensor:, input_select: or input_text: key, add
+# these entries under it rather than pasting a second copy of the key (YAML
+# keeps only the last one, silently).
+#
+# Placeholders to replace:
+#   192.168.1.50          the panel's IP address (give it a DHCP reservation)
+#   <panel user id>       the id of the HA user the panel signs in as
+#   HOME_ASSISTANT_IP     your Home Assistant's LAN address
+#   calendar.*            your own calendars, and the names they map to
+#   media_player.kitchen_speaker, media_player.living_room_tv_music
+#                         your two Music Assistant players (Music view only)
+#   PODCAST_FEED_URL      the RSS feed for the "latest episode" tile (optional)
+#   /config/scripts/bin-collections.py   your own bin day script (optional)
+
+homeassistant:
+  auth_providers:
+    # Normal password login. Do NOT delete this entry: specifying auth_providers
+    # replaces the defaults, so removing it locks everyone out of Home Assistant.
+    - type: homeassistant
+    # Auto-login for the wall panel only.
+    # The panel MUST hold a DHCP reservation on this address, otherwise any
+    # device that lands on it is silently logged in as the panel's user.
+    # Make that user a plain (non-admin) user, and give it nothing else.
+    # Its id is under Settings > People > Users (turn on Advanced mode), or in
+    # .storage/auth.
+    - type: trusted_networks
+      trusted_networks:
+        - 192.168.1.50/32
+      trusted_users:
+        192.168.1.50/32: <panel user id>
+      allow_bypass_login: true
+
+frontend:
+  themes: !include_dir_merge_named themes
+  # Older tablet browsers get Home Assistant's legacy build, which ignores
+  # extra_module_url, so the font loader goes here.
+  # Everything under www/ is cached for a month by the panel: bump ?v= on
+  # every change or it will keep running the old copy.
+  extra_js_url_es5:
+    - /local/panel-fonts.js?v=1
+
+lovelace:
+  dashboards:
+    wall-panel:
+      mode: yaml
+      filename: dashboards/wall-panel.yaml
+      title: Wall Panel
+      icon: mdi:tablet-dashboard
+      show_in_sidebar: true
+      require_admin: false
+
+# ── Music view (optional, needs Music Assistant) ───────────────────────────
+# The Music view drives ONE entity. A Lovelace card cannot template its
+# entity, so this universal player follows input_select.music_target (below)
+# and the core media-control card and Mushroom's media cards work on it
+# unchanged. The Meadow reads it too, to know when to dance. Its
+# entity_picture is HA's own media_player_proxy, so album art reaches the
+# panel same-origin instead of from the Music Assistant add-on's port.
+# Music Assistant's own services (play_media, transfer_queue) will not accept
+# this entity: script.music_play and script.music_bring_here in
+# scripts.example.yaml pick the real player from the same input_select.
+media_player:
+  - platform: universal
+    name: Music
+    unique_id: wall_panel_music
+    device_class: speaker
+    children:
+      - media_player.kitchen_speaker
+      - media_player.living_room_tv_music
+    active_child_template: >-
+      {{ 'media_player.living_room_tv_music' if is_state('input_select.music_target', 'TV') else 'media_player.kitchen_speaker' }}
+
+# Which player the Music view and its tiles drive. The option names are what
+# the view and the scripts test for, so keep them or change all three files.
+# Creating it in the UI (Settings > Devices > Helpers) works just as well.
+input_select:
+  music_target:
+    name: Music target
+    icon: mdi:speaker
+    options:
+      - Speaker
+      - TV
+
+# The Meadow's postie. Type "Kid 3: tea's at six" here (or run
+# script.family_send_letter) and the postie carries it to Kid 3. The Meadow
+# clears it once the letter is read. A UI helper works just as well.
+input_text:
+  family_letter:
+    name: Family letter
+    icon: mdi:email-outline
+    max: 255
+
+# ── Today's family agenda ──────────────────────────────────────────────────
+# One trigger-based template sensor calls calendar.get_events across every
+# family calendar in a single shot, flattens every event into a list tagged
+# with whose it is, and exposes it as one attribute for the panel to render.
+# Refreshes at startup, every 5 minutes, and a minute after midnight.
+#
+# The owner map turns a calendar into a name. Those names are what the
+# dashboard filters on (selectattr('who','eq','Parent 1')), so a person's panel
+# and subview only fill if the spelling matches here. Anything not in the map
+# lands on House.
+#
+# checked_at is not decoration. If get_events fails the action aborts and the
+# sensor silently keeps yesterday's list, so the panel shows the age and says so
+# out loud rather than letting a stale day read as a quiet one.
+template:
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: time
+        at: "00:01:00"
+    action:
+      - action: calendar.get_events
+        target:
+          entity_id:
+            - calendar.parent_1
+            - calendar.parent_1_work
+            - calendar.parent_2
+            - calendar.kid_1
+            - calendar.kid_2
+            - calendar.kid_3
+            - calendar.family
+            - calendar.birthdays
+            - calendar.public_holidays
+        data:
+          start_date_time: "{{ today_at('00:00') }}"
+          duration:
+            hours: 24
+        response_variable: agenda
+    sensor:
+      - name: Family Today
+        unique_id: family_today
+        icon: mdi:calendar-today
+        state: "{{ agenda.values() | map(attribute='events') | map('count') | sum }}"
+        attributes:
+          checked_at: "{{ now().isoformat() }}"
+          events: >-
+            {% set owner = {
+              'calendar.parent_1': 'Parent 1',
+              'calendar.parent_1_work': 'Parent 1',
+              'calendar.parent_2': 'Parent 2',
+              'calendar.kid_1': 'Kid 1',
+              'calendar.kid_2': 'Kid 2',
+              'calendar.kid_3': 'Kid 3',
+              'calendar.family': 'House',
+              'calendar.birthdays': 'House',
+              'calendar.public_holidays': 'House'
+            } %}
+            {% set ns = namespace(rows=[]) %}
+            {% for cal, payload in agenda.items() %}
+              {% for e in payload.events %}
+                {% set allday = 'T' not in e.start %}
+                {% set ns.rows = ns.rows + [{
+                  'who': owner.get(cal, 'House'),
+                  'what': e.summary,
+                  'all_day': allday,
+                  'start': e.start,
+                  'at': '' if allday else as_local(as_datetime(e.start)).strftime('%H:%M')
+                }] %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.rows | sort(attribute='start') }}
+
+# ── The week ahead, per person ─────────────────────────────────────────────
+# Same shape as sensor.family_today but seven days wide, for the per-person
+# subviews and the Meadow. Slower refresh: a week's agenda does not change
+# every five minutes. Fields are kept lean deliberately. State attributes over
+# ~16KB get dropped by the recorder, and a dozen calendars x 7 days is how you
+# get there.
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/15"
+      - trigger: time
+        at: "00:02:00"
+    action:
+      - action: calendar.get_events
+        target:
+          entity_id:
+            - calendar.parent_1
+            - calendar.parent_1_work
+            - calendar.parent_2
+            - calendar.kid_1
+            - calendar.kid_2
+            - calendar.kid_3
+            - calendar.family
+            - calendar.birthdays
+            - calendar.public_holidays
+        data:
+          start_date_time: "{{ today_at('00:00') }}"
+          duration:
+            days: 7
+        response_variable: week
+    sensor:
+      - name: Family Week
+        unique_id: family_week
+        icon: mdi:calendar-week
+        state: "{{ week.values() | map(attribute='events') | map('count') | sum }}"
+        attributes:
+          checked_at: "{{ now().isoformat() }}"
+          events: >-
+            {% set owner = {
+              'calendar.parent_1': 'Parent 1',
+              'calendar.parent_1_work': 'Parent 1',
+              'calendar.parent_2': 'Parent 2',
+              'calendar.kid_1': 'Kid 1',
+              'calendar.kid_2': 'Kid 2',
+              'calendar.kid_3': 'Kid 3',
+              'calendar.family': 'House',
+              'calendar.birthdays': 'House',
+              'calendar.public_holidays': 'House'
+            } %}
+            {% set ns = namespace(rows=[]) %}
+            {% for cal, payload in week.items() %}
+              {% for e in payload.events %}
+                {% set allday = 'T' not in e.start %}
+                {% set ns.rows = ns.rows + [{
+                  'who': owner.get(cal, 'House'),
+                  'what': e.summary,
+                  'day': e.start[:10],
+                  'all_day': allday,
+                  'start': e.start,
+                  'at': '' if allday else as_local(as_datetime(e.start)).strftime('%H:%M')
+                }] %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.rows | sort(attribute='start') }}
+
+# ── School and club data the calendars cannot hold ─────────────────────────
+# www/family-extra.json, in the shape of www/family-extra.example.json: dated
+# items (kit, homework, term dates), standing kit, flags, schools and which
+# sources were checked. Write it however you like (by hand, a script, an
+# agent) and drop it in /config/www/. Read from disk rather than over HTTP: no
+# auth, no network, no surprise.
+#
+# The file carries its own checked_at and a per-source ok/unavailable split, so
+# the panel can say "couldn't check" instead of rendering a confident blank.
+# This sensor re-reads the file every 300s, so the SENSOR always looks alive
+# while the DATA ages: the dashboard reads checked_at, not the sensor's age.
+command_line:
+  - sensor:
+      name: Family Extra
+      unique_id: family_extra
+      command: "cat /config/www/family-extra.json"
+      value_template: "{{ value_json['items'] | count }}"
+      json_attributes:
+        - checked_at
+        - sources
+        - needs_human
+        - items
+        - kit
+        - flags
+        - schools
+      scan_interval: 300
+
+  # ── Bin day (optional, Home view) ────────────────────────────────────────
+  # No script ships for this: every council publishes collections its own
+  # way. Write one that prints JSON like
+  #   { "next_days": 2, "next_date": "2026-10-06",
+  #     "next_short": ["Black bin", "Food"],
+  #     "bins": [{ "name": "General waste", "short": "Black bin", "next": "2026-10-06" }],
+  #     "fetch": "ok", "error": null, "checked_at": "2026-10-04T06:00:00+01:00" }
+  # with next_days null when no future date is known. State is days to the
+  # next collection, or "unknown".
+  - sensor:
+      name: Bin Collections
+      unique_id: bin_collections
+      command: "python3 /config/scripts/bin-collections.py"
+      command_timeout: 60
+      # No unit_of_measurement: with one, HA insists on a number, rejects the
+      # "unknown" below at setup, and the entity goes unavailable.
+      value_template: "{{ value_json.next_days if value_json.next_days is not none else 'unknown' }}"
+      json_attributes:
+        - bins
+        - next_date
+        - next_days
+        - next_short
+        - fetch
+        - error
+        - checked_at
+      scan_interval: 21600
+
+# ── The latest podcast episode (optional, Music view) ──────────────────────
+# Music Assistant plays a podcast from its oldest unplayed episode, and
+# play_media has no option to start from the newest. So this reads
+# the feed itself and keeps the newest episode's audio URL as its state, picked
+# by pubDate rather than trusting feed order. script.music_play plays that URL
+# when a tile names this sensor in latest_from. The name gives the entity id
+# sensor.six_o_clock_news_latest, which the dashboard's news tile uses.
+sensor:
+  - platform: rest
+    name: Six O'Clock News Latest
+    unique_id: six_o_clock_news_latest
+    resource: PODCAST_FEED_URL
+    scan_interval: 1800
+    timeout: 20
+    icon: mdi:podcast
+    value_template: >-
+      {% set ns = namespace(t=0, url='') %}
+      {% for i in value_json.rss.channel['item'] %}
+      {% set t = as_timestamp(strptime(i.pubDate, '%a, %d %b %Y %H:%M:%S %z', none), 0) %}
+      {% if t > ns.t %}{% set ns.t = t %}{% set ns.url = i.enclosure['@url'] %}{% endif %}
+      {% endfor %}
+      {{ ns.url[:255] if ns.url else 'unknown' }}
+
+# ── Rain (optional, the Meadow) ────────────────────────────────────────────
+# The Meadow takes its weather from weather.forecast_home, and a rain sensor
+# adds the rain the forecast misses. Any sensor will do: set CONFIG.sensors.rain in
+# www/family-dashboard.html to its id and list its wet and dry states in CONFIG.rainStates
+# (raining/none, wet/dry and on/off are understood already). A rain gauge's
+# binary_sensor works as it is. If yours reports a rate in mm/h, wrap it:
+#
+# template:
+#   - sensor:
+#       - name: Rain Sensor
+#         unique_id: rain_sensor
+#         state: >-
+#           {% set r = states('sensor.YOUR_RAIN_RATE') %}
+#           {{ 'unknown' if r in ['unknown', 'unavailable'] else 'raining' if r | float(0) > 0 else 'none' }}
+#
+# (add the "- sensor:" entry under the template: key above, not a second
+# template: key).
