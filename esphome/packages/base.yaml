@@ -47,7 +47,7 @@ esphome:
   min_version: 2026.10.0
   project:
     name: dervish666.family-dashboard-panel
-    version: "0.2.1"
+    version: "0.3.0"
   on_boot:
     priority: -100
     then:
@@ -269,38 +269,50 @@ interval:
 font:
   # One Google font in four sizes, with the Latin set so letters can carry
   # a pound sign, accents and curly quotes. Fetched at compile time only.
+  # bpp 4 is what makes the glyphs smooth: ESPHome's default is 1 bit per
+  # pixel, hard black-or-white edges that read as jagged on a 3.5" screen.
   - file: "gfonts://Nunito@700"
     id: font_small
     size: ${font_small}
+    bpp: 4
     glyphsets: [GF_Latin_Kernel]
     glyphs: "£€°’‘“”…–éèêëáàâäíìîïóòôöúùûüçñÉÁÓÚß"
   - file: "gfonts://Nunito@700"
     id: font_body
     size: ${font_body}
+    bpp: 4
     glyphsets: [GF_Latin_Kernel]
     glyphs: "£€°’‘“”…–éèêëáàâäíìîïóòôöúùûüçñÉÁÓÚß"
   - file: "gfonts://Nunito@800"
     id: font_big
     size: ${font_big}
+    bpp: 4
     glyphsets: [GF_Latin_Kernel]
     glyphs: "£€°’‘“”…–éèêëáàâäíìîïóòôöúùûüçñÉÁÓÚß"
   - file: "gfonts://Nunito@800"
     id: font_clock
     size: ${font_clock}
+    bpp: 4
     glyphs: "0123456789:"
 
 lvgl:
   default_font: font_body
   on_idle:
-    timeout: ${idle_timeout}
-    then:
-      - if:
-          condition:
-            lambda: return id(is_night);
-          then:
-            - script.execute: screen_off
-          else:
-            - light.turn_on: { id: backlight, brightness: "${idle_brightness}" }
+    # A list, so a profile can add its own idle step (the kitchen goes home).
+    - timeout: ${idle_timeout}
+      then:
+        - if:
+            condition:
+              lambda: return id(is_night);
+            then:
+              - script.execute: screen_off
+            else:
+              - light.turn_on: { id: backlight, brightness: "${idle_brightness}" }
+  # The palette: cream ground, white cards with a sand border, warm amber for
+  # anything lit or needing attention, green to go, red to stop. Text colour
+  # is set on obj and inherited, never pinned on label: a label with its own
+  # text_color ignores its button's, which is how an "All off" button once
+  # drew dark text on a dark fill and read as a black bar.
   theme:
     obj:
       bg_color: 0xFFF8EC
@@ -308,22 +320,29 @@ lvgl:
       border_width: 0
       radius: 0
       pad_all: 0
-    label:
-      text_color: 0x2E2A24
     button:
       bg_color: 0x3F7A50
       text_color: 0xFFFFFF
-      radius: 14
+      radius: 12
+      border_width: 0
       shadow_width: 0
+      pad_all: 0
   style_definitions:
     - id: card_style
       bg_color: 0xFFFFFF
+      text_color: 0x2E2A24
       radius: 16
-      pad_all: 10
+      pad_all: 12
       border_width: 2
       border_color: 0xE8DCC4
     - id: banner_style
       bg_color: 0xFCE7B2
+      text_color: 0x3A2606
       radius: 12
-      pad_all: 8
+      pad_all: 10
       border_width: 0
+    # A card's small heading: muted, spaced out, read from across a room.
+    - id: section_style
+      text_font: font_small
+      text_color: 0x7A7366
+      text_letter_space: 1
