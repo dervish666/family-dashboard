@@ -62,6 +62,8 @@ light:
     id: backlight
     name: Screen
     output: backlight_output
+    # Plain duty, see backlight_gamma in packages/base.yaml.
+    gamma_correct: ${backlight_gamma}
     restore_mode: ALWAYS_ON
     default_transition_length: 400ms
 

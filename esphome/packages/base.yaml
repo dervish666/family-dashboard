@@ -30,6 +30,12 @@ substitutions:
   # waits: the panel stays as bright as by day. The default helper does not
   # exist until you make it, and a missing entity never keeps a panel awake.
   night_keep_awake_entity: input_boolean.family_panel_keep_awake
+  # The brightness levels below are shares of the full backlight, sent to the
+  # PWM as they are: 4% is 4% duty. ESPHome's light default, gamma_correct
+  # 2.8, suits a bare LED but crushes the bottom of a screen backlight (4%
+  # became 0.04^2.8, about 0.01% duty, and the glow went dark). Each board
+  # file sets the backlight's gamma_correct to this; 2.8 brings that curve back.
+  backlight_gamma: "1.0"
   day_brightness: 80%
   idle_brightness: 35%
   night_brightness: 10%
@@ -41,7 +47,7 @@ esphome:
   min_version: 2026.10.0
   project:
     name: dervish666.family-dashboard-panel
-    version: "0.2.0"
+    version: "0.2.1"
   on_boot:
     priority: -100
     then:
