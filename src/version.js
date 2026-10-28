@@ -1,2 +1,2 @@
 // The card version. Bumped on release only.
-export const VERSION = "1.9.3";
+export const VERSION = "1.10.0";
