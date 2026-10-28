@@ -151,7 +151,7 @@ change the kitchen's `today_entity`, `lunch_entity`, `due_entity`, `strip_entity
 ## Light tiles
 
 A tile tap fires `esphome.family_panel_light` with `target` (a key like `kitchen`), `action`
-(`toggle` or `off`) and `panel`. The `family_panel_light` automation looks `target` up in
+(`toggle`, `on` or `off`) and `panel`. The `family_panel_light` automation looks `target` up in
 `light_targets`:
 
 ```yaml
@@ -160,12 +160,42 @@ light_targets:
   downstairs: [light.kitchen, light.living_room]   # one key, several entities
 ```
 
-A target that is not a key (an entity id included), or any action but `toggle` and `off`, is
-refused with a warning in the log and switches nothing. `toggle` turns the key's entities off if
+A target that is not a key (an entity id included), or any action but `toggle`, `on` and
+`off`, is refused with a warning in the log and switches nothing. `toggle` turns the key's entities off if
 any of them is on, otherwise on; `off` turns them off. All off on the panel sends `off` for each
 visible tile. Entities can be lights, switches or groups (`homeassistant.turn_on` and
 `turn_off`). The tile's colour comes from `tile_N_entity` on the panel, which Home Assistant
 sends as a state; the panel switches nothing itself.
+
+## The light page
+
+Holding a tile (or a lamp pill on a kid panel) opens the light page. What it shows comes from
+`sensor.panel_lights`, a template sensor in `panels-kitchen.example.yaml` whose `lines`
+attribute has one line per key in `light_hold`:
+
+```
+kitchen on 72 2700 2000 6535 bt - -
+target  state brightness% kelvin min max caps hue sat
+```
+
+`caps` is `b` (brightness), `t` (colour temperature), `c` (colour), or `-` for a lamp that
+only switches; `-` elsewhere is not known or not now. A slider release fires
+`esphome.family_panel_light_set` with `target` and any of `brightness_pct`, `kelvin`, `hue` and
+`sat` (an empty field is left alone), at most one event every 150 ms. The
+`family_panel_light_set` automation looks `target` up in `light_hold`:
+
+```yaml
+light_hold:
+  kitchen: light.kitchen          # the one light the page adjusts for that key
+```
+
+then clamps brightness to 1 to 100, kelvin to the lamp's `min_color_temp_kelvin` and
+`max_color_temp_kelvin`, hue to 0 to 360 and saturation to 0 to 100, drops any field the lamp's
+`supported_color_modes` cannot do (hue and saturation only count together), and calls
+`light.turn_on` once with what is left. A target not in `light_hold`, an entity id included, is
+refused and logged; so is an event with nothing the lamp can do. Six events queue at most and
+the rest are dropped with a warning. The page's On/Off switch goes through
+`family_panel_light` with `on` or `off`.
 
 ## Timer alerts
 
