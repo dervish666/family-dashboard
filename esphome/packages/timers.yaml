@@ -10,7 +10,9 @@
 #   1. shows a full-width "Timer done" card with the timer's name and a
 #      Dismiss button, over whatever page is showing, and lights the screen;
 #   2. plays the chime on its own speaker, again every timer_chime_every,
-#      until Dismiss or timer_ring_seconds after the end (2 minutes);
+#      until Dismiss or timer_ring_seconds after the end (2 minutes). The
+#      first chime is at timer_volume; with timer_escalate each repeat is a
+#      step louder, up to timer_volume_max after timer_escalate_seconds;
 #   3. fires esphome.family_panel_timer_done with the timer's name, once, so
 #      an automation in homeassistant/panels-kitchen.example.yaml can say it
 #      on the house speakers. The panel never calls a Home Assistant action.
@@ -27,6 +29,12 @@
 # the Timers page is on the screen. On every other page the chip changes once
 # a minute, when its text changes. The done card does not count down.
 #
+# To hear the level without waiting for a timer: press the panel's "Test
+# alarm" button in Home Assistant, or hold the first timer's name on the
+# Timers page. It plays the ring as a timer would (every timer_chime_every,
+# getting louder), stops after timer_escalate_seconds, and stops at once on
+# a second press or hold. It shows no card and tells Home Assistant nothing.
+#
 # Needs a board with a speaker and an rtttl player called panel_chime: only
 # boards/guition_jc3248w535.yaml has one. Needs the kitchen profile, whose
 # page buttons this joins (the third slot). Three cards of 130 px fill the
@@ -41,6 +49,19 @@ substitutions:
   timer_chime: "done:d=8,o=6,b=180:c,e,g,2c7"
   timer_chime_every: "5"
   timer_ring_seconds: "120"
+  # How loud the chime is, 0.0 to 1.0, on ESPHome's speaker volume scale. It
+  # is not a straight share of full scale: ESPHome 2026.10 maps 0.0 to 1.0
+  # onto -49 dB to 0 dB, so each 0.1 is 4.9 dB. 1.0 is a full-scale sine
+  # (the loudest the samples go without clipping), 0.85 is -7.4 dB
+  # (0.43 of full scale), 0.75 is -12 dB (0.25, the old Arduino firmware's
+  # level) and 0.6, rtttl's own default, is -19.6 dB (0.10).
+  timer_volume: "0.85"
+  # With timer_escalate, each repeat steps up from timer_volume until it
+  # reaches timer_volume_max timer_escalate_seconds after the first chime.
+  # "false" plays every chime at timer_volume.
+  timer_escalate: "true"
+  timer_volume_max: "1.0"
+  timer_escalate_seconds: "30"
   font_timer: "40"
 
 preferences:
@@ -89,6 +110,10 @@ globals:
     initial_value: "-1"
   - id: timer_last_chime
     type: uint32_t
+    initial_value: "0"
+  # How many chimes this ring has played, for the escalation.
+  - id: timer_chime_count
+    type: int
     initial_value: "0"
 
 font:
@@ -163,6 +188,9 @@ script:
               lv_obj_clear_flag(id(timer_done_box), LV_OBJ_FLAG_HIDDEN);
               lv_obj_move_foreground(id(timer_done_box));
               id(timer_last_chime) = 0;
+              id(timer_chime_count) = 0;
+              // A real timer wins over the test ring.
+              id(timer_test).stop();
               id(wake_screen).execute();
             }
           }
@@ -170,7 +198,7 @@ script:
           if (shown >= 0 && id(timer_phase)[shown] == 2 && now &&
               now - id(timer_last_chime) >= (uint32_t) ${timer_chime_every} && !id(panel_chime).is_playing()) {
             id(timer_last_chime) = now;
-            id(panel_chime).play(std::string("${timer_chime}"));
+            id(timer_chime_play).execute(id(timer_chime_count)++);
             // Keeps the screen lit while it rings, night or day.
             id(wake_screen).execute();
           } else if (shown >= 0 && id(timer_phase)[shown] == 3 && id(panel_chime).is_playing()) {
@@ -284,7 +312,80 @@ script:
           int slot = id(timer_done_slot);
           id(panel_chime).stop();
           if (slot >= 0) *ends[slot] = 0;
+      - script.stop: timer_test
       - script.execute: timer_tick
+
+  # Plays the chime once, as chime number n of a ring (0 is the first), at
+  # the volume that chime gets.
+  - id: timer_chime_play
+    parameters:
+      n: int
+    then:
+      - lambda: |-
+          const float base = ${timer_volume}, top = ${timer_volume_max};
+          const int every = ${timer_chime_every}, span = ${timer_escalate_seconds};
+          const bool escalate = ${timer_escalate};
+          float volume = base;
+          // BEGIN chime-volume (tests/panels/check.py compiles this block)
+          {
+            // Chime n starts about n * every seconds into the ring.
+            if (escalate && span > 0 && top > base && n > 0) {
+              float k = (float) n * (float) every / (float) span;
+              if (k > 1.0f) k = 1.0f;
+              volume = base + (top - base) * k;
+            }
+            if (volume < 0.0f) volume = 0.0f;
+            if (volume > 1.0f) volume = 1.0f;
+          }
+          // END chime-volume
+          ESP_LOGI("timers", "Chime %d at volume %.3f", n + 1, volume);
+          id(panel_chime).set_gain(volume);
+          id(panel_chime).play(std::string("${timer_chime}"));
+
+  # The test ring: what a timer sounds like, with no card and no event. One
+  # chime per timer_chime_every until the escalation tops out (two chimes
+  # without it). A real timer ending, Dismiss or a second press stops it.
+  - id: timer_test
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: |-
+              int s = id(timer_done_slot);
+              return s >= 0 && id(timer_phase)[s] == 2;
+          then:
+            - logger.log: "Test alarm skipped: a timer is ringing"
+          else:
+            - repeat:
+                count: !lambda |-
+                  const int every = ${timer_chime_every}, span = ${timer_escalate_seconds};
+                  const bool escalate = ${timer_escalate};
+                  if (!escalate || every <= 0 || span <= 0) return 2u;
+                  return (uint32_t) ((span + every - 1) / every + 1);
+                then:
+                  - wait_until:
+                      condition:
+                        lambda: return !id(panel_chime).is_playing();
+                      timeout: 3s
+                  - script.execute:
+                      id: timer_chime_play
+                      n: !lambda return (int) iteration;
+                  - delay: ${timer_chime_every}s
+
+  # The Test alarm button and the hold on the Timers page: start the test
+  # ring, or stop it if it is playing.
+  - id: timer_test_toggle
+    then:
+      - if:
+          condition:
+            script.is_running: timer_test
+          then:
+            - script.stop: timer_test
+            - lambda: |-
+                int s = id(timer_done_slot);
+                if (!(s >= 0 && id(timer_phase)[s] == 2)) id(panel_chime).stop();
+          else:
+            - script.execute: timer_test
 
   # Tells Home Assistant a timer ended. Sent once; if Home Assistant is away
   # it waits for the reconnect, and is dropped once the timer stops ringing.
@@ -314,6 +415,17 @@ script:
           for (int i = 0; i < 3; i++)
             if (id(timer_unsent)[i] && id(timer_phase)[i] == 2) id(timer_announce).execute(i);
             else id(timer_unsent)[i] = false;
+
+button:
+  # Plays the test ring, or stops it. In Home Assistant it is on the panel's
+  # device page, under Configuration.
+  - platform: template
+    id: timer_test_button
+    name: Test alarm
+    icon: mdi:alarm-bell
+    entity_category: config
+    on_press:
+      - script.execute: timer_test_toggle
 
 lvgl:
   style_definitions:
@@ -353,7 +465,13 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
                   widgets:
-                    - label: { text: "${timer_1_name}", text_font: font_body }
+                    # Hold the name for the test ring (see the top of this file).
+                    - label:
+                        text: "${timer_1_name}"
+                        text_font: font_body
+                        clickable: true
+                        on_long_press:
+                          - script.execute: timer_test_toggle
                     - label:
                         id: timer_1_time
                         text: "0:00"

@@ -18,9 +18,10 @@
 # clock GPIO42, word select GPIO2, data GPIO41, no master clock and no enable
 # pin. ESPHome's JC3248W535 preset covers the display only; these three pins
 # are what Guition's factory firmware passes to i2s_set_pin, and the same three
-# appear in yoRadio's JC3248W535 pin file. Nobody names the amplifier chip, so
-# whether it wants mono or stereo frames, and how loud it goes, is only known
-# once a speaker is plugged in and the chime plays. See esphome/README.md.
+# appear in yoRadio's JC3248W535 pin file. Nobody names the amplifier chip.
+# On one real panel the chime plays with mono frames (sent
+# on both slots, the same as the old Arduino firmware's stereo L = R), so
+# mono is the default. See esphome/README.md.
 
 substitutions:
   panel_width: "320"
@@ -35,8 +36,12 @@ substitutions:
   speaker_dout_pin: "41"
   # mono or stereo; try stereo if the chime is silent or plays at half speed.
   speaker_channel: mono
-  # 0% to 100%. The chime's loudness; the amp has no volume of its own.
-  speaker_gain: 60%
+  # The rtttl player's starting volume; the amp has no volume of its own.
+  # ESPHome maps 0% to 100% onto -49 dB to 0 dB, so rtttl's own default,
+  # 60%, is -19.6 dB (a tenth of full scale) and was too quiet by a cooker.
+  # The timer chime ignores this: packages/timers.yaml sets each chime's
+  # volume from timer_volume.
+  speaker_gain: 85%
 
 esp32:
   board: esp32-s3-devkitc-1

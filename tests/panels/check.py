@@ -721,6 +721,111 @@ def check_backlight(r: Report, srcs: dict):
                 f"{duty:.4%} duty, below the {GLOW_FLOOR:.2%} floor that still glows")
 
 
+# The chime's loudness. ESPHome 2026.10's i2s_audio speaker turns a volume v
+# into a software gain of -49 * (1 - v) dB (SOFTWARE_VOLUME_MIN_DB in
+# components/i2s_audio/speaker/i2s_audio_speaker.cpp); 1.0 passes the samples
+# through. rtttl writes a full-scale sine. The old Arduino firmware wrote its
+# sine at 25% of full scale (VOLUME = 25 in its sound.cpp), 16-bit at 16 kHz,
+# the same sample on both slots: the level the panel has to at least match.
+SPEAKER_MIN_DB = -49.0
+OLD_FIRMWARE_AMPLITUDE = 0.25
+
+
+def amplitude(v: float) -> float:
+    """A speaker volume as a share of full scale."""
+    return 1.0 if v >= 1.0 else 0.0 if v <= 0.0 else 10 ** (SPEAKER_MIN_DB * (1 - v) / 20)
+
+
+# (n, base, top, every, span, escalate) -> the volume chime n plays at.
+CHIME_CASES = [
+    (0, 0.5, 0.9, 5, 30, True, 0.5),
+    (3, 0.5, 0.9, 5, 30, True, 0.7),
+    (6, 0.5, 0.9, 5, 30, True, 0.9),
+    (24, 0.5, 0.9, 5, 30, True, 0.9),     # tops out, never past the maximum
+    (4, 0.5, 0.9, 5, 30, False, 0.5),     # escalation off: every chime the same
+    (4, 0.9, 0.5, 5, 30, True, 0.9),      # a maximum below the base never turns it down
+    (4, 0.5, 0.9, 5, 0, True, 0.5),       # no span: no escalation, no divide by zero
+    (2, 1.4, 1.6, 5, 30, False, 1.0),     # out of range is held to 0..1
+    (0, -0.2, 0.0, 5, 30, False, 0.0),
+]
+
+
+def check_chime(r: Report, srcs: dict, cxx: str | None):
+    t = esphome_subs(srcs["timers"])
+    base, top = float(t["timer_volume"]), float(t["timer_volume_max"])
+    every, span = int(t["timer_chime_every"]), int(t["timer_escalate_seconds"])
+    escalate = str(t["timer_escalate"]).lower() == "true"
+    r.check(amplitude(base) >= OLD_FIRMWARE_AMPLITUDE,
+            f"timers.yaml: timer_volume {base} is {amplitude(base):.3f} of full scale, quieter than the "
+            f"old firmware's {OLD_FIRMWARE_AMPLITUDE}")
+    r.check(0.0 < base <= top <= 1.0, f"timers.yaml: want 0 < timer_volume ({base}) <= timer_volume_max ({top}) <= 1.0")
+    r.check(escalate, "timers.yaml: timer_escalate should default to true")
+    r.check(top == 1.0, f"timers.yaml: timer_volume_max {top}, want 1.0 (full scale) so the escalation ends loud")
+    r.check(0 < span <= 30 and span % every == 0,
+            f"timers.yaml: timer_escalate_seconds {span} should reach the top within 30 s, on a chime ({every} s apart)")
+    r.check(int(t["timer_ring_seconds"]) == 120, "timers.yaml: timer_ring_seconds should stay 120 (the 2-minute cap)")
+    g = esphome_subs(srcs["board_guition"]).get("speaker_gain")
+    r.check(g is not None and amplitude(level(g)) >= OLD_FIRMWARE_AMPLITUDE,
+            f"guition_jc3248w535.yaml: speaker_gain {g} is quieter than the old firmware")
+    # The real ring and the test ring both go through timer_chime_play, the
+    # one place that sets the volume, and the count it climbs on is reset.
+    tm = srcs["timers"]
+    r.check(tm.count("id(panel_chime).play(") == 1,
+            "timers.yaml: the chime must be played only by timer_chime_play, which sets its volume first")
+    r.check("id(timer_chime_play).execute(id(timer_chime_count)++);" in tm,
+            "timers.yaml: the ring does not play through timer_chime_play with a rising count")
+    r.check("id(timer_chime_count) = 0;" in tm, "timers.yaml: the chime count is not reset when a ring starts")
+    test = tm.split("  - id: timer_test\n", 1)[-1].split("  - id: timer_test_toggle\n", 1)[0]
+    r.check("timer_announce" not in test and "homeassistant." not in test and "timer_done_box" not in test,
+            "timers.yaml: the test ring must not show the card or tell Home Assistant a timer ended")
+    buttons = [b for b in (load_ha(tm).get("button") or []) if b.get("name") == "Test alarm"]
+    r.check(len(buttons) == 1 and {"script.execute": "timer_test_toggle"} in (buttons[0].get("on_press") or []),
+            "timers.yaml: no Test alarm button that runs timer_test_toggle")
+    r.check(re.search(r"on_long_press:\s*\n\s*- script\.execute: timer_test_toggle", tm) is not None,
+            "timers.yaml: holding the first timer's name no longer plays the test ring")
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the chime volume block was not checked")
+        return
+    block = cpp_block(tm, "chime-volume")
+    # The shipped defaults, chime by chime over one whole ring, then the edges.
+    ring = [(n, base, top, every, span, escalate, None) for n in range(int(t["timer_ring_seconds"]) // every)]
+    cases = ring + CHIME_CASES
+    calls = "\n  ".join(f"vol({n}, {b}f, {tp}f, {e}, {s}, {str(x).lower()});" for n, b, tp, e, s, x, _ in cases)
+    src = f"""
+#include <cstdio>
+static void vol(int n, float base, float top, int every, int span, bool escalate) {{
+  float volume = base;
+{block}
+  printf("%.4f\\x1e", volume);
+}}
+int main() {{
+  {calls}
+  return 0;
+}}
+"""
+    out = run_cpp(r, cxx, src, "chime volume C++")
+    if out is None:
+        return
+    got = [float(x) for x in out.split("\x1e")[:-1]]
+    r.check(len(got) == len(cases), f"chime volume: {len(got)} results for {len(cases)} cases")
+    shipped, edges = got[:len(ring)], got[len(ring):]
+    # The defaults: starts at timer_volume, climbs every chime, is at the top
+    # by timer_escalate_seconds and stays there, and never clips.
+    r.check(abs(shipped[0] - base) < 1e-4, f"chime 1 plays at {shipped[0]}, want timer_volume {base}")
+    steps = span // every
+    for i in range(1, len(shipped)):
+        if i <= steps:
+            r.check(shipped[i] > shipped[i - 1], f"chime {i + 1} at {shipped[i]} is not louder than chime {i} at {shipped[i - 1]}")
+        else:
+            r.check(abs(shipped[i] - top) < 1e-4, f"chime {i + 1} at {shipped[i]}, want the top {top}")
+        r.check(shipped[i] <= 1.0, f"chime {i + 1} at {shipped[i]} is past full scale")
+    want_steps = [round(base + (top - base) * min(i, steps) / steps, 4) for i in range(steps + 1)]
+    r.check([round(x, 4) for x in shipped[:steps + 1]] == want_steps,
+            f"chime volumes {shipped[:steps + 1]}, want even steps {want_steps}")
+    for (n, b, tp, e, s, x, want), v in zip(CHIME_CASES, edges):
+        r.check(abs(v - want) < 1e-4, f"chime {n} base {b} top {tp} every {e} span {s} escalate {x}: got {v}, want {want}")
+
+
 def check_wifi(r: Report, srcs: dict):
     """Mains-powered panels keep the radio awake: base.yaml turns Wi-Fi power
     save off by default, and nothing a panel is built from turns it back on."""
@@ -762,6 +867,7 @@ def run(srcs: dict, quiet=False) -> Report:
     check_consistency(r, ha, hak, srcs)
     check_backlight(r, srcs)
     check_wifi(r, srcs)
+    check_chime(r, srcs, cxx)
     if not quiet:
         for f in r.fails:
             print("FAIL", f)
@@ -837,6 +943,20 @@ SABOTAGES = [
     ("a board sets its own Wi-Fi power save", "board_cyd", "esp32:\n",
      "wifi:\n  power_save_mode: light\n\nesp32:\n"),
     ("an example dozes its radio", "ex_kid_a", "substitutions:\n", "substitutions:\n  wifi_power_save: high\n"),
+    # The chime: back to rtttl's quiet default, no escalation, a ring that skips the volume.
+    ("chime back to rtttl's 0.6", "timers", 'timer_volume: "0.85"', 'timer_volume: "0.6"'),
+    ("escalation off by default", "timers", 'timer_escalate: "true"', 'timer_escalate: "false"'),
+    ("escalation stops short of full scale", "timers", 'timer_volume_max: "1.0"', 'timer_volume_max: "0.9"'),
+    ("escalation takes a minute", "timers", 'timer_escalate_seconds: "30"', 'timer_escalate_seconds: "60"'),
+    ("escalation runs past its top", "timers", "if (k > 1.0f) k = 1.0f;", ""),
+    ("escalation counts down", "timers", "volume = base + (top - base) * k;", "volume = top - (top - base) * k;"),
+    ("ring plays the chime without its volume", "timers", "id(timer_chime_play).execute(id(timer_chime_count)++);",
+     'id(panel_chime).play(std::string("${timer_chime}"));'),
+    ("chime count never climbs", "timers", "id(timer_chime_count)++", "id(timer_chime_count)"),
+    ("chime count not reset for a new ring", "timers", "              id(timer_chime_count) = 0;\n", ""),
+    ("Test alarm button does nothing", "timers", "    on_press:\n      - script.execute: timer_test_toggle\n", ""),
+    ("board rtttl gain back to 60%", "board_guition", "speaker_gain: 85%", "speaker_gain: 60%"),
+    ("2-minute cap lifted", "timers", 'timer_ring_seconds: "120"', 'timer_ring_seconds: "600"'),
 ]
 
 
