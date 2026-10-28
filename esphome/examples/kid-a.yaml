@@ -1,4 +1,6 @@
-# Kid A's room panel on a Cheap Yellow Display (ESP32-2432S028R).
+# Kid A's room panel on a Cheap Yellow Display (ESP32-2432S028R), the
+# ILI9341 version, mounted upside down, with a 12-hour clock and a dim glow
+# at night instead of a dark screen.
 #
 # Copy this file into your ESPHome folder, rename it, set child to the slug
 # of input_text.letter_<slug>, and add panel_kid_a_api_key to secrets.yaml
@@ -9,9 +11,20 @@ substitutions:
   friendly_name: Kid A panel
   child: kid_a
   api_key: !secret panel_kid_a_api_key
-  # Anything from packages/base.yaml or the board file can be overridden here:
-  # night_start: "20:00"
-  # cyd_model: ESP32-2432S028      # the micro-USB-only ILI9341 version
+
+  # The display chip. ESP32-2432S028 is the ILI9341 version; the board file's
+  # default is the ST7789V one (ESP32-2432S028-7789). A white, inverted or
+  # mirrored screen means the wrong one: see esphome/README.md.
+  cyd_model: ESP32-2432S028
+  # Upside down: the board file's landscape is 90, so a flipped mount is 270.
+  # LVGL turns the touch with the picture.
+  rotation: "270"
+
+  clock_format: "12h"
+  night_mode: dim
+  night_start: "19:30"
+  night_end: "07:00"
+  # night_glow_brightness: 4%      # the glow; how low it can go depends on the backlight
 
 packages:
   base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
