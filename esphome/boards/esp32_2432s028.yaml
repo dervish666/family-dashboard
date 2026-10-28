@@ -7,6 +7,14 @@
 # version set cyd_model to ESP32-2432S028; for the ILI9342 one,
 # ESP32-2432S028-9342. A white or mirrored screen means the wrong model.
 #
+# Wrong model, the other common symptom: the picture turned 90 degrees, a
+# band of static about 80 px wide down one side, a tangle past it and wrong
+# colours. That is the ILI9341 model (cyd_model ESP32-2432S028) on an ST7789
+# board. Its init sends C0 0x23; on an ST7789 C0 is LCMCTRL and 0x23 sets
+# XMV, XBGR and XGS, which swap the axes, swap red and blue and flip the
+# scan. Use ESP32-2432S028-7789, the default. Checked on a 2-USB board
+# (2026-10-28): invert_colors false, rotation "90" or "270".
+#
 # Power: the two-socket version can brown out on a weak USB-C lead or a
 # laptop port with Wi-Fi and the backlight on. Use a 5 V 1 A (or better)
 # supply and a short cable; if it keeps rebooting, try the micro-USB socket.
@@ -15,19 +23,29 @@
 # CLK 14, MOSI 13, MISO 12, CS 15, DC 2; touch SPI CLK 25, MOSI 32, MISO 39,
 # CS 33, IRQ 36; backlight GPIO21; RGB LED 4/16/17 (active low, unused).
 #
-# Resistive touch needs calibrating per board. The defaults suit most; if a
-# tap lands in the wrong place, set logger level DEBUG, tap the four corners,
-# read x_raw and y_raw from the log, and set the four touch_* values.
+# Touch, checked on the 2-USB ST7789 board at rotation "90": calibration
+# x 240..3800, y 200..3700, and touch_mirror_x "true", because the panel's x
+# runs against the film's x channel on this board. Without the mirror a tap
+# lands on the far side of the screen. At "270" (the board on its head) keep
+# the same values: LVGL turns the touch with the picture, so a flip changes
+# nothing here.
+#
+# Resistive touch still needs calibrating per board. If a tap lands in the
+# wrong place, set logger level DEBUG, tap the four corners, read x_raw and
+# y_raw from the log, and set the four touch_* values; if taps land on the
+# far side, flip touch_mirror_x.
 
 substitutions:
   cyd_model: ESP32-2432S028-7789
   panel_width: "320"
   panel_height: "240"
   rotation: "90"
-  touch_x_min: "280"
-  touch_x_max: "3860"
-  touch_y_min: "340"
-  touch_y_max: "3860"
+  touch_x_min: "240"
+  touch_x_max: "3800"
+  touch_y_min: "200"
+  touch_y_max: "3700"
+  # "true" on the 2-USB board, see the touch note above.
+  touch_mirror_x: "true"
   font_small: "14"
   font_body: "18"
   font_big: "24"
@@ -72,6 +90,9 @@ display:
     id: panel_display
     model: ${cyd_model}
     spi_id: lcd_spi
+    # False on the ST7789 2-USB board. An ILI9341 board whose colours come
+    # out as a photo negative wants true: see esphome/README.md.
+    invert_colors: false
     auto_clear_enabled: false
     update_interval: never
 
@@ -82,6 +103,10 @@ touchscreen:
     cs_pin: 33
     interrupt_pin: 36
     display: panel_display
+    transform:
+      swap_xy: false
+      mirror_x: ${touch_mirror_x}
+      mirror_y: false
     calibration:
       x_min: ${touch_x_min}
       x_max: ${touch_x_max}
