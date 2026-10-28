@@ -125,6 +125,17 @@ The meadow's village life stays in the meadow: the walkers and their errands, th
 building up with a print's progress, the postie on foot (at the seaside letters come by air),
 the kit bag by the cottage, the house party and the office robot.
 
+**Post.** A letter, typed into the postie's helper or into someone's own
+([Room panels](#room-panels-optional)), is carried to its person, and their name tag wears a red
+envelope badge until their card is opened. The card opens on a striped airmail sheet: who it is
+from, the words in large type, and **Got it**. Got it, or closing the card, clears the letter
+(before v1.9.0 opening the card cleared it). The post only goes while the family is up, from
+07:09 to 19:50 (20:50 on a party night). A letter sent outside those hours waits, and a pill by
+the postbox says when it goes, "Post goes at 07:09" or "... tomorrow"; the seaside, the forest
+and the station have no postbox, so theirs sits under the corner hint.
+
+![Kid 1's card with a letter from Parent 1: an airmail-striped sheet at the top with the envelope, the sender, the text and a Got it button](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/letter.png)
+
 ### The space station
 
 ![The space station by day: the big window onto space with its ringed planet, the airlock, comms console, corridor, fabricator and bridge along the wall, and the aliens round the holo table](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/station.png)
@@ -575,7 +586,8 @@ kitchen panel shows today, lunch and kit, what is due, and four preset announcem
 
 The wall card reads the same helpers. Give each child `letter: input_text.letter_kid_a` in the
 card's `people` (or fill in **Own letter helper** in the editor) and their letters reach them on
-the wall like the postie's do; opening their card empties the helper, so the panel drops it too.
+the wall like the postie's do; **Got it** on their card (or closing it) empties the helper, so the
+panel drops it too.
 A missing or unavailable helper says "Letters unavailable" in the corner and on their card. The
 package's copy to the postie (`input_text.family_letter`) is now optional: the card shows each
 letter once, copy or not. Setup, hardware and flashing: [esphome/README.md](esphome/README.md).
@@ -593,6 +605,9 @@ shows the seaside (`scene=winter` and `scene=forest` the other two). Add `extras
 announcement, due times and status tiles on made-up states: `/demo/?extras&scene=station`.
 `announce=` sends the town crier out with a message two and a half seconds after load:
 `/demo/?scene=winter&announce=45%7CParent%202%7CDinner%27s%20at%20six` (`%7C` is `|`).
+`pletter=` posts a letter as a person's own helper would hold it, and nothing is ever written
+back: `/demo/?pletter=Kid%201%7CParent%201%7CTea%27s%20at%20six`; add `&hour=22` to see it wait
+for the morning post.
 
 ## Working on the card
 
@@ -619,7 +634,8 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 
 - Built and tuned for 1280x800. Other sizes work but every scene was laid out for that one.
   At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
-  the space station's wall most of all; use a wide card there.
+  the space station's wall most of all; use a wide card there. A card under 640 px wide stacks
+  the person's face over their lists (v1.9.0), so a letter and the week can be read on a phone.
 - On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
   since the template sensor tags each event with its owner's name. Calendars set on people
   have no such rule.

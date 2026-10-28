@@ -44,8 +44,8 @@ helper:
 - a panel's **Done** fires `esphome.family_letter_read` with `child` and `sent`, and the
   `family_panel_letter_read` automation empties the helper. Home Assistant accepts `esphome.*`
   events from an adopted device without the "allow actions" option.
-- the wall card: opening that person's card empties the helper, the same thing a panel's
-  **Done** does. See [The wall card](#the-wall-card) below.
+- the wall card: **Got it** on that person's card, or closing the card, empties the helper, the
+  same thing a panel's **Done** does. See [The wall card](#the-wall-card) below.
 
 **Offline.** The letter waits in the helper, which Home Assistant restores after a restart. A
 panel that was off shows it when it reconnects. A **Done** pressed while the panel was offline
@@ -56,7 +56,7 @@ hides the letter on that panel and is sent again when the API reconnects.
 
 ## The wall card
 
-Card v1.8.0 reads these helpers itself. Give each child their helper in the card's `people`,
+Card v1.8.0 and later read these helpers themselves. Give each child their helper in the card's `people`,
 or in the card editor's **Own letter helper** field:
 
 ```yaml
@@ -67,11 +67,18 @@ people:
 
 - The card polls the helper with its other live entities, every 45 seconds. A letter there goes
   to that person the way the postie's letters do: the postie walks it over in the meadow, and
-  in the other scenes it drops onto their name tag. They wear it until someone opens their card,
-  which shows it under "A letter from Parent 1" with the time the helper last changed.
-- Opening the card with a tap empties the helper (`input_text.set_value` or `text.set_value`,
-  value `""`), only if it still holds the letter that was read, so a newer letter that landed in
-  the meantime stays. The demo, the test hooks and a card opened with `?open=` never write.
+  in the other scenes it drops onto their name tag. Their tag wears a red envelope badge until
+  someone opens their card. The card opens on a striped "You've got post" sheet: "Letter from
+  Parent 1" with the time the helper last changed, the text in large type, and **Got it**.
+- The post goes out from 07:09 to 19:50 (20:50 on a party night), the hours the family is up.
+  A letter that lands outside them waits; a pill by the postbox (meadow, winter village) or under
+  the corner hint (the other scenes) says "Post goes at 07:09", or "... tomorrow" in the evening,
+  until the post goes.
+- **Got it**, or closing the card (Done, a tap outside it, or the minute a wall card stays open),
+  empties the helper (`input_text.set_value` or `text.set_value`, value `""`), only if it still
+  holds the letter that was shown, so a newer letter that landed in the meantime stays. Until
+  v1.9.0 the card emptied it the moment it opened; it now waits so the letter can be read first.
+  Only a card opened with a tap writes: the demo, the test hooks and `?open=` never do.
 - A helper emptied elsewhere (a panel's **Done**, the expiry) takes the letter back off the wall
   at the next poll, even if the postie is on the road with it. A new letter replaces an unread
   one in the same envelope.
