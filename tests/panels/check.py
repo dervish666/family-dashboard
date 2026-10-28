@@ -639,7 +639,7 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
     for label, text in (("light_tiles.yaml", srcs["tiles"]), ("timers.yaml", srcs["timers"]),
                         ("kitchen.yaml", srcs["ex_kitchen"]), ("kitchen.local.yaml", srcs["ex_kitchen_local"])):
         s = esphome_subs(text)
-        for i in range(1, 5):
+        for i in range(1, 9):
             t, n = s.get(f"tile_{i}_target"), s.get(f"tile_{i}_name")
             if t is not None and n != "":
                 r.check(t in targets, f"{label}: tile_{i}_target {t!r} is not in light_targets {sorted(targets)}")

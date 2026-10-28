@@ -1,6 +1,6 @@
 {
   "name": "family-dashboard",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "private": true,
   "description": "A Lovelace card: an animated world where each person in the household is a creature.",
   "license": "MIT",
