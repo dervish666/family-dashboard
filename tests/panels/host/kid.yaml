@@ -11,11 +11,16 @@ substitutions:
   font_body: "18"
   font_big: "24"
   font_clock: "52"
+  hold_row_height: "40"
+  hold_row_gap: "4"
+  garden_art: ../../../esphome/art
 
 packages:
   base: !include ../../../esphome/packages/base.yaml
   board: !include board.yaml
   profile: !include ../../../esphome/profiles/kid.yaml
+  lamps: !include ../../../esphome/packages/lamp_pills.yaml
+  garden: !include ../../../esphome/packages/garden.yaml
   fake: !include fake_kid.yaml
 
 wifi: !remove

@@ -1,12 +1,14 @@
 # Room panels (optional)
 
 Small ESP32 touchscreens for around the house, built with ESPHome. A panel in a child's room
-shows a clock, the family announcement, and letters sent to that child from a phone, another
-panel or an automation. The child taps the envelope, reads it, taps **Done**, and the letter is
-gone from every screen. A kitchen panel shows the house over four pages: Home (clock,
-announcement, bins, printer and rain, and the room light tiles with All off), Today (calendar,
-lunch and kit, what is due), Timers (three timers with a chime, a "Timer done" card and a spoken
-alert on the house speakers) and Announce (four preset announcements).
+shows a clock over a garden with butterflies, the family announcement, two lamp buttons, and
+letters sent to that child from a phone, another panel or an automation: an envelope appears by
+the clock, the child taps it, reads the letter, taps **Done**, and it is gone from every screen.
+A kitchen panel shows the house over four pages: Home (clock, announcement, bins, printer and
+rain, and the room light tiles with All off), Today (calendar, lunch and kit, what is due),
+Timers (three timers with a chime, a "Timer done" card and a spoken alert on the house
+speakers) and Announce (four preset announcements). On either panel a tap switches a light and
+a hold opens its light page: brightness, warmth and colour, as far as the lamp can do them.
 
 None of this is needed for the card. The panels and the card share Home Assistant helpers and
 nothing else.
@@ -58,12 +60,16 @@ Display with an IPS screen and capacitive touch that needs no calibration. The l
 
 **ESP32-2432S028R.** The cheapest, and fine for a child's room once calibrated. It ships with
 three display chips on the same pins. The board file defaults to the ST7789V version
-(`cyd_model: ESP32-2432S028-7789`). For the ILI9341 version set `cyd_model: ESP32-2432S028`
-(as `examples/kid-a.yaml` does); for the ILI9342, `ESP32-2432S028-9342`. The USB sockets do not
-tell the versions apart reliably: boards with a USB-C socket ship with either chip. A white,
-mirrored or photo-negative screen means the wrong model. If the model is right and only the
-colours come out inverted, add this to the device file (`examples/kid-a.yaml` has it commented
-out):
+(`cyd_model: ESP32-2432S028-7789`), the 2-USB board, which is what `examples/kid-a.yaml` is
+and what has been run (2026-10-28): no colour inversion, touch calibrated at x 240..3800, y
+200..3700 with the x axis mirrored (`touch_mirror_x: "true"`). For the ILI9341 version set
+`cyd_model: ESP32-2432S028`; for the ILI9342, `ESP32-2432S028-9342`. The USB sockets do not
+tell the versions apart reliably: boards with a USB-C socket ship with either chip. A white or
+mirrored screen means the wrong model; so does a picture turned 90 degrees with a band of static
+down one side and the colours wrong, which is the ILI9341 model on an ST7789 board (its init
+sends C0 0x23, and on an ST7789 that register swaps the axes, swaps red and blue and flips the
+scan). If the model is right and only the colours come out inverted, add this to the device
+file (`examples/kid-a.yaml` has it commented out):
 
 ```yaml
 display:
@@ -76,7 +82,9 @@ are on, and reboots in a loop. Use a 5 V 1 A (or better) wall supply and a short
 
 Resistive touch needs calibrating per board. If a tap lands in the wrong place, set
 `logger: level: DEBUG` for one build, tap each corner, read `x_raw` and `y_raw` from the log,
-and set `touch_x_min`, `touch_x_max`, `touch_y_min` and `touch_y_max` in the device file.
+and set `touch_x_min`, `touch_x_max`, `touch_y_min` and `touch_y_max` in the device file. If
+every tap lands on the far side of the screen, flip `touch_mirror_x`. A board on its head
+(`rotation: "270"`) keeps the same touch values: LVGL turns the touch with the picture.
 
 **Mounted upside down?** Each board file has a `rotation` (90 for the two landscape boards, 0 for
 the JC3248W535). Add 180: a CYD on its head is `rotation: "270"`. LVGL turns the touch with the
@@ -89,16 +97,21 @@ the way up.
 
 | Profile | For | Shows | Needs in Home Assistant |
 |---|---|---|---|
-| `kid` | one child's room | clock, announcement, that child's letters | `input_text.letter_<child>` |
+| `kid` | one child's room | clock, announcement, that child's letters (an envelope only while one waits) | `input_text.letter_<child>` |
 | `kitchen` | the shared family view | Home: clock, announcement, the strip. Today: calendar, lunch and kit, due. Announce: four presets | `sensor.panel_today`, `sensor.panel_lunch_and_kit`, `sensor.panel_due`, `sensor.panel_strip`, `sensor.panel_rain` |
 | `generic` | a hallway, a spare room | clock, announcement, one line of text from any sensor | any text sensor (`info_entity`) |
 
-The kitchen takes two more packages:
+The kitchen takes two more packages, and a kid panel two of its own:
 
 | Package | Adds | Needs |
 |---|---|---|
 | `packages/timers.yaml` | a Timers page: three timers, the chime, the "Timer done" card, `esphome.family_panel_timer_done` | a board with a speaker: the JC3248W535 |
-| `packages/light_tiles.yaml` | up to eight room tiles (amber when on) and All off on the Home page, by `esphome.family_panel_light` | any board |
+| `packages/light_tiles.yaml` | up to eight room tiles (amber when on, "On 72%") and All off on the kitchen Home page, by `esphome.family_panel_light`; a hold opens the light page | the kitchen profile |
+| `packages/lamp_pills.yaml` | two lamp buttons along the bottom of a kid panel's Home page, tap to switch, hold for the light page | the kid profile |
+| `packages/garden.yaml` | the garden: a pastel garden behind a kid panel's clock with butterflies by day, the same garden asleep with fireflies at night | the kid profile, a 320x240 landscape board |
+
+Both light packages pull in `packages/light_hold.yaml`, the light page, on their own; a device
+file never lists it. The two are not for the same panel.
 
 The pages change with the buttons along the bottom: Home, Today, Timers, Announce, with the
 page on the screen marked. The panel boots to Home and goes back to it after `idle_timeout`.
@@ -149,6 +162,51 @@ tap toggles the room; All off turns every tile's room off, and is amber itself w
 Four tiles fit under the strip card; tiles 5 to 8 are hidden until named, and with them the
 Home page scrolls. An empty `tile_N_name` hides a tile.
 
+**The light page.** Hold a tile or a lamp pill for about half a second (LVGL's long press, 400
+ms) and the page opens: the room's name, an On/Off switch, **Back**, and a row per thing the
+lamp can do. Brightness, 1 to 100%. Warmth, across the lamp's own kelvin range as Home
+Assistant reports it. Colour and Vivid, the hue and how strong it is, with a swatch of the
+result. Rows the lamp cannot do are not drawn: a plain bulb gets the switch and a note, a
+dimmable one the brightness row, a warm-white one warmth too, a colour one the lot. A slider
+sends on release, and two releases within 150 ms go as one event. Twenty seconds untouched,
+or Back, goes home. `tile_N_hold: off` or `lamp_N_hold: off` makes that tile tap-only.
+
+The page learns what a lamp can do from one sensor, `sensor.panel_lights` in
+`panels-kitchen.example.yaml`, whose `lines` attribute has a line per target: the state,
+brightness, kelvin and the lamp's range, its capabilities (b, t, c), hue and saturation. One
+subscription for every lamp on the panel, and the panel never holds an entity id. What it sends
+back, `esphome.family_panel_light_set`, names the target and the values that changed; the
+`family_panel_light_set` automation looks the target up in `light_hold`, clamps brightness to
+1 to 100, kelvin to the lamp's own minimum and maximum, hue to 0 to 360 and saturation to 0 to
+100, drops anything the lamp cannot do, and calls `light.turn_on` once. Six events queue at
+most, 150 ms apart; a flood past that is dropped and logged. A tile shows the brightness
+("On 72%") from the same sensor.
+
+**Lamp pills.** A kid panel's two lamps, along the bottom of the Home page: amber when on with
+the brightness, white when off, sand with "No answer" when Home Assistant cannot say. A tap
+toggles, a hold opens the light page. At night, while the screen is only glowing, a tap or a
+hold just wakes it, so a hand feeling for the clock in the dark cannot switch the big light on.
+An empty `lamp_2_name` leaves one wide pill.
+
+**Letters on a kid panel.** Nothing shows until a letter waits; then a small envelope with a
+breathing red dot appears between the clock and the date. A tap opens the letter full screen,
+**Done** clears it everywhere. A letter helper that is missing or `unavailable` shows nothing
+either (the `offline` tag under the date already says when Home Assistant is away), and the
+panel logs it once.
+
+**The garden.** `packages/garden.yaml` paints a garden behind the kid Home page: a pastel sky,
+sun, clouds and a row of flowers by day, with two or three butterflies flapping across the sky
+and the clock; at night (the same schedule as `night_start` and `night_end`, with the dim glow
+untouched) the garden asleep under a navy sky, a moon, stars, a butterfly asleep on a flower
+and fireflies drifting and pulsing, with the clock in pale ink. `theme: plain` keeps the cream
+page instead; leave the package out to keep the art out of the flash. The art is generated by
+`esphome/art/garden.py` (Pillow) into `esphome/art/*.png`, generic flowers and butterflies with
+nothing private in them, and ESPHome converts it at compile time: the two 320x240 backgrounds to
+RGB565 (150 KB each, in flash, drawn in place) and the sprites to RGB565 with alpha. The
+butterflies are three small images on LVGL's top layer, moved 25 times a second, not clickable,
+so a tap goes straight through them. `garden_art` is where the PNGs come from: GitHub by
+default (pin it to the same tag as the packages), or `../art` for a checkout of this repo.
+
 ## Options
 
 Set any of these under `substitutions:` in the device file.
@@ -172,7 +230,15 @@ Set any of these under `substitutions:` in the device file.
 | `timer_escalate`, `timer_volume_max`, `timer_escalate_seconds` | `"true"`, `"1.0"`, `"30"` | each repeat a step louder, from `timer_volume` to `timer_volume_max` over `timer_escalate_seconds`. `"false"` keeps every chime at `timer_volume`. If full scale rasps on your speaker, set `timer_volume_max: "0.95"` |
 | `timer_chime_every`, `timer_ring_seconds` | `"5"`, `"120"` | seconds between chimes, and how long a timer rings before it goes quiet |
 | `tile_N_name`, `tile_N_target`, `tile_N_entity` | four example rooms, N up to 8 | the tile's label, its key in `light_targets`, and what it follows; an empty name hides the tile |
+| `tile_N_hold` | `auto` | `auto` reads the lamp's capabilities from `sensor.panel_lights`; `off` makes the tile tap-only |
 | `tile_height` | `"96"` | tile height in pixels; two rows of 96 fit under the strip card on the JC3248W535 |
+| `lamp_N_name`, `lamp_N_target`, `lamp_N_entity`, `lamp_N_hold` | Globe and Big light, N 1 or 2 | a kid panel's lamp pills: the label, its key in `light_targets` and `light_hold`, what it follows, and `auto` or `off` for the hold |
+| `lamp_height` | `"58"` | the pill row's height |
+| `lights_entity` | `sensor.panel_lights` | the summary sensor the light page and the tiles read |
+| `hold_row_height`, `hold_row_gap` | `"44"`, `"8"` | a row on the light page and the gap between rows; `"40"` and `"4"` fit five rows on a 320x240 screen |
+| `theme` | `garden` | with `packages/garden.yaml`: `garden` draws the art, `plain` the cream page |
+| `garden_art` | the repo's `esphome/art` on GitHub at `main` | where the garden's PNGs come from; pin it with the packages, or point it at a local checkout |
+| `touch_mirror_x` | `"true"` | ESP32-2432S028R only: mirror the touch x axis. True on the 2-USB ST7789 board; flip it if taps land on the far side |
 | `font_header` | `"44"` | the kitchen Home page clock |
 | `speaker_channel`, `speaker_gain` | `mono`, `85%` | JC3248W535 only. `speaker_gain` is the rtttl player's starting volume; the timer chime sets its own from `timer_volume` |
 
@@ -198,7 +264,9 @@ tiles, timer alerts, the strip and rain) for the v2 kitchen.
 3. Change Kid A, Kid B and Kid C to your children (the slugs `kid_a`... are in the helper names,
    the `recipients` list and each panel's `child:`), and point `kids` under
    `sensor.panel_lunch_and_kit` at your lunch and timetable sensors.
-4. In the kitchen package: your rooms in `light_targets`, your timer names in `timer_names`, and
+4. In the kitchen package: your rooms in `light_targets` and the one lamp the light page
+   adjusts for each in `light_hold` (a kid panel's lamp pills go in both too), your timer names
+   in `timer_names`, and
    how to speak (`announce_satellites`, `tts_entity` and `tts_players`, or the `rest_command`
    with `family_panel_say_url` in `secrets.yaml`; delete the `rest_command` and set
    `say_command: ''` if you have no speech service of your own).
@@ -362,25 +430,33 @@ From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable conta
   `kid-a.yaml` pulling the packages from GitHub at the commit under test.
 - `tests/panels/check.py` compiles the panel's own C++ (letter and announcement parsing, the
   12- and 24-hour clock, the night window with keep-awake, the kitchen card lines, the timer
-  phases and their display, the light tile state) and renders the packages' own Jinja (letters,
-  the light allowlist, the timer alert's wording), holds them to tables of cases, and checks
-  the examples against the allowlists. It also works out the night glow's real duty on every
+  phases and their display, the light tile state, the light summary parser) and renders the
+  packages' own Jinja (letters, the light allowlist, the light page's clamps and the
+  `panel_lights` lines, the timer alert's wording), holds them to tables of cases, and checks
+  the examples against the allowlists and the CYD board file against what ran on the real board. It also works out the night glow's real duty on every
   board and example, the level raised to the backlight's `gamma_correct`. `--sabotage` breaks each piece on purpose and proves a
   check fails.
-- `tests/panels/host/render.sh` draws every page of the kitchen and a kid panel on the
-  development machine: the same LVGL pages, built for ESPHome's host platform into a headless
+- `tests/panels/host/render.sh` draws every page of the kitchen and a kid panel, the light
+  page for a brightness-only, a warm-white and a colour lamp, and the garden by day and by
+  night, on the development machine: the same LVGL pages, built for ESPHome's host platform into a headless
   SDL surface, fed made-up Home Assistant states, and saved as PNGs. Needs SDL2 (`brew install
   sdl2`). It is how the layout was checked before a flash; fonts are rendered at 4 bits per
   pixel (ESPHome's default is 1, which is what made the first firmware's text look jagged).
 - `tests/panels/ha_live.py` runs both packages in a throwaway Home Assistant: letters, presets,
   light tiles switching template lights (and refusing entity ids, unknown targets and other
-  actions), timer alerts posted to a stand-in speech service, the strip, rain from the sensor
+  actions), the light page setting brightness, warmth and colour on template lights with every
+  value clamped and the `panel_lights` lines read back, a burst paced and capped, timer alerts posted to a stand-in speech service, the strip, rain from the sensor
   and from a forecast, and the long-day lines attribute.
 
 Only the board can prove the rest. Treat the first flash of each board as the test of:
 
 - the screen, touch mapping and calibration, rotation (a flipped CYD at 270 included) and
   whether an ILI9341 board needs `invert_colors`;
+- how the light page's sliders feel under a finger, on resistive touch (the CYD) and
+  capacitive, whether 400 ms is the right hold, and whether the hue slider's colour matches
+  what the lamp shows;
+- the butterflies: how smooth 25 moves a second look on the CYD's SPI bus, and the free heap
+  with the garden up (the art is in flash; the log's heap line says what the sprites cost);
 - the JC3248W535 speaker: that the pins drive the amp (yes, on one panel, with mono), how loud
   `timer_volume` and full scale are on your speaker, and whether the amp distorts at the top of
   the escalation (Test alarm plays the whole climb);

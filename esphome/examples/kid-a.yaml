@@ -1,24 +1,25 @@
-# Kid A's room panel on a Cheap Yellow Display (ESP32-2432S028R), the
-# ILI9341 version, mounted upside down, with a 12-hour clock and a dim glow
-# at night instead of a dark screen.
+# Kid A's room panel on a Cheap Yellow Display (ESP32-2432S028R, the 2-USB
+# ST7789 version), with a 12-hour clock, a dim glow at night instead of a
+# dark screen, the garden with its butterflies, and two lamp pills: a tap
+# switches a lamp, a hold opens its light page.
 #
 # Copy this file into your ESPHome folder, rename it, set child to the slug
 # of input_text.letter_<slug>, and add panel_kid_a_api_key to secrets.yaml
-# (esphome/README.md says how to make one). The three packages come from
-# GitHub; pin @main to a release tag once you have it working.
+# (esphome/README.md says how to make one). The packages come from GitHub;
+# pin @main to a release tag once you have it working, and garden_art with
+# it. The lamp targets must be keys in light_targets and light_hold
+# (homeassistant/panels-kitchen.example.yaml).
 substitutions:
   name: panel-kid-a
   friendly_name: Kid A panel
   child: kid_a
   api_key: !secret panel_kid_a_api_key
 
-  # The display chip. ESP32-2432S028 is the ILI9341 version; the board file's
-  # default is the ST7789V one (ESP32-2432S028-7789). A white, inverted or
-  # mirrored screen means the wrong one: see esphome/README.md.
-  cyd_model: ESP32-2432S028
-  # Upside down: the board file's landscape is 90, so a flipped mount is 270.
-  # LVGL turns the touch with the picture.
-  rotation: "270"
+  # The display chip: the board file's default, ESP32-2432S028-7789, is the
+  # 2-USB ST7789 board. The micro-USB-only ILI9341 version wants
+  # cyd_model: ESP32-2432S028 and often invert_colors (below). A white,
+  # turned or mirrored screen means the wrong one: see esphome/README.md.
+  # rotation: "90"                 # "270" for a board mounted on its head
 
   clock_format: "12h"
   night_mode: dim
@@ -26,7 +27,21 @@ substitutions:
   night_end: "07:00"
   # night_glow_brightness: 4%      # the glow, as backlight duty; how low it can go depends on the board
 
-# Right model but the colours look like a photo negative? Uncomment:
+  # The lamps. An empty lamp_2_name leaves one wide pill.
+  lamp_1_name: "Globe"
+  lamp_1_target: kid_a_globe
+  lamp_1_entity: light.kid_a_globe
+  lamp_2_name: "Big light"
+  lamp_2_target: kid_a_main
+  lamp_2_entity: light.kid_a_main
+  # The light page on a 320x240 screen: five rows of 40 fit without scrolling.
+  hold_row_height: "40"
+  hold_row_gap: "4"
+
+  # theme: plain                   # the cream page instead of the garden
+  garden_art: https://raw.githubusercontent.com/dervish666/family-dashboard/main/esphome/art
+
+# ILI9341 board with the colours like a photo negative? Uncomment:
 # display:
 #   - id: !extend panel_display
 #     invert_colors: true
@@ -35,3 +50,5 @@ packages:
   base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
   board: github://dervish666/family-dashboard/esphome/boards/esp32_2432s028.yaml@main
   profile: github://dervish666/family-dashboard/esphome/profiles/kid.yaml@main
+  lamps: github://dervish666/family-dashboard/esphome/packages/lamp_pills.yaml@main
+  garden: github://dervish666/family-dashboard/esphome/packages/garden.yaml@main
