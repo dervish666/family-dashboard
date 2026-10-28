@@ -796,6 +796,11 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
                     r.check(t in holds, f"{label}: lamp_{i}_target {t!r} is not in light_hold {sorted(holds)}")
             if n is not None:
                 r.check('"' not in n and "\\" not in n, f"{label}: lamp_{i}_name {n!r} has a quote or backslash")
+        for i in range(1, 4):
+            n = s.get(f"timer_{i}_name")
+            if n is not None:
+                r.check(n in timer_names, f"{label}: timer_{i}_name {n!r} is not in timer_names {timer_names}")
+                r.check('"' not in n and "\\" not in n, f"{label}: timer_{i}_name {n!r} has a quote or backslash")
     # The tiles and the pills toggle on a short click only: on_click would
     # also fire at the end of the hold that opened the light page.
     for label, key, n in (("light_tiles.yaml", "tiles", 8), ("lamp_pills.yaml", "lamps", 2)):
@@ -822,11 +827,6 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
         r.check(f.name in srcs["garden"] or f.name in ("bg_day.png", "bg_night.png"), f"art/{f.name} is not used by garden.yaml")
     for name in ("bg_day.png", "bg_night.png", "firefly.png"):
         r.check((ROOT / "esphome" / "art" / name).is_file(), f"esphome/art/{name} is missing")
-        for i in range(1, 4):
-            n = s.get(f"timer_{i}_name")
-            if n is not None:
-                r.check(n in timer_names, f"{label}: timer_{i}_name {n!r} is not in timer_names {timer_names}")
-                r.check('"' not in n and "\\" not in n, f"{label}: timer_{i}_name {n!r} has a quote or backslash")
     for f in sorted(EXAMPLES.glob("*.yaml")):
         if f.name == "secrets.yaml":
             continue
