@@ -1,10 +1,20 @@
-# Kid profile: one child's letters, the clock and the family announcement.
+# Kid profile: the clock, the family announcement and one child's letters.
 #
 # A letter is sent from any device through script.family_send_panel_letter
 # (homeassistant/panels.example.yaml). It lands in input_text.letter_<child>
-# as "from|text"; the panel shows an envelope with a red dot, a tap opens it
-# full screen, and Done tells Home Assistant it was read, which empties the
-# helper so the letter is gone from every screen at once.
+# as "from|text"; the panel shows a small envelope with a red dot by the
+# clock, a tap opens it full screen, and Done tells Home Assistant it was
+# read, which empties the helper so the letter is gone from every screen at
+# once. With no letter there is nothing to see: no empty envelope, no "No
+# letters". A letter helper that is missing or unavailable shows nothing
+# either (the "offline" tag under the date already covers Home Assistant
+# being away), and the log says so once.
+#
+# The page is laid out for a 320x240 landscape board: the clock top left,
+# the date top right, the envelope between them, the announcement across the
+# middle when there is one, and whatever a package appends along the bottom
+# (packages/lamp_pills.yaml: two lamp buttons). packages/garden.yaml puts a
+# garden behind it all, with butterflies by day and fireflies at night.
 #
 # Substitutions the device file must set:
 #   child          the child's slug, as in input_text.letter_<child> (kid_a)
@@ -94,24 +104,17 @@ text_sensor:
     internal: true
 
 script:
+  # The envelope shows only while a letter waits. Anything else, waiting,
+  # none, unavailable, is nothing on the screen.
   - id: show_letter_state
     then:
       - lambda: |-
           int k = id(letter_kind);
-          const char *msg = k == 0 ? "Waiting for Home Assistant"
-                          : k == 1 ? "No letters"
-                          : k == 3 ? "Letters unavailable"
-                          : nullptr;
-          std::string line;
-          if (k == 2) line = id(letter_from).empty() ? std::string("A letter for you!")
-                                                     : "Letter from " + id(letter_from) + "!";
-          lv_label_set_text(id(letter_status), msg ? msg : line.c_str());
-          lv_obj_t *env = id(envelope);
-          lv_obj_set_style_bg_color(env, lv_color_hex(k == 2 ? 0xFFFFFF : 0xEDE6D8), LV_PART_MAIN);
-          lv_obj_set_style_border_color(env, lv_color_hex(k == 2 ? 0xC9594A : 0xB9B4AA), LV_PART_MAIN);
-          lv_obj_set_style_line_color(id(envelope_flap)->obj,lv_color_hex(k == 2 ? 0xC9594A : 0xB9B4AA), LV_PART_MAIN);
-          if (k == 2) lv_obj_clear_flag(id(unread_dot), LV_OBJ_FLAG_HIDDEN);
-          else lv_obj_add_flag(id(unread_dot), LV_OBJ_FLAG_HIDDEN);
+          static int said = -1;
+          if (k == 3 && said != 3) ESP_LOGW("letters", "The letter helper is unavailable; the envelope stays hidden");
+          said = k;
+          if (k == 2) lv_obj_clear_flag(id(letter_button), LV_OBJ_FLAG_HIDDEN);
+          else lv_obj_add_flag(id(letter_button), LV_OBJ_FLAG_HIDDEN);
           if (k != 2 && lv_scr_act() == id(letter_page)->obj) id(go_home).execute();
 
   - id: open_letter
@@ -132,6 +135,15 @@ script:
   - id: go_home
     then:
       - lvgl.page.show: main_page
+
+  # Light text on a dark night theme (packages/garden.yaml), the usual ink
+  # otherwise.
+  - id: !extend theme_apply
+    then:
+      - lambda: |-
+          bool dark = id(is_night) && id(theme_night_dark);
+          lv_obj_set_style_text_color(id(clock_label), lv_color_hex(dark ? 0xE9C79C : 0x2E2A24), LV_PART_MAIN);
+          lv_obj_set_style_text_color(id(date_label), lv_color_hex(dark ? 0x9B96C2 : 0x7A7366), LV_PART_MAIN);
 
   - id: letter_done
     then:
@@ -160,6 +172,16 @@ script:
                   child: ${child}
                   sent: !lambda return id(read_sent);
 
+interval:
+  # The red dot breathes while a letter waits: two shades, not a flash.
+  - interval: 700ms
+    then:
+      - lambda: |-
+          static bool dim = false;
+          if (lv_obj_has_flag(id(letter_button), LV_OBJ_FLAG_HIDDEN)) return;
+          dim = !dim;
+          lv_obj_set_style_bg_color(id(unread_dot), lv_color_hex(dim ? 0xE08A7E : 0xC9594A), LV_PART_MAIN);
+
 lvgl:
   pages:
     - id: main_page
@@ -187,6 +209,46 @@ lvgl:
                   id: clock_label
                   text: "--:--"
                   text_font: font_clock
+              # The envelope: a 44 px button, hidden until a letter waits.
+              - button:
+                  id: letter_button
+                  width: 48
+                  height: 44
+                  bg_color: 0xFFFFFF
+                  border_width: 2
+                  border_color: 0xC9594A
+                  radius: 12
+                  hidden: true
+                  on_click:
+                    - script.execute: open_letter
+                  widgets:
+                    - obj:
+                        width: 26
+                        height: 18
+                        radius: 3
+                        border_width: 2
+                        border_color: 0xC9594A
+                        bg_color: 0xFFF4F2
+                        align: CENTER
+                        clickable: false
+                        scrollable: false
+                        widgets:
+                          - line:
+                              points: ["0,0", "11,8", "22,0"]
+                              line_width: 2
+                              line_color: 0xC9594A
+                              line_rounded: true
+                    - obj:
+                        id: unread_dot
+                        width: 12
+                        height: 12
+                        radius: 6
+                        bg_color: 0xC9594A
+                        border_width: 2
+                        border_color: 0xFFFFFF
+                        align: TOP_RIGHT
+                        x: 2
+                        y: -2
               - obj:
                   width: SIZE_CONTENT
                   height: SIZE_CONTENT
@@ -207,56 +269,6 @@ lvgl:
                         text_font: font_small
                         text_color: 0xC9594A
                         hidden: true
-        - button:
-            id: letter_button
-            width: 100%
-            flex_grow: 1
-            styles: card_style
-            bg_color: 0xFFFFFF
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_main: center
-              flex_align_cross: center
-              pad_column: 16
-            on_click:
-              - script.execute: open_letter
-            widgets:
-              - obj:
-                  id: envelope
-                  width: 84
-                  height: 58
-                  radius: 6
-                  border_width: 3
-                  border_color: 0xB9B4AA
-                  bg_color: 0xEDE6D8
-                  clickable: false
-                  scrollable: false
-                  widgets:
-                    - line:
-                        id: envelope_flap
-                        points: ["0,0", "39,30", "78,0"]
-                        line_width: 3
-                        line_color: 0xB9B4AA
-                        line_rounded: true
-                    - obj:
-                        id: unread_dot
-                        width: 18
-                        height: 18
-                        radius: 9
-                        bg_color: 0xC9594A
-                        border_width: 2
-                        border_color: 0xFFFFFF
-                        align: TOP_RIGHT
-                        x: -5
-                        y: 5
-                        hidden: true
-              - label:
-                  id: letter_status
-                  text: "Waiting for Home Assistant"
-                  text_font: font_big
-                  long_mode: wrap
-                  width: 160
         - obj:
             id: announce_box
             width: 100%
