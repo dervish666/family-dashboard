@@ -53,7 +53,7 @@ esphome:
   min_version: 2026.10.0
   project:
     name: dervish666.family-dashboard-panel
-    version: "0.3.0"
+    version: "0.3.1"
   on_boot:
     priority: -100
     then:
