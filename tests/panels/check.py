@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Checks the room panel letter contract against the files that ship.
+"""Checks the room panel contracts against the files that ship.
 
-It does not re-implement the contract and test the copy. It pulls the real
+It does not re-implement a contract and test the copy. It pulls the real
 code out of the repo and runs it:
 
-  * the Jinja templates in homeassistant/panels.example.yaml (the send
-    script's recipient check and formatting, and the read automation's
-    parsing), rendered the way Home Assistant renders script variables;
-  * the C++ between the BEGIN/END markers in esphome/profiles/kid.yaml and
-    esphome/packages/base.yaml, compiled with the host compiler.
+  * the Jinja in homeassistant/panels.example.yaml (the send script's
+    recipient check and formatting, the read automation's parsing) and in
+    homeassistant/panels-kitchen.example.yaml (the light allowlist, the timer
+    alert's wording), rendered the way Home Assistant renders variables;
+  * the C++ between the BEGIN/END markers in the ESPHome files (the letter
+    and announcement parsers, the clock format, the night window, the
+    kitchen's card lines, the timer phases and their display, the light tile
+    state), compiled with the host compiler.
 
-and holds all of them to one table of expected results. It also checks that
-the files agree with each other: kitchen presets, recipient helpers, example
-children.
+and holds all of them to tables of expected results. It also checks that
+the files agree with each other: presets, recipients, light targets, timer
+names, the events a panel fires, the sensors a panel reads, the examples.
 
   python3 tests/panels/check.py              run the checks
   python3 tests/panels/check.py --sabotage   break each piece on purpose and
@@ -39,11 +42,19 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 from slugify import slugify as _slugify
 
 ROOT = Path(__file__).resolve().parents[2]
-HA_FILE = ROOT / "homeassistant" / "panels.example.yaml"
-KID_FILE = ROOT / "esphome" / "profiles" / "kid.yaml"
-BASE_FILE = ROOT / "esphome" / "packages" / "base.yaml"
-KITCHEN_FILE = ROOT / "esphome" / "profiles" / "kitchen.yaml"
 EXAMPLES = ROOT / "esphome" / "examples"
+FILES = {
+    "ha": ROOT / "homeassistant" / "panels.example.yaml",
+    "kid": ROOT / "esphome" / "profiles" / "kid.yaml",
+    "base": ROOT / "esphome" / "packages" / "base.yaml",
+    "kitchen": ROOT / "esphome" / "profiles" / "kitchen.yaml",
+    "hak": ROOT / "homeassistant" / "panels-kitchen.example.yaml",
+    "timers": ROOT / "esphome" / "packages" / "timers.yaml",
+    "tiles": ROOT / "esphome" / "packages" / "light_tiles.yaml",
+    "ex_kitchen": EXAMPLES / "kitchen.yaml",
+    "ex_kitchen_local": EXAMPLES / "kitchen.local.yaml",
+    "ex_kid_a": EXAMPLES / "kid-a.yaml",
+}
 
 
 # ── Home Assistant's template behaviour, as far as these templates need it ──
@@ -56,15 +67,19 @@ def ha_slugify(text):
     return "unknown" if slug == "" else slug
 
 
-def ha_env():
+def ha_env(states=None):
     env = ImmutableSandboxedEnvironment()
     env.filters["slugify"] = ha_slugify
+    vals = states or {}
+    env.tests["is_state"] = lambda eid, want: vals.get(eid, "unknown") == want
     return env
 
 
 def parse_result(rendered: str):
-    """Home Assistant turns a rendered variable that looks like a literal into
-    that type (a list stays a list); anything else stays the string."""
+    """Home Assistant strips a rendered variable, then turns one that looks
+    like a literal into that type (a list stays a list); anything else stays
+    the string."""
+    rendered = rendered.strip()
     try:
         value = ast.literal_eval(rendered)
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
@@ -103,7 +118,7 @@ class FakeStates:
 
 
 def render_bool(env, tpl: str, ctx: dict) -> bool:
-    out = parse_result(env.from_string(tpl).render(**ctx).strip())
+    out = parse_result(env.from_string(tpl).render(**ctx))
     return out is True or str(out).lower() == "true"
 
 
@@ -138,7 +153,7 @@ def esphome_subs(text: str) -> dict:
     return data.get("substitutions", {})
 
 
-# ── The contract ────────────────────────────────────────────────────────────
+# ── The contract tables ─────────────────────────────────────────────────────
 # (raw helper value) -> (kind, from, text). kind 1 none, 2 letter, 3 unavailable.
 
 # The table lives in letters.json so the card's tests (tests/check.mjs) run the same one.
@@ -174,6 +189,116 @@ ANNOUNCE_CASES = [
     ("a|b|c", "a|b|c"),
     ("unavailable", "Announcements unavailable"),
     ("unknown", ""),
+]
+
+# (hour, minute, twelve) -> (clock, suffix)
+CLOCK_CASES = [
+    (0, 5, True, "12:05", "am"),
+    (7, 5, True, "7:05", "am"),
+    (11, 59, True, "11:59", "am"),
+    (12, 0, True, "12:00", "pm"),
+    (13, 7, True, "1:07", "pm"),
+    (23, 59, True, "11:59", "pm"),
+    (0, 0, False, "00:00", ""),
+    (7, 5, False, "07:05", ""),
+    (23, 59, False, "23:59", ""),
+]
+
+# (now, start, end, keep awake) -> night
+NIGHT_CASES = [
+    ("21:00", "21:00", "07:00", False, True),
+    ("20:59", "21:00", "07:00", False, False),
+    ("00:00", "21:00", "07:00", False, True),
+    ("06:59", "21:00", "07:00", False, True),
+    ("07:00", "21:00", "07:00", False, False),
+    ("02:00", "21:00", "07:00", True, False),
+    ("12:00", "21:00", "07:00", True, False),
+    ("12:00", "22:00", "22:00", False, False),
+    ("13:00", "12:00", "14:00", False, True),
+    ("14:00", "12:00", "14:00", False, False),
+]
+
+LONG = "\n".join(f"Line {i}" for i in range(1, 15))
+# (sensor state, lines attribute, what, max_lines) -> shown. None for a state or
+# attribute is "not heard yet"; a shown of None means the card keeps waiting.
+LINES_CASES = [
+    ("3", "", "Calendar", 12, "Calendar unavailable"),
+    ("3", "None", "Calendar", 12, "Calendar unavailable"),
+    ("3", "unavailable", "Due times", 12, "Due times unavailable"),
+    ("unknown", "unknown", "Rain", 2, "Rain unavailable"),
+    ("3", "Nothing on today", "Calendar", 12, "Nothing on today"),
+    ("3", "  09:00 Swim (Kid A) \n\n All day Bin day  \n", "Calendar", 12, "09:00 Swim (Kid A)\nAll day Bin day"),
+    ("3", LONG, "Calendar", 12, "\n".join(f"Line {i}" for i in range(1, 12)) + "\n+3 more"),
+    ("3", "\n".join(f"Line {i}" for i in range(1, 13)), "Calendar", 12, "\n".join(f"Line {i}" for i in range(1, 13))),
+    ("Raining", "Raining\nsecond\nthird", "Rain", 2, "Raining\n+2 more"),
+    ("1", "Calendar unavailable (sensor.family_today)", "Calendar", 12, "Calendar unavailable (sensor.family_today)"),
+    ("ok", "Kid A: £2 dinner, crème brûlée", "Lunch and kit", 12, "Kid A: £2 dinner, crème brûlée"),
+    # The sensor went unavailable: its old lines must not stay up.
+    ("unavailable", "09:00 Swim (Kid A)", "Calendar", 12, "Calendar unavailable"),
+    ("unknown", "09:00 Swim (Kid A)", "The strip", 12, "The strip unavailable"),
+    ("unavailable", None, "Due times", 12, "Due times unavailable"),
+    # Nothing heard yet: keep waiting rather than guess.
+    ("3", None, "Calendar", 12, None),
+    (None, None, "Calendar", 12, None),
+    (None, "Bins today: Food", "The strip", 12, "Bins today: Food"),
+]
+
+H6 = 6 * 3600
+# (now, end, ring) -> (phase, left). 0 stopped, 1 running, 2 ringing, 3 done quietly, 4 forget.
+TIMER_STEP_CASES = [
+    (1000, 0, 120, 0, 0),
+    (0, 5000, 120, 1, 0),
+    (1000, 1600, 120, 1, 600),
+    (1599, 1600, 120, 1, 1),
+    (1600, 1600, 120, 2, 0),
+    (1719, 1600, 120, 2, 0),
+    (1720, 1600, 120, 3, 0),
+    (1600 + H6 - 1, 1600, 120, 3, 0),
+    (1600 + H6, 1600, 120, 4, 0),
+]
+
+# secs -> (full, brief)
+TIMER_FMT_CASES = [
+    (0, "0:00", "0 min"),
+    (1, "0:01", "1 min"),
+    (59, "0:59", "1 min"),
+    (60, "1:00", "1 min"),
+    (61, "1:01", "2 min"),
+    (600, "10:00", "10 min"),
+    (3540, "59:00", "59 min"),
+    (3541, "59:01", "1h 00"),
+    (3600, "1:00:00", "1h 00"),
+    (3661, "1:01:01", "1h 02"),
+    (36000, "10:00:00", "10h 00"),
+]
+
+TILE_CASES = [("on", 1), ("off", 0), ("unavailable", -1), ("unknown", -1), ("", -1), ("On", -1), ("idle", -1)]
+
+# (target, action, lights on) -> (refused, turn, entities)
+LIGHT_CASES = [
+    ("kitchen", "toggle", [], (False, "on", ["light.kitchen"])),
+    ("kitchen", "toggle", ["light.kitchen"], (False, "off", ["light.kitchen"])),
+    ("kitchen", "off", [], (False, "off", ["light.kitchen"])),
+    ("kitchen", " TOGGLE ", [], (False, "on", ["light.kitchen"])),
+    ("downstairs", "toggle", ["light.kitchen"], (False, "off", ["light.kitchen", "light.living_room"])),
+    ("downstairs", "toggle", [], (False, "on", ["light.kitchen", "light.living_room"])),
+    ("light.kitchen", "toggle", [], (True, None, [])),
+    ("Kitchen", "toggle", [], (True, None, [])),
+    ("kitchen, hall", "off", [], (True, None, [])),
+    ("", "toggle", [], (True, None, [])),
+    ("kitchen", "turn_on", [], (True, None, None)),
+    ("kitchen", "", [], (True, None, None)),
+]
+
+# timer name the panel sent -> what the house hears
+TIMER_MSG_CASES = [
+    ("Oven", "Oven timer is done"),
+    ("  Hob ", "Hob timer is done"),
+    ("Timer 2", "Timer 2 is done"),
+    ("Timer", "Timer is done"),
+    ("oven", "A kitchen timer is done"),
+    ("Open the garage door", "A kitchen timer is done"),
+    ("", "A kitchen timer is done"),
 ]
 
 
@@ -285,14 +410,9 @@ int main() {{
   return 0;
 }}
 """
-    with tempfile.TemporaryDirectory() as d:
-        cpp, exe = os.path.join(d, "t.cpp"), os.path.join(d, "t")
-        Path(cpp).write_text(src, encoding="utf-8")
-        cc = subprocess.run([cxx, "-std=c++17", "-Wall", "-o", exe, cpp], capture_output=True, text=True)
-        if cc.returncode:
-            r.check(False, "panel C++ did not compile:\n" + cc.stderr[-2000:])
-            return
-        out = subprocess.run([exe], capture_output=True).stdout.decode("utf-8")
+    out = run_cpp(r, cxx, src, "panel letter C++")
+    if out is None:
+        return
     lpart, apart = out.split("\x1d")
     got_l = [row.split("\x1f") for row in lpart.split("\x1e")[:-1]]
     for (raw, (kind, frm, text)), (k, f, t) in zip(LETTER_CASES, got_l):
@@ -301,6 +421,147 @@ int main() {{
     got_a = apart.split("\x1e")[:-1]
     for (raw, want), got in zip(ANNOUNCE_CASES, got_a):
         r.check(got == want, f"panel announcement {raw!r}: got {got!r}, want {want!r}")
+
+
+def run_cpp(r: Report, cxx: str, src: str, what: str):
+    with tempfile.TemporaryDirectory() as d:
+        cpp, exe = os.path.join(d, "t.cpp"), os.path.join(d, "t")
+        Path(cpp).write_text(src, encoding="utf-8")
+        cc = subprocess.run([cxx, "-std=c++17", "-Wall", "-o", exe, cpp], capture_output=True, text=True)
+        if cc.returncode:
+            r.check(False, f"{what} did not compile:\n" + cc.stderr[-2000:])
+            return None
+        return subprocess.run([exe], capture_output=True).stdout.decode("utf-8")
+
+
+def cstr(s: str) -> str:
+    return json.dumps(s, ensure_ascii=False)
+
+
+def check_panel_v2(r: Report, srcs: dict, cxx: str | None):
+    """The v2 blocks: clock, night, card lines, timers, tiles."""
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the v2 panel blocks were not checked")
+        return
+    clock = cpp_block(srcs["base"], "clock-format")
+    night = cpp_block(srcs["base"], "night-window")
+    lines = cpp_block(srcs["kitchen"], "panel-lines")
+    tstep = cpp_block(srcs["timers"], "timer-step")
+    tfmt = cpp_block(srcs["timers"], "timer-format")
+    tile = cpp_block(srcs["tiles"], "tile-state")
+    m = lambda hm: int(hm[:2]) * 60 + int(hm[3:])  # noqa: E731
+    calls = []
+    calls += [f'clockfmt({h}, {mi}, {str(tw).lower()});' for h, mi, tw, _, _ in CLOCK_CASES]
+    calls.append('sep();')
+    calls += [f'nightw({m(n)}, {m(s)}, {m(e)}, {str(k).lower()});' for n, s, e, k, _ in NIGHT_CASES]
+    calls.append('sep();')
+    calls += [f'cardlines({str(st is not None).lower()}, {cstr(st or "")}, {str(raw is not None).lower()}, '
+              f'{cstr(raw or "")}, {cstr(what)}, {mx});' for st, raw, what, mx, _ in LINES_CASES]
+    calls.append('sep();')
+    calls += [f'timerstep({n}u, {e}u, {g});' for n, e, g, _, _ in TIMER_STEP_CASES]
+    calls.append('sep();')
+    calls += [f'timerfmt({s}u);' for s, _, _ in TIMER_FMT_CASES]
+    calls.append('sep();')
+    calls += [f'tilestate({cstr(x)});' for x, _ in TILE_CASES]
+    body = "\n  ".join(calls)
+    src = f"""
+#include <cstdint>
+#include <cstdio>
+#include <string>
+#include <vector>
+static void sep() {{ printf("\\x1d"); }}
+static void clockfmt(int hour, int minute, bool twelve) {{
+  std::string clock, suffix;
+{clock}
+  printf("%s\\x1f%s\\x1e", clock.c_str(), suffix.c_str());
+}}
+static void nightw(int now_m, int start_m, int end_m, bool keep) {{
+  bool night;
+{night}
+  printf("%d\\x1e", night ? 1 : 0);
+}}
+static void cardlines(bool state_heard, std::string state, bool lines_heard, std::string raw,
+                      const std::string &what, int max_lines) {{
+  std::string shown;
+  bool wait = false;
+{lines}
+  printf("%s\\x1e", wait ? "\\x15" : shown.c_str());
+}}
+static void timerstep(uint32_t now, uint32_t end, int ring) {{
+  int phase = 0;
+  uint32_t left = 0;
+{tstep}
+  printf("%d\\x1f%u\\x1e", phase, (unsigned) left);
+}}
+static void timerfmt(uint32_t secs) {{
+  std::string full, brief;
+{tfmt}
+  printf("%s\\x1f%s\\x1e", full.c_str(), brief.c_str());
+}}
+static void tilestate(const std::string &x) {{
+  int on;
+{tile}
+  printf("%d\\x1e", on);
+}}
+int main() {{
+  {body}
+  return 0;
+}}
+"""
+    out = run_cpp(r, cxx, src, "panel v2 C++")
+    if out is None:
+        return
+    parts = [p.split("\x1e")[:-1] for p in out.split("\x1d")]
+    if len(parts) != 6:
+        r.check(False, f"panel v2 C++: expected six result groups, got {len(parts)}")
+        return
+    pc, pn, pl, ps, pf, pt = parts
+    for (h, mi, tw, clock, suffix), got in zip(CLOCK_CASES, pc):
+        r.check(got == f"{clock}\x1f{suffix}", f"clock {h:02d}:{mi:02d} {'12h' if tw else '24h'}: got {got!r}, want {clock!r} {suffix!r}")
+    for (n, s, e, k, want), got in zip(NIGHT_CASES, pn):
+        r.check(got == str(int(want)), f"night at {n} ({s} to {e}, keep {k}): got {got}, want {int(want)}")
+    for (st, raw, what, mx, want), got in zip(LINES_CASES, pl):
+        want = "\x15" if want is None else want
+        r.check(got == want, f"card lines state {st!r} lines {(raw or '')[:40]!r} max {mx}: got {got!r}, want {want!r}")
+    for (n, e, g, phase, left), got in zip(TIMER_STEP_CASES, ps):
+        r.check(got == f"{phase}\x1f{left}", f"timer now {n} end {e}: got {got!r}, want ({phase}, {left})")
+    for (s, full, brief), got in zip(TIMER_FMT_CASES, pf):
+        r.check(got == f"{full}\x1f{brief}", f"timer {s} s: got {got!r}, want {full!r} {brief!r}")
+    for (x, want), got in zip(TILE_CASES, pt):
+        r.check(got == str(want), f"tile state {x!r}: got {got}, want {want}")
+    for name, n, table in (("clock", len(pc), CLOCK_CASES), ("night", len(pn), NIGHT_CASES),
+                           ("lines", len(pl), LINES_CASES), ("timer step", len(ps), TIMER_STEP_CASES),
+                           ("timer format", len(pf), TIMER_FMT_CASES), ("tile", len(pt), TILE_CASES)):
+        r.check(n == len(table), f"panel v2 C++ {name}: {n} results for {len(table)} cases")
+
+
+def check_kitchen_ha(r: Report, hak: dict):
+    autos = {a["id"]: a for a in hak["automation"]}
+    light = autos["family_panel_light"]
+    refusals = [a["if"] for a in light["actions"] if isinstance(a, dict) and "if" in a
+                and any(isinstance(s, dict) and "stop" in s for s in a.get("then", []))]
+    r.check(len(refusals) >= 2, "family_panel_light: expected two refusing checks (target, action)")
+    switch = [a for a in light["actions"] if isinstance(a, dict) and str(a.get("action", "")).startswith("homeassistant.turn_")]
+    r.check(len(switch) == 1 and switch[0].get("target", {}).get("entity_id") == "{{ entities }}",
+            "family_panel_light: the one switching action must target only the allowlisted entities")
+    for wanted, how, on, (refused, turn, ents) in LIGHT_CASES:
+        env = ha_env({e: "on" for e in on})
+        ctx = render_vars(env, light["variables"], {"trigger": {"event": {"data": {"target": wanted, "action": how}}}})
+        got = any(render_bool(env, c, ctx) for c in refusals)
+        r.check(got == refused, f"light {wanted!r}/{how!r}: refused={got}, want {refused}")
+        if not refused:
+            r.check(ctx["turn"] == turn and ctx["entities"] == ents,
+                    f"light {wanted!r}/{how!r} with {on}: turn {ctx['turn']!r} {ctx['entities']}, want {turn!r} {ents}")
+        elif ents is not None:
+            r.check(ctx["entities"] == ents, f"light {wanted!r}: an unknown target resolved to {ctx['entities']}, want none")
+    done = autos["family_panel_timer_done"]
+    for name, want in TIMER_MSG_CASES:
+        ctx = render_vars(ha_env(), done["variables"], {"trigger": {"event": {"data": {"timer": name}}}})
+        r.check(ctx["message"] == want, f"timer {name!r}: says {ctx['message']!r}, want {want!r}")
+    # Every way of speaking uses the checked message, never the raw name.
+    spoken = json.dumps(done["actions"])
+    r.check("trigger.event" not in spoken, "family_panel_timer_done: an action reads the event data directly")
+    r.check(spoken.count("{{ message }}") >= 3, "family_panel_timer_done: satellites, TTS and the say command must all speak {{ message }}")
 
 
 def check_mirrors(r: Report, ha: dict):
@@ -312,7 +573,15 @@ def check_mirrors(r: Report, ha: dict):
         r.check(ctx["value"] == stored, f"letters.json {to!r}/{sender!r}: script stores {ctx['value']!r}, fixture says {stored!r}")
         r.check(ctx["postie_value"] == postie, f"letters.json {to!r}/{sender!r}: script copies {ctx['postie_value']!r}, fixture says {postie!r}")
 
-def check_consistency(r: Report, ha: dict, kitchen_src: str):
+
+def made_sensors(*has) -> set:
+    """Home Assistant names a YAML template sensor from its name, not its
+    unique_id, so a panel must ask for the slug of the name."""
+    return {"sensor." + ha_slugify(s["name"]) for ha in has for block in ha.get("template", [])
+            for s in block.get("sensor", [])}
+
+
+def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
     script_vars = ha["script"]["family_send_panel_letter"]["variables"]
     recipients = script_vars["recipients"]
     for slug in recipients:
@@ -326,89 +595,170 @@ def check_consistency(r: Report, ha: dict, kitchen_src: str):
         if "recipients" in a.get("variables", {}):
             r.check(a["variables"]["recipients"] == recipients, f"{a['id']}: recipients differ from the script's")
     autos = {a["id"]: a for a in ha["automation"]}
-    presets = autos["family_panel_broadcast"]["variables"]["broadcast_presets"]
-    subs = esphome_subs(kitchen_src)
+    bc = autos["family_panel_broadcast"]
+    presets = bc["variables"]["broadcast_presets"]
+    subs = esphome_subs(srcs["kitchen"])
     panel = [subs[f"preset_{i}"] for i in range(1, 5)]
     r.check(panel == presets, f"kitchen presets {panel} differ from broadcast_presets {presets}")
     for p in panel:
         r.check('"' not in p and "\\" not in p, f"preset {p!r}: no double quotes or backslashes (it lands in C++)")
-    # Home Assistant names a YAML template sensor from its name, not its
-    # unique_id, so the panel must ask for the slug of the name.
-    made = {"sensor." + ha_slugify(s["name"]) for block in ha.get("template", []) for s in block.get("sensor", [])}
-    for key in ("today_entity", "lunch_entity", "due_entity"):
-        r.check(subs[key] in made, f"kitchen {key} {subs[key]} is not a sensor panels.example.yaml makes ({sorted(made)})")
-    events = {a["triggers"][0].get("event_type") for a in ha["automation"]}
-    kid_events = set(re.findall(r"event: (esphome\.[a-z_]+)", KID_FILE.read_text()))
-    kitchen_events = set(re.findall(r"event: (esphome\.[a-z_]+)", kitchen_src))
-    for e in kid_events | kitchen_events:
-        r.check(e in events, f"panel fires {e} but no automation listens for it")
+    # The announce script is a setting: nothing may name the default directly.
+    r.check("announce_script" in bc["variables"] and "script.family_announce" not in json.dumps(bc["actions"]),
+            "family_panel_broadcast: the actions must use announce_script, not a fixed script")
+
+    made = made_sensors(ha, hak)
+    for key in ("today_entity", "lunch_entity", "due_entity", "strip_entity", "rain_entity"):
+        r.check(subs.get(key) in made, f"kitchen {key} {subs.get(key)} is not a sensor the packages make ({sorted(made)})")
+    # The kitchen reads the lines attribute of these; each must define it.
+    for block in ha.get("template", []) + hak.get("template", []):
+        for s in block.get("sensor", []):
+            eid = "sensor." + ha_slugify(s["name"])
+            if eid in (subs.get("today_entity"), subs.get("lunch_entity"), subs.get("due_entity"), subs.get("strip_entity")):
+                r.check("lines" in (s.get("attributes") or {}), f"{eid}: no lines attribute, which the kitchen pages read")
+
+    events = {a["triggers"][0].get("event_type") for a in ha["automation"] + hak["automation"]}
+    fired = set()
+    for key in ("kid", "kitchen", "timers", "tiles"):
+        fired |= set(re.findall(r"event: (esphome\.[a-z_]+)", srcs[key]))
+    for e in sorted(fired):
+        r.check(e in events, f"a panel fires {e} but no automation listens for it")
+    r.check({"esphome.family_panel_light", "esphome.family_panel_timer_done"} <= fired,
+            "the timers and light tiles should fire their events")
+
+    hautos = {a["id"]: a for a in hak["automation"]}
+    targets = set(hautos["family_panel_light"]["variables"]["light_targets"])
+    timer_names = hautos["family_panel_timer_done"]["variables"]["timer_names"]
+    for label, text in (("light_tiles.yaml", srcs["tiles"]), ("timers.yaml", srcs["timers"]),
+                        ("kitchen.yaml", srcs["ex_kitchen"]), ("kitchen.local.yaml", srcs["ex_kitchen_local"])):
+        s = esphome_subs(text)
+        for i in range(1, 5):
+            t, n = s.get(f"tile_{i}_target"), s.get(f"tile_{i}_name")
+            if t is not None and n != "":
+                r.check(t in targets, f"{label}: tile_{i}_target {t!r} is not in light_targets {sorted(targets)}")
+            if n is not None:
+                r.check('"' not in n and "\\" not in n, f"{label}: tile_{i}_name {n!r} has a quote or backslash")
+        for i in range(1, 4):
+            n = s.get(f"timer_{i}_name")
+            if n is not None:
+                r.check(n in timer_names, f"{label}: timer_{i}_name {n!r} is not in timer_names {timer_names}")
+                r.check('"' not in n and "\\" not in n, f"{label}: timer_{i}_name {n!r} has a quote or backslash")
     for f in sorted(EXAMPLES.glob("*.yaml")):
         if f.name == "secrets.yaml":
             continue
-        child = esphome_subs(f.read_text()).get("child")
+        text = srcs.get({"kitchen.yaml": "ex_kitchen", "kitchen.local.yaml": "ex_kitchen_local",
+                         "kid-a.yaml": "ex_kid_a"}.get(f.name, ""), f.read_text())
+        s = esphome_subs(text)
+        child = s.get("child")
         if child is not None:
             r.check(child in recipients, f"{f.name}: child {child!r} is not a recipient in panels.example.yaml")
+        r.check(s.get("clock_format", "24h") in ("12h", "24h"), f"{f.name}: clock_format must be 12h or 24h")
+        r.check(s.get("night_mode", "off") in ("dim", "off"), f"{f.name}: night_mode must be dim or off")
+        r.check(str(s.get("rotation", "0")) in ("0", "90", "180", "270"), f"{f.name}: rotation must be 0, 90, 180 or 270")
+    a = esphome_subs(srcs["ex_kid_a"])
+    r.check(a.get("clock_format") == "12h" and a.get("night_mode") == "dim" and a.get("cyd_model") == "ESP32-2432S028",
+            "kid-a.yaml: Kid A's panel is the ILI9341 CYD with a 12-hour clock and a dim night")
+    b = esphome_subs(srcs["base"])
+    r.check(b.get("clock_format") == "24h" and b.get("night_mode") == "off",
+            "base.yaml: the defaults must keep v1 behaviour (24h, screen off at night)")
 
 
-def run(ha_text: str, kid_src: str, base_src: str, kitchen_src: str, quiet=False) -> Report:
+def run(srcs: dict, quiet=False) -> Report:
     r = Report()
-    ha = load_ha(ha_text)
+    ha = load_ha(srcs["ha"])
+    hak = load_ha(srcs["hak"])
     cxx = shutil.which("c++")
     check_send_script(r, ha)
-    check_parsers(r, ha, kid_src, base_src, cxx)
+    check_parsers(r, ha, srcs["kid"], srcs["base"], cxx)
+    check_panel_v2(r, srcs, cxx)
+    check_kitchen_ha(r, hak)
     check_mirrors(r, ha)
-    check_consistency(r, ha, kitchen_src)
+    check_consistency(r, ha, hak, srcs)
     if not quiet:
         for f in r.fails:
             print("FAIL", f)
     return r
 
 
-def sources():
-    return (HA_FILE.read_text(encoding="utf-8"), KID_FILE.read_text(encoding="utf-8"),
-            BASE_FILE.read_text(encoding="utf-8"), KITCHEN_FILE.read_text(encoding="utf-8"))
+def sources() -> dict:
+    return {k: p.read_text(encoding="utf-8") for k, p in FILES.items()}
 
 
 # Each sabotage breaks one shipped piece the way a plausible edit would.
 SABOTAGES = [
-    ("panel splits on the last '|'", 1, "s.find('|')", "s.rfind('|')"),
-    ("panel forgets to trim the text", 1, "text = trim(s.substr(p + 1));", "text = s.substr(p + 1);"),
-    ("panel treats 'unavailable' as a letter", 1, 'if (s == "unavailable") {\n              kind = 3;',
+    ("panel splits on the last '|'", "kid", "s.find('|')", "s.rfind('|')"),
+    ("panel forgets to trim the text", "kid", "text = trim(s.substr(p + 1));", "text = s.substr(p + 1);"),
+    ("panel treats 'unavailable' as a letter", "kid", 'if (s == "unavailable") {\n              kind = 3;',
      'if (false) {\n              kind = 3;'),
-    ("panel reads a never-set helper as a letter", 1, 'if (s == "unknown") s = "";', ""),
-    ("script checks the helper's state, not that it exists", 0,
+    ("panel reads a never-set helper as a letter", "kid", 'if (s == "unknown") s = "";', ""),
+    ("script checks the helper's state, not that it exists", "ha",
      "helper not in states.input_text | map(attribute='entity_id') | list", "states(helper) in ['unknown', 'unavailable']"),
-    ("announcement drops the sender", 2, 'from.empty() ? text : from + ": " + text', "text"),
-    ("script stops slugifying the recipient", 0, "string | trim | slugify }}", "string | trim }}"),
-    ("script keeps '|' in the sender", 0, "| replace('|', '/') ", ""),
-    ("script lets a long sender through", 0, "| trim)[:24] | trim }}", "| trim) }}"),
-    ("postie copy drifts from the read check", 0, "~ ('From ' ~ from_part ~ ': ' if from_part else '') ~ body)[:255] }}\n    sequence",
+    ("announcement drops the sender", "base", 'from.empty() ? text : from + ": " + text', "text"),
+    ("script stops slugifying the recipient", "ha", "string | trim | slugify }}", "string | trim }}"),
+    ("script keeps '|' in the sender", "ha", "| replace('|', '/') ", ""),
+    ("script lets a long sender through", "ha", "| trim)[:24] | trim }}", "| trim) }}"),
+    ("postie copy drifts from the read check", "ha", "~ ('From ' ~ from_part ~ ': ' if from_part else '') ~ body)[:255] }}\n    sequence",
      "~ ('from ' ~ from_part ~ ': ' if from_part else '') ~ body)[:255] }}\n    sequence"),
-    ("read automation splits on every '|'", 0, "current.split('|', 1)", "current.split('|')"),
-    ("kitchen reads a sensor that is never made", 3, "sensor.panel_lunch_and_kit", "sensor.panel_lunch_kit"),
-    ("kitchen preset no longer matches", 3, 'preset_2: "Shoes on, we\'re leaving"', 'preset_2: "Shoes on"'),
-    ("helper wiped on restart", 0, "  letter_kid_b:\n    name: Letter for Kid B\n", "  letter_kid_b:\n    initial: ''\n    name: Letter for Kid B\n"),
+    ("read automation splits on every '|'", "ha", "current.split('|', 1)", "current.split('|')"),
+    ("kitchen reads a sensor that is never made", "kitchen", "sensor.panel_lunch_and_kit", "sensor.panel_lunch_kit"),
+    ("kitchen preset no longer matches", "kitchen", 'preset_2: "Shoes on, we\'re leaving"', 'preset_2: "Shoes on"'),
+    ("helper wiped on restart", "ha", "  letter_kid_b:\n    name: Letter for Kid B\n", "  letter_kid_b:\n    initial: ''\n    name: Letter for Kid B\n"),
+    # v2
+    ("12-hour clock keeps the leading zero", "base", 'snprintf(buf, sizeof buf, "%d:%02d", h, minute);',
+     'snprintf(buf, sizeof buf, "%02d:%02d", h, minute);'),
+    ("12-hour clock shows 0:05 after midnight", "base", "if (h == 0) h = 12;", ""),
+    ("noon reads am", "base", 'suffix = hour < 12 ? "am" : "pm";', 'suffix = hour <= 12 ? "am" : "pm";'),
+    ("keep-awake ignored", "base", "night = window && !keep;", "night = window;"),
+    ("night window ends a minute late", "base", "(now_m >= start_m || now_m < end_m)", "(now_m >= start_m || now_m <= end_m)"),
+    ("card shows HA's 'None' as text", "kitchen", 's == "None" || ', ""),
+    ("card loses the '+N more' line", "kitchen", 'if (keep < lines.size()) shown += "\\n+" + std::to_string(lines.size() - keep) + " more";', ""),
+    ("card keeps blank lines", "kitchen", "if (!line.empty()) lines.push_back(line);", "lines.push_back(line);"),
+    ("kitchen ignores the sensor's state", "kitchen", 'state == "unavailable" || state == "unknown"', "false"),
+    ("kitchen guesses before it hears", "kitchen", "else if (!lines_heard) wait = true;", ""),
+    ("timer rings forever", "timers", "else if (now - end < (uint32_t) ring) phase = 2;", "else if (true) phase = 2;"),
+    ("timer forgets an end with no clock", "timers", "else if (now == 0) phase = 1;", "else if (now == 0) phase = 0;"),
+    ("timer shows 0 min while running", "timers", "unsigned mins = (secs + 59) / 60;", "unsigned mins = secs / 60;"),
+    ("timer drops the hours", "timers", 'if (h) snprintf(buf, sizeof buf, "%u:%02u:%02u", h, m, s);\n              else ', ""),
+    ("tile reads unavailable as off", "tiles", 'on = x == "on" ? 1 : x == "off" ? 0 : -1;', 'on = x == "on" ? 1 : 0;'),
+    ("light automation takes an entity id as the target", "hak",
+     "{% set e = light_targets[wanted] if wanted in light_targets else [] %}",
+     "{% set e = light_targets[wanted] if wanted in light_targets else [wanted] %}"),
+    ("light automation drops the target check", "hak",
+     """      - if: "{{ wanted not in light_targets or not entities }}\"""", """      - if: "{{ false }}\""""),
+    ("light automation allows any action", "hak", "{% else %}none{% endif %}", "{% else %}on{% endif %}"),
+    ("light toggle needs every light on to turn off", "hak", "{{ 'off' if entities | select('is_state', 'on') | list | count else 'on' }}",
+     "{{ 'off' if entities | select('is_state', 'on') | list | count == entities | count else 'on' }}"),
+    ("timer alert speaks any name", "hak", "{% if name in timer_names %}", "{% if true %}"),
+    ("timer alert says 'Timer 2 timer'", "hak", "(' is done' if 'timer' in name | lower else ' timer is done')", "' timer is done'"),
+    ("timer alert speaks the raw name", "hak", "              message: \"{{ message }}\"\n      - if: \"{{ tts_entity",
+     "              message: \"{{ trigger.event.data.timer }}\"\n      - if: \"{{ tts_entity"),
+    ("kitchen timer name not in timer_names", "ex_kitchen", 'timer_2_name: "Hob"', 'timer_2_name: "Hob 2"'),
+    ("kitchen tile target not in light_targets", "ex_kitchen", "tile_3_target: hall", "tile_3_target: hallway"),
+    ("broadcast fixed to one script", "ha", 'entity_id: "{{ announce_script }}"', "entity_id: script.family_announce"),
+    ("timer event renamed on the panel", "timers", "event: esphome.family_panel_timer_done", "event: esphome.family_timer_done"),
+    ("strip loses its lines attribute", "hak", "          lines: \"{{ strip_lines | join('\\n') }}\"", "          rows: \"{{ strip_lines | join('\\n') }}\""),
+    ("Kid A back on a 24-hour clock", "ex_kid_a", 'clock_format: "12h"', 'clock_format: "24h"'),
+    ("base default night turned dim", "base", '  night_mode: "off"', '  night_mode: "dim"'),
 ]
 
 
 def sabotage() -> int:
-    base = list(sources())
-    clean = run(*base, quiet=True)
+    base = sources()
+    clean = run(base, quiet=True)
     if clean.fails:
         print("The clean tree already fails; fix that first:")
         for f in clean.fails:
             print("  ", f)
         return 1
     bad = 0
-    for name, idx, old, new in SABOTAGES:
-        srcs = list(base)
-        if old not in srcs[idx]:
-            print(f"SABOTAGE SETUP BROKEN  {name}: the text to break is not in the file any more")
+    for name, key, old, new in SABOTAGES:
+        srcs = dict(base)
+        if old not in srcs[key]:
+            print(f"SABOTAGE SETUP BROKEN  {name}: the text to break is not in {FILES[key].name} any more")
             bad += 1
             continue
-        srcs[idx] = srcs[idx].replace(old, new, 1)
+        srcs[key] = srcs[key].replace(old, new, 1)
         try:
-            r = run(*srcs, quiet=True)
+            r = run(srcs, quiet=True)
             caught = bool(r.fails)
             detail = r.fails[0].splitlines()[0] if r.fails else ""
         except Exception as e:  # a sabotage that makes the file unreadable is caught too
@@ -422,7 +772,7 @@ def sabotage() -> int:
 def main() -> int:
     if "--sabotage" in sys.argv:
         return sabotage()
-    r = run(*sources())
+    r = run(sources())
     print(f"{r.passes} passed, {len(r.fails)} failed")
     return 1 if r.fails else 0
 

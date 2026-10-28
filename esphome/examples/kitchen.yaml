@@ -1,16 +1,58 @@
-# The kitchen panel on a Guition JC3248W535 (3.5", ESP32-S3).
+# The kitchen panel on a Guition JC3248W535 (3.5", ESP32-S3, speaker socket).
 #
-# The four presets must match broadcast_presets in
-# homeassistant/panels.example.yaml word for word, or Home Assistant ignores
-# the button and logs a warning saying so.
+# Pages: Home (clock, announcement, the strip, four presets), Today, Timers
+# and Lights. The Home Assistant half is homeassistant/panels.example.yaml
+# plus homeassistant/panels-kitchen.example.yaml.
+#
+# Copy this file into your ESPHome folder, add panel_kitchen_api_key to
+# secrets.yaml (esphome/README.md says how to make one), and change what is
+# yours below. The packages come from GitHub; pin @main to a release tag once
+# you have it working.
+#
+# Must match Home Assistant, word for word:
+#   preset_1..preset_4    broadcast_presets  (panels.example.yaml)
+#   timer_N_name          timer_names        (panels-kitchen.example.yaml)
+#   tile_N_target         light_targets      (panels-kitchen.example.yaml)
 substitutions:
   name: panel-kitchen
   friendly_name: Kitchen panel
   api_key: !secret panel_kitchen_api_key
+
+  # Night: a dim glow rather than a dark screen, and none at all while the
+  # kitchen light is on.
+  night_mode: dim
+  night_start: "22:00"
+  night_end: "06:30"
+  night_keep_awake_entity: light.kitchen
+  # clock_format: "12h"
+
+  # If your announce script writes to a different helper:
+  # announcement_entity: input_text.your_announcement
+
+  timer_1_name: "Oven"
+  timer_2_name: "Hob"
+  timer_3_name: "Timer"
+  # timer_chime: "done:d=8,o=6,b=180:c,e,g,2c7"
+
+  # The light tiles. An empty name hides a tile.
+  tile_1_name: "Kitchen"
+  tile_1_target: kitchen
+  tile_1_entity: light.kitchen
+  tile_2_name: "Living room"
+  tile_2_target: living_room
+  tile_2_entity: light.living_room
+  tile_3_name: "Hall"
+  tile_3_target: hall
+  tile_3_entity: light.hall
+  tile_4_name: "Landing"
+  tile_4_target: landing
+  tile_4_entity: light.landing
+
   # preset_1: "Dinner's ready"
-  # night_start: "22:30"
 
 packages:
   base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
   board: github://dervish666/family-dashboard/esphome/boards/guition_jc3248w535.yaml@main
   profile: github://dervish666/family-dashboard/esphome/profiles/kitchen.yaml@main
+  timers: github://dervish666/family-dashboard/esphome/packages/timers.yaml@main
+  lights: github://dervish666/family-dashboard/esphome/packages/light_tiles.yaml@main

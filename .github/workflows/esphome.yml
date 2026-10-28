@@ -7,6 +7,7 @@ on:
     paths:
       - "esphome/**"
       - "homeassistant/panels.example.yaml"
+      - "homeassistant/panels-kitchen.example.yaml"
       - "homeassistant/scripts.example.yaml"
       - "tests/panels/**"
       - ".github/workflows/esphome.yml"
@@ -14,6 +15,7 @@ on:
     paths:
       - "esphome/**"
       - "homeassistant/panels.example.yaml"
+      - "homeassistant/panels-kitchen.example.yaml"
       - "homeassistant/scripts.example.yaml"
       - "tests/panels/**"
       - ".github/workflows/esphome.yml"
@@ -81,14 +83,21 @@ jobs:
           done
 
   compile:
-    name: compile ${{ matrix.example }}
+    name: compile ${{ matrix.example }}${{ matrix.pinned && ' (GitHub packages @ this commit)' || '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        example: [kid-a.local.yaml, kitchen.local.yaml, kid-b.local.yaml]
+        # The local files, plus the two examples people copy, built from the
+        # GitHub packages pinned to this commit the way a real install pulls them.
+        include:
+          - { example: kid-a.local.yaml }
+          - { example: kitchen.local.yaml }
+          - { example: kid-b.local.yaml }
+          - { example: kitchen.yaml, pinned: true }
+          - { example: kid-a.yaml, pinned: true }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -103,9 +112,19 @@ jobs:
           python -m venv "$RUNNER_TEMP/esphome"
           "$RUNNER_TEMP/esphome/bin/pip" install "esphome==$ESPHOME_VERSION"
       - name: Compile
+        env:
+          REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          PINNED: ${{ matrix.pinned && '1' || '' }}
         run: |
-          sh tests/panels/fake-secrets.sh esphome/examples
-          "$RUNNER_TEMP/esphome/bin/esphome" compile "esphome/examples/${{ matrix.example }}"
+          f="esphome/examples/${{ matrix.example }}"
+          if [ -n "$PINNED" ]; then
+            work="$RUNNER_TEMP/remote"; mkdir -p "$work"
+            sed "s/\.yaml@main$/.yaml@$REF/" "$f" > "$work/${{ matrix.example }}"
+            grep -q "@$REF" "$work/${{ matrix.example }}" || { echo "no @main ref in $f"; exit 1; }
+            f="$work/${{ matrix.example }}"
+          fi
+          sh tests/panels/fake-secrets.sh "$(dirname "$f")"
+          "$RUNNER_TEMP/esphome/bin/esphome" compile "$f"
 
   home-assistant:
     name: Automations in a throwaway Home Assistant
@@ -114,5 +133,5 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Letters, presets and panel sensors against the real thing
+      - name: Letters, presets, lights, timer alerts and panel sensors against the real thing
         run: python3 tests/panels/ha_live.py

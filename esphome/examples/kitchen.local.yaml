@@ -1,10 +1,19 @@
-# The kitchen panel, built from the files in a checkout of this repo.
+# The kitchen panel, built from the files in a checkout of this repo. Use this
+# one while changing the packages; kitchen.yaml pulls the same files from
+# GitHub and is the one to copy for a normal install.
 substitutions:
   name: panel-kitchen
   friendly_name: Kitchen panel
   api_key: !secret panel_kitchen_api_key
+  night_mode: dim
+  night_keep_awake_entity: light.kitchen
+  timer_1_name: "Oven"
+  timer_2_name: "Hob"
+  timer_3_name: "Timer"
 
 packages:
   base: !include ../packages/base.yaml
   board: !include ../boards/guition_jc3248w535.yaml
   profile: !include ../profiles/kitchen.yaml
+  timers: !include ../packages/timers.yaml
+  lights: !include ../packages/light_tiles.yaml

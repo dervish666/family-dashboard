@@ -1,9 +1,10 @@
 # Room panels: Home Assistant's half (optional, see esphome/README.md).
 #
 # Letters to one child's room panel, the kitchen panel's preset
-# announcements, and three short text sensors the kitchen panel shows. Every
-# panel already reads input_text.family_announcement (configuration.example.yaml)
-# as a read-only banner.
+# announcements, and three text sensors the kitchen panel shows (today, lunch
+# and kit, due). Every panel already reads input_text.family_announcement
+# (configuration.example.yaml) as a read-only banner. The kitchen panel's
+# lights, timers, strip and rain are in panels-kitchen.example.yaml.
 #
 # Install as a package so nothing has to be merged by hand:
 #   1. configuration.yaml:
@@ -17,8 +18,11 @@
 #                            helper names and in the panel's `child:` substitution.
 #   Kid A, Kid B, Kid C      the child's name as the card's people option spells
 #                            it (used when a letter is copied to the postie)
-#   sensor.kid_a_lunch ...   the card's lunch sensors, in sensor.panel_lunch_and_kit
+#   sensor.kid_a_lunch ...   the card's lunch and timetable sensors, in `kids`
+#                            under sensor.panel_lunch_and_kit
+#   sensor.due_times         due_src, the card's due row sensor, under sensor.panel_due
 #   broadcast_presets        must match preset_1..preset_4 on the kitchen panel
+#   announce_script          the script a preset runs (script.family_announce)
 #
 # ── The letter contract ────────────────────────────────────────────────────
 # One input_text per child, input_text.letter_<slug>, holding "from|text":
@@ -334,7 +338,9 @@ automation:
 
   # The kitchen panel's preset buttons. The panel sends the button's text;
   # only a message on this list is announced, so a panel can never post
-  # anything else. Needs script.family_announce from scripts.example.yaml.
+  # anything else. announce_script is the script that puts it up:
+  # script.family_announce from scripts.example.yaml by default, or your own,
+  # if it takes the same three fields (message, sender, minutes).
   - id: family_panel_broadcast
     alias: "Family: a panel sent a preset announcement"
     mode: queued
@@ -349,6 +355,7 @@ automation:
         - "Bedtime in ten minutes"
       broadcast_sender: Kitchen
       broadcast_minutes: 20
+      announce_script: script.family_announce
       message: "{{ trigger.event.data.message | default('') | string | trim }}"
     actions:
       - if: "{{ message not in broadcast_presets }}"
@@ -361,17 +368,17 @@ automation:
                 A panel sent "{{ message[:60] }}", which is not in broadcast_presets.
                 Nothing was announced. Make the panel's preset_1..4 match the list.
           - stop: Not a preset
-      - if: "{{ states('script.family_announce') in ['unknown', 'unavailable'] }}"
+      - if: "{{ states(announce_script) in ['unknown', 'unavailable'] }}"
         then:
           - action: system_log.write
             data:
               level: error
               logger: family_panels
-              message: "Panel preset not announced: script.family_announce is missing (scripts.example.yaml)."
+              message: "Panel preset not announced: {{ announce_script }} is missing (see scripts.example.yaml)."
           - stop: No announce script
       - action: script.turn_on
         target:
-          entity_id: script.family_announce
+          entity_id: "{{ announce_script }}"
         data:
           variables:
             message: "{{ message }}"
@@ -379,129 +386,267 @@ automation:
             minutes: "{{ broadcast_minutes }}"
 
 template:
-  # What the kitchen panel shows. Each one is a short plain-text state (under
-  # 255 characters, newline separated), so the panel only draws text. A
-  # missing source says so by name instead of reading as a quiet day.
-  - sensor:
+  # What the kitchen panel shows. Each sensor has two forms of the same
+  # lines: the state, cut to fit the 255 characters a state can hold (what a
+  # v1 kitchen panel and the generic profile read), and the `lines`
+  # attribute, newline separated and not cut, which the v2 kitchen pages
+  # read. Attributes have no 255 limit. A missing source says so by name
+  # instead of reading as a quiet day.
+  #
+  # Trigger-based, so the lines are worked out once per update and both forms
+  # agree: every minute (times pass), at start-up, and whenever the source
+  # sensor changes.
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: state
+        entity_id: sensor.family_today
+    action:
+      - variables:
+          # From sensor.family_today (configuration.example.yaml): all-day
+          # events first, then timed ones, hiding any that started over an
+          # hour ago.
+          today_lines: >-
+            {% set src = 'sensor.family_today' %}
+            {% set evs = state_attr(src, 'events') %}
+            {% if evs is string %}{% set evs = evs | from_json %}{% endif %}
+            {% if states(src) in ['unknown', 'unavailable'] or evs is none %}
+              {{ ['Calendar unavailable (' ~ src ~ ')'] }}
+            {% else %}
+              {% set nowts = as_timestamp(now()) %}
+              {% set ns = namespace(lines=[]) %}
+              {% set checked = as_timestamp(state_attr(src, 'checked_at'), 0) %}
+              {% if nowts - checked > 1200 %}
+                {% set ns.lines = ['Not checked since ' ~ (checked | timestamp_custom('%H:%M') if checked else 'start-up')] %}
+              {% endif %}
+              {% set allday = evs | selectattr('all_day') | list %}
+              {% set timed = evs | rejectattr('all_day') | list %}
+              {% for e in allday + timed %}
+                {% set started = as_timestamp(e.start, nowts) %}
+                {% if e.all_day or nowts - started < 3600 %}
+                  {% set who = '' if e.who in ['House', ''] else ' (' ~ e.who ~ ')' %}
+                  {% set ns.lines = ns.lines + [(e.at if e.at else 'All day') ~ ' ' ~ e.what ~ who] %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.lines[:24] if ns.lines else ['Nothing on today'] }}
+            {% endif %}
+    sensor:
       - name: Panel today
         unique_id: panel_today
         icon: mdi:calendar-today
-        # From sensor.family_today (configuration.example.yaml): all-day
-        # events first, then timed ones, hiding any that started over an
-        # hour ago.
         state: >-
-          {% set src = 'sensor.family_today' %}
-          {% set evs = state_attr(src, 'events') %}
-          {% if evs is string %}{% set evs = evs | from_json %}{% endif %}
-          {% if states(src) in ['unknown', 'unavailable'] or evs is none %}
-            Calendar unavailable ({{ src }})
-          {% else %}
-            {% set nowts = as_timestamp(now()) %}
-            {% set ns = namespace(lines=[], more=0) %}
-            {% set checked = as_timestamp(state_attr(src, 'checked_at'), 0) %}
-            {% if nowts - checked > 1200 %}
-              {% set ns.lines = ['Not checked since ' ~ (checked | timestamp_custom('%H:%M') if checked else 'start-up')] %}
+          {% set ns = namespace(out=[], more=0) %}
+          {% for l in today_lines %}
+            {% if (ns.out + [l]) | join('\n') | length <= 230 %}
+              {% set ns.out = ns.out + [l] %}
+            {% else %}
+              {% set ns.more = ns.more + 1 %}
             {% endif %}
-            {% set allday = evs | selectattr('all_day') | list %}
-            {% set timed = evs | rejectattr('all_day') | list %}
-            {% for e in allday + timed %}
-              {% set started = as_timestamp(e.start, nowts) %}
-              {% if e.all_day or nowts - started < 3600 %}
-                {% set who = '' if e.who in ['House', ''] else ' (' ~ e.who ~ ')' %}
-                {% set line = (e.at if e.at else 'All day') ~ ' ' ~ e.what ~ who %}
-                {% if (ns.lines + [line]) | join('\n') | length <= 230 %}
-                  {% set ns.lines = ns.lines + [line] %}
-                {% else %}
-                  {% set ns.more = ns.more + 1 %}
-                {% endif %}
-              {% endif %}
-            {% endfor %}
-            {% if ns.more %}{% set ns.lines = ns.lines + ['+' ~ ns.more ~ ' more'] %}{% endif %}
-            {{ ns.lines | join('\n') if ns.lines else 'Nothing on today' }}
-          {% endif %}
+          {% endfor %}
+          {{ (ns.out + (['+' ~ ns.more ~ ' more'] if ns.more else [])) | join('\n') }}
+        attributes:
+          lines: "{{ today_lines | join('\n') }}"
 
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/1"
+    action:
+      - variables:
+          # One line per child from the card's lunch sensors (README, "The
+          # lunch attributes") and, for a child with a timetable sensor
+          # (README, "The timetable attribute"), today's lessons; then
+          # today's kit from sensor.family_kit.
+          #   lunch      the child's lunch sensor (menu attribute), or ''
+          #   choice     an input_select whose option contains "Packed", or ''
+          #   timetable  the child's timetable sensor (timetable attribute), or ''
+          kids:
+            - { name: Kid A, lunch: sensor.kid_a_lunch, choice: "", timetable: sensor.kid_a_timetable }
+            - { name: Kid B, lunch: sensor.kid_b_lunch, choice: input_select.kid_b_lunch, timetable: "" }
+          kit_src: sensor.family_kit
+          lunch_lines: >-
+            {% set today = now().date() %}
+            {% set key = today.isoformat() %}
+            {% set dkey = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][today.weekday()] %}
+            {% set ns = namespace(lines=[]) %}
+            {% if today.weekday() >= 5 %}
+              {% set ns.lines = ['No school today'] %}
+            {% else %}
+              {% for k in kids %}
+                {% if k.lunch %}
+                  {% set menu = state_attr(k.lunch, 'menu') %}
+                  {% if menu is string %}{% set menu = menu | from_json %}{% endif %}
+                  {% set c = states(k.choice) | lower if k.choice else '' %}
+                  {% set day = menu.get(key) if menu is mapping else none %}
+                  {% if 'packed' in c %}
+                    {% set what = 'packed lunch' %}
+                  {% elif menu is not mapping %}
+                    {% set what = 'lunch unavailable' %}
+                  {% elif day is none or day.status | default('') == 'no_menu' %}
+                    {% set what = 'no menu today' %}
+                  {% elif day.status | default('') == 'closed' %}
+                    {% set what = 'no school' ~ (' (' ~ day.note ~ ')' if day.note is defined and day.note else '') %}
+                  {% else %}
+                    {% set first = (day.options | default([]) | first) if day.options | default([]) | count else '' %}
+                    {% set first = first.name if first is mapping else first %}
+                    {% set what = day.choice if day.choice is defined and day.choice else first or 'no menu today' %}
+                  {% endif %}
+                  {% set ns.lines = ns.lines + [k.name ~ ': ' ~ what] %}
+                {% endif %}
+                {% if k.timetable %}
+                  {% set t = state_attr(k.timetable, 'timetable') %}
+                  {% if t is string %}{% set t = t | from_json %}{% endif %}
+                  {% if t is not mapping %}
+                    {% set ns.lines = ns.lines + [k.name ~ ' lessons unavailable'] %}
+                  {% else %}
+                    {# Which week runs from this Monday, as the card works it out:
+                       a week_of entry for this Monday wins (null is a week off);
+                       otherwise count whole weeks on from the latest anchor or
+                       week_of entry before it. #}
+                    {% set mon = today - timedelta(days=today.weekday()) %}
+                    {% set days = t.days if t.days is mapping else {} %}
+                    {% set weeks = (t.weeks if t.weeks is sequence and t.weeks is not string and t.weeks | count else days.keys() | list) | map('string') | list %}
+                    {% set wo = namespace(m={}) %}
+                    {% for wk, wv in (t.week_of if t.week_of is mapping else {}).items() %}
+                      {% set wd = as_datetime(wk | string) %}
+                      {% if wd %}
+                        {% set wd = wd.date() %}
+                        {% set wo.m = dict(wo.m, **{(wd - timedelta(days=wd.weekday())).isoformat(): (none if wv is none or wv == '' else wv | string)}) %}
+                      {% endif %}
+                    {% endfor %}
+                    {% set w = namespace(week=none, off=false, at=none, i=0) %}
+                    {% if mon.isoformat() in wo.m %}
+                      {% set w.week = wo.m[mon.isoformat()] %}
+                      {% set w.off = w.week is none %}
+                    {% elif weeks | count == 1 %}
+                      {% set w.week = weeks[0] %}
+                    {% elif weeks | count %}
+                      {% set refs = namespace(l=[]) %}
+                      {% set ad = as_datetime(t.anchor | default('') | string) %}
+                      {% if ad %}{% set ad = ad.date() %}{% set refs.l = refs.l + [{'at': ad - timedelta(days=ad.weekday()), 'i': 0}] %}{% endif %}
+                      {% for wk, wv in wo.m.items() if wv in weeks %}
+                        {% set refs.l = refs.l + [{'at': as_datetime(wk).date(), 'i': weeks.index(wv)}] %}
+                      {% endfor %}
+                      {% set before = refs.l | selectattr('at', 'le', mon) | sort(attribute='at', reverse=true) | list %}
+                      {% set ref = before[0] if before else (refs.l | sort(attribute='at') | first) %}
+                      {% if ref %}
+                        {% set w.week = weeks[(ref.i + ((mon - ref.at).days // 7)) % (weeks | count)] %}
+                      {% endif %}
+                    {% endif %}
+                    {% set cl = namespace(hit=false, note='') %}
+                    {% for c in t.closed if t.closed is sequence and t.closed is not string %}
+                      {% if ((c.date if c is mapping else c) | string) == key %}
+                        {% set cl.hit = true %}
+                        {% set cl.note = (c.note | default('')) if c is mapping else '' %}
+                      {% endif %}
+                    {% endfor %}
+                    {% set wdays = days.get(w.week, {}) if w.week is not none else {} %}
+                    {% set ls = namespace(names=[]) %}
+                    {% for dk, dl in (wdays.items() if wdays is mapping else []) if (dk | string | lower)[:3] == dkey and dl is sequence %}
+                      {% for l in dl %}
+                        {% set s = (l.split('|')[0] if l is string else (l.subject | default('') if l is mapping else '')) | trim %}
+                        {% if s %}{% set ls.names = ls.names + [s] %}{% endif %}
+                      {% endfor %}
+                    {% endfor %}
+                    {% if cl.hit or w.off %}
+                      {% set ns.lines = ns.lines + [k.name ~ ': no school' ~ (' (' ~ cl.note ~ ')' if cl.note else '')] %}
+                    {% elif w.week is none %}
+                      {% set ns.lines = ns.lines + [k.name ~ ' lessons unavailable (no week to count from)'] %}
+                    {% elif ls.names %}
+                      {% set ns.lines = ns.lines + [k.name ~ ' lessons: ' ~ ls.names | join(', ')] %}
+                    {% else %}
+                      {% set ns.lines = ns.lines + [k.name ~ ': no lessons today'] %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+            {% set kit = state_attr(kit_src, 'kit_today') %}
+            {% if states(kit_src) in ['unknown', 'unavailable'] %}
+              {% set ns.lines = ns.lines + ['Kit unavailable (' ~ kit_src ~ ')'] %}
+            {% elif kit and kit != 'none' %}
+              {% set ns.lines = ns.lines + ['Kit: ' ~ kit] %}
+            {% endif %}
+            {{ ns.lines if ns.lines else ['Nothing today'] }}
+    sensor:
       - name: Panel lunch and kit
         unique_id: panel_lunch_kit
         icon: mdi:food-apple
-        # One line per child from the card's lunch sensors (README, "The
-        # lunch attributes"), then today's kit from sensor.family_kit.
-        # choice: an input_select whose option contains "Packed", or ''.
         state: >-
-          {% set kids = [
-            {'name': 'Kid A', 'lunch': 'sensor.kid_a_lunch', 'choice': ''},
-            {'name': 'Kid B', 'lunch': 'sensor.kid_b_lunch', 'choice': 'input_select.kid_b_lunch'},
-          ] %}
-          {% set kit_src = 'sensor.family_kit' %}
-          {% set today = now().date().isoformat() %}
-          {% set ns = namespace(lines=[]) %}
-          {% if now().weekday() >= 5 %}
-            {% set ns.lines = ['No school today'] %}
-          {% else %}
-            {% for k in kids %}
-              {% set menu = state_attr(k.lunch, 'menu') %}
-              {% if menu is string %}{% set menu = menu | from_json %}{% endif %}
-              {% set c = states(k.choice) | lower if k.choice else '' %}
-              {% set day = menu.get(today) if menu is mapping else none %}
-              {% if 'packed' in c %}
-                {% set what = 'packed lunch' %}
-              {% elif menu is not mapping %}
-                {% set what = 'lunch unavailable' %}
-              {% elif day is none or day.status | default('') == 'no_menu' %}
-                {% set what = 'no menu today' %}
-              {% elif day.status | default('') == 'closed' %}
-                {% set what = 'no school' ~ (' (' ~ day.note ~ ')' if day.note is defined and day.note else '') %}
-              {% else %}
-                {% set first = (day.options | default([]) | first) if day.options | default([]) | count else '' %}
-                {% set first = first.name if first is mapping else first %}
-                {% set what = day.choice if day.choice is defined and day.choice else first or 'no menu today' %}
-              {% endif %}
-              {% set ns.lines = ns.lines + [k.name ~ ': ' ~ what] %}
-            {% endfor %}
-          {% endif %}
-          {% if states(kit_src) in ['unknown', 'unavailable'] %}
-            {% set ns.lines = ns.lines + ['Kit unavailable (' ~ kit_src ~ ')'] %}
-          {% elif state_attr(kit_src, 'kit_today') %}
-            {% set ns.lines = ns.lines + ['Kit: ' ~ state_attr(kit_src, 'kit_today')] %}
-          {% endif %}
-          {{ (ns.lines | join('\n'))[:250] if ns.lines else 'Nothing today' }}
+          {% set ns = namespace(out=[], more=0) %}
+          {% for l in lunch_lines %}
+            {% if (ns.out + [l]) | join('\n') | length <= 230 %}
+              {% set ns.out = ns.out + [l] %}
+            {% else %}
+              {% set ns.more = ns.more + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ (ns.out + (['+' ~ ns.more ~ ' more'] if ns.more else [])) | join('\n') }}
+        attributes:
+          lines: "{{ lunch_lines | join('\n') }}"
 
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/1"
+    action:
+      - variables:
+          # From the card's due row sensor (README, "Due times"): anything
+          # overdue or due in the next 18 hours, soonest first. Point due_src
+          # at yours if it is not sensor.due_times.
+          due_src: sensor.due_times
+          due_lines: >-
+            {% set items = state_attr(due_src, 'items') %}
+            {% if items is string %}{% set items = items | from_json %}{% endif %}
+            {% if states(due_src) in ['unknown', 'unavailable'] or items is none %}
+              {{ ['Due times unavailable (' ~ due_src ~ ')'] }}
+            {% else %}
+              {% set nowts = as_timestamp(now()) %}
+              {% set ns = namespace(rows=[], skipped=0) %}
+              {% for i in items if i is mapping %}
+                {% set d = i.due | default('') | string %}
+                {% set ts = none %}
+                {% if d is match('^\d{1,2}:\d{2}$') %}
+                  {% set hm = d.split(':') %}
+                  {% if hm[0] | int < 24 and hm[1] | int < 60 %}{% set ts = as_timestamp(today_at(d)) %}{% endif %}
+                {% elif d is match('^\d{4}-\d{2}-\d{2}$') %}
+                  {% set ts = as_timestamp(d ~ 'T23:59:00', none) %}
+                {% else %}
+                  {% set ts = as_timestamp(d, none) %}
+                {% endif %}
+                {% if ts is none or not i.label | default('') %}
+                  {% set ns.skipped = ns.skipped + 1 %}
+                {% elif ts - nowts <= 18 * 3600 %}
+                  {% set ns.rows = ns.rows + [{'ts': ts, 'label': i.label, 'who': i.person | default(''), 'dated': 'T' not in d and ':' not in d}] %}
+                {% endif %}
+              {% endfor %}
+              {% set ns2 = namespace(lines=[]) %}
+              {% for r in ns.rows | sort(attribute='ts') %}
+                {% set when = 'late' if r.ts < nowts else ('today' if r.dated else r.ts | timestamp_custom('%H:%M')) %}
+                {% set ns2.lines = ns2.lines + [when ~ ' ' ~ r.label ~ (' (' ~ r.who ~ ')' if r.who else '')] %}
+              {% endfor %}
+              {% if ns.skipped %}{% set ns2.lines = ns2.lines + [ns.skipped ~ ' item(s) could not be read'] %}{% endif %}
+              {{ ns2.lines[:24] if ns2.lines else ['Nothing due soon'] }}
+            {% endif %}
+    sensor:
       - name: Panel due
         unique_id: panel_due
         icon: mdi:clock-alert-outline
-        # From sensor.due_times, the card's due row (README, "Due times"):
-        # anything overdue or due in the next 18 hours, soonest first.
+        # The unreadable count is the last line; keep it when cutting to fit.
         state: >-
-          {% set src = 'sensor.due_times' %}
-          {% set items = state_attr(src, 'items') %}
-          {% if items is string %}{% set items = items | from_json %}{% endif %}
-          {% if states(src) in ['unknown', 'unavailable'] or items is none %}
-            Due times unavailable ({{ src }})
-          {% else %}
-            {% set nowts = as_timestamp(now()) %}
-            {% set ns = namespace(rows=[], skipped=0) %}
-            {% for i in items if i is mapping %}
-              {% set d = i.due | default('') | string %}
-              {% set ts = none %}
-              {% if d is match('^\d{1,2}:\d{2}$') %}
-                {% set hm = d.split(':') %}
-                {% if hm[0] | int < 24 and hm[1] | int < 60 %}{% set ts = as_timestamp(today_at(d)) %}{% endif %}
-              {% elif d is match('^\d{4}-\d{2}-\d{2}$') %}
-                {% set ts = as_timestamp(d ~ 'T23:59:00', none) %}
-              {% else %}
-                {% set ts = as_timestamp(d, none) %}
-              {% endif %}
-              {% if ts is none or not i.label | default('') %}
-                {% set ns.skipped = ns.skipped + 1 %}
-              {% elif ts - nowts <= 18 * 3600 %}
-                {% set ns.rows = ns.rows + [{'ts': ts, 'label': i.label, 'who': i.person | default(''), 'dated': 'T' not in d and ':' not in d}] %}
-              {% endif %}
-            {% endfor %}
-            {% set ns2 = namespace(lines=[]) %}
-            {% for r in ns.rows | sort(attribute='ts') %}
-              {% set when = 'late' if r.ts < nowts else ('today' if r.dated else r.ts | timestamp_custom('%H:%M')) %}
-              {% set line = when ~ ' ' ~ r.label ~ (' (' ~ r.who ~ ')' if r.who else '') %}
-              {% if (ns2.lines + [line]) | join('\n') | length <= 220 %}{% set ns2.lines = ns2.lines + [line] %}{% endif %}
-            {% endfor %}
-            {% if ns.skipped %}{% set ns2.lines = ns2.lines + [ns.skipped ~ ' item(s) could not be read'] %}{% endif %}
-            {{ ns2.lines | join('\n') if ns2.lines else 'Nothing due soon' }}
-          {% endif %}
+          {% set ns = namespace(out=[], more=0) %}
+          {% set tail = due_lines[-1:] if due_lines[-1] is search('could not be read') else [] %}
+          {% for l in (due_lines[:-1] if tail else due_lines) %}
+            {% if (ns.out + [l] + tail) | join('\n') | length <= 230 %}
+              {% set ns.out = ns.out + [l] %}
+            {% else %}
+              {% set ns.more = ns.more + 1 %}
+            {% endif %}
+          {% endfor %}
+          {{ (ns.out + (['+' ~ ns.more ~ ' more'] if ns.more else []) + tail) | join('\n') }}
+        attributes:
+          lines: "{{ due_lines | join('\n') }}"

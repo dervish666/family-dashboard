@@ -9,7 +9,18 @@
 # Two quirks of the panel. It only draws reliably when LVGL redraws the whole
 # frame (full_refresh), and it has no hardware rotation, so it runs in
 # portrait. LVGL can rotate it in software: set rotation to 90 or 270 below
-# and swap panel_width and panel_height.
+# and swap panel_width and panel_height. full_refresh means any change on
+# screen, one changed digit included, sends the whole 320x480 frame at 16 bits
+# (307,200 bytes) over QSPI, so the profiles only touch a label when its text
+# changes.
+#
+# The speaker. The board has a two-pin speaker socket driven over I2S: bit
+# clock GPIO42, word select GPIO2, data GPIO41, no master clock and no enable
+# pin. ESPHome's JC3248W535 preset covers the display only; these three pins
+# are what Guition's factory firmware passes to i2s_set_pin, and the same three
+# appear in yoRadio's JC3248W535 pin file. Nobody names the amplifier chip, so
+# whether it wants mono or stereo frames, and how loud it goes, is only known
+# once a speaker is plugged in and the chime plays. See esphome/README.md.
 
 substitutions:
   panel_width: "320"
@@ -19,6 +30,13 @@ substitutions:
   font_body: "20"
   font_big: "28"
   font_clock: "72"
+  speaker_bclk_pin: "42"
+  speaker_lrclk_pin: "2"
+  speaker_dout_pin: "41"
+  # mono or stereo; try stereo if the chime is silent or plays at half speed.
+  speaker_channel: mono
+  # 0% to 100%. The chime's loudness; the amp has no volume of its own.
+  speaker_gain: 60%
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -72,6 +90,26 @@ touchscreen:
     display: panel_display
     on_release:
       - script.execute: wake_screen
+
+i2s_audio:
+  - id: speaker_i2s
+    i2s_bclk_pin: ${speaker_bclk_pin}
+    i2s_lrclk_pin: ${speaker_lrclk_pin}
+
+speaker:
+  - platform: i2s_audio
+    id: panel_speaker
+    i2s_audio_id: speaker_i2s
+    dac_type: external
+    i2s_dout_pin: ${speaker_dout_pin}
+    channel: ${speaker_channel}
+
+# Plays RTTTL tunes on the speaker. packages/timers.yaml uses it for the
+# timer chime; nothing plays unless a package asks.
+rtttl:
+  id: panel_chime
+  speaker: panel_speaker
+  gain: ${speaker_gain}
 
 lvgl:
   full_refresh: true

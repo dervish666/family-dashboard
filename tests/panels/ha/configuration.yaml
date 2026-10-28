@@ -1,6 +1,9 @@
 # Throwaway Home Assistant config for tests/panels/ha_live.py. It loads the
-# shipped panels.example.yaml and scripts.example.yaml unchanged, plus fake
-# versions of the card's sensors so the panel sensors have something to read.
+# shipped panels.example.yaml, panels-kitchen.example.yaml and
+# scripts.example.yaml unchanged, plus fake versions of the card's sensors,
+# lights, a bin day, a printer, a rain sensor and a forecast, so the panel
+# sensors and automations have something to read and switch. The test drives
+# the fakes through the input_text and input_boolean helpers below.
 homeassistant:
   name: Panels test
   time_zone: Europe/London
@@ -8,6 +11,7 @@ homeassistant:
   unit_system: metric
   packages:
     panels: !include panels.example.yaml
+    panels_kitchen: !include panels-kitchen.example.yaml
 
 http:
 api:
@@ -27,6 +31,18 @@ input_text:
     name: Family announcement
     max: 255
     initial: ""
+  # Days to the next bin collection; "gone" makes the bin sensor unavailable.
+  test_bins:
+    name: Test bins
+    initial: "1"
+  # The rain sensor's state.
+  test_rain:
+    name: Test rain
+    initial: "none"
+  # Hours from now of the one wet hour in the forecast; -1 for none.
+  test_wet_hour:
+    name: Test wet hour
+    initial: "-1"
 
 input_select:
   kid_b_lunch:
@@ -34,21 +50,74 @@ input_select:
     options: [School dinner, Packed lunch]
     initial: Packed lunch
 
+input_boolean:
+  lamp_kitchen:
+    name: Lamp kitchen
+    initial: false
+  lamp_living_room:
+    name: Lamp living room
+    initial: false
+  lamp_hall:
+    name: Lamp hall
+    initial: false
+
 template:
+  - light:
+      - name: Kitchen
+        unique_id: test_light_kitchen
+        state: "{{ is_state('input_boolean.lamp_kitchen', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.lamp_kitchen } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.lamp_kitchen } }
+      - name: Living room
+        unique_id: test_light_living_room
+        state: "{{ is_state('input_boolean.lamp_living_room', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.lamp_living_room } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.lamp_living_room } }
+      - name: Hall
+        unique_id: test_light_hall
+        state: "{{ is_state('input_boolean.lamp_hall', 'on') }}"
+        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.lamp_hall } }
+        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.lamp_hall } }
+
+  - weather:
+      - name: Forecast home
+        unique_id: test_forecast_home
+        condition_template: "cloudy"
+        temperature_template: "12"
+        humidity_template: "80"
+        forecast_hourly_template: >-
+          {% set wet = states('input_text.test_wet_hour') | int(-1) %}
+          {% set base = now().replace(minute=0, second=0, microsecond=0) %}
+          {% set ns = namespace(f=[]) %}
+          {% for i in range(0, 14) %}
+            {% set ns.f = ns.f + [{'datetime': (base + timedelta(hours=i)).isoformat(),
+                                   'condition': 'rainy' if i == wet else 'cloudy',
+                                   'precipitation_probability': 80 if i == wet else 10,
+                                   'temperature': 12}] %}
+          {% endfor %}
+          {{ ns.f }}
+
   - sensor:
       - name: Family Today
         unique_id: test_family_today
         state: "3"
         attributes:
           checked_at: "{{ now().isoformat() }}"
+          # Enough all-day clubs to overflow a 255-character state, so the
+          # test sees the state cut with "+N more" and the attribute whole.
           events: >-
-            {{ [
+            {% set ns = namespace(e=[
               {'who': 'House', 'what': 'Bin day', 'all_day': true, 'start': now().date().isoformat(), 'at': ''},
               {'who': 'Kid A', 'what': 'Swimming', 'all_day': false,
                'start': (now() + timedelta(hours=2)).isoformat(), 'at': (now() + timedelta(hours=2)).strftime('%H:%M')},
               {'who': 'Parent 1', 'what': 'Long gone', 'all_day': false,
                'start': (now() - timedelta(hours=3)).isoformat(), 'at': (now() - timedelta(hours=3)).strftime('%H:%M')}
-            ] }}
+            ]) %}
+            {% for i in range(1, 13) %}
+              {% set ns.e = ns.e + [{'who': 'Kid B', 'what': 'After-school club number ' ~ i, 'all_day': true,
+                                     'start': now().date().isoformat(), 'at': ''}] %}
+            {% endfor %}
+            {{ ns.e }}
       - name: Due Times
         unique_id: test_due_times
         state: "3"
@@ -78,3 +147,35 @@ template:
         state: "ok"
         attributes:
           menu: "{{ {} }}"
+      # Two-week timetable anchored on last Monday (week A), so this week is
+      # B. Week A today would say History; week B says Maths and Art.
+      - name: Kid A Timetable
+        unique_id: test_kid_a_timetable
+        state: "ok"
+        attributes:
+          timetable: >-
+            {% set d = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][now().weekday()] %}
+            {% set last_mon = (now().date() - timedelta(days=now().weekday() + 7)).isoformat() %}
+            {{ {'weeks': ['A', 'B'], 'anchor': last_mon,
+                'days': {'A': {d: ['History|H1']}, 'B': {d: ['Maths|M1', {'subject': 'Art', 'room': 'A2'}]}},
+                'closed': []} }}
+      - name: Bin Collections
+        unique_id: test_bin_collections
+        state: "{{ states('input_text.test_bins') }}"
+        availability: "{{ states('input_text.test_bins') != 'gone' }}"
+        attributes:
+          next_days: "{{ states('input_text.test_bins') | int(0) }}"
+          next_short: "{{ ['Black bin', 'Food'] }}"
+          fetch: ok
+      - name: a1mini SERIAL print status
+        unique_id: test_printer_status
+        state: running
+      - name: a1mini SERIAL print progress
+        unique_id: test_printer_progress
+        state: "45"
+      - name: a1mini SERIAL end time
+        unique_id: test_printer_end
+        state: "{{ (now().replace(second=0, microsecond=0) + timedelta(hours=2)).isoformat() }}"
+      - name: Rain Sensor
+        unique_id: test_rain_sensor
+        state: "{{ states('input_text.test_rain') }}"

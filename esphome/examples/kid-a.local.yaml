@@ -6,6 +6,12 @@ substitutions:
   friendly_name: Kid A panel
   child: kid_a
   api_key: !secret panel_kid_a_api_key
+  cyd_model: ESP32-2432S028
+  rotation: "270"
+  clock_format: "12h"
+  night_mode: dim
+  night_start: "19:30"
+  night_end: "07:00"
 
 packages:
   base: !include ../packages/base.yaml

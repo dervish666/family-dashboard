@@ -13,11 +13,23 @@
 # the fallback access point. The panel talks to Home Assistant and nothing else.
 
 substitutions:
+  # The announcement helper every panel shows. Point it at your own if your
+  # announce script writes somewhere else (same "minutes|from|text" format).
   announcement_entity: input_text.family_announcement
-  # The night schedule. Between these the screen is off and a tap wakes it at
-  # night_brightness for idle_timeout. Set both to the same time to switch it off.
+  # "24h" (07:05) or "12h" (7:05, with am or pm after the date).
+  clock_format: "24h"
+  # The night window. Set both to the same time to switch night off.
   night_start: "21:00"
   night_end: "07:00"
+  # What night looks like: "off" turns the screen off and pauses drawing;
+  # "dim" keeps a low glow (night_glow_brightness) with the clock still going.
+  # Either way a tap lights it at night_brightness for idle_timeout.
+  night_mode: "off"
+  night_glow_brightness: 4%
+  # While this entity is "on" (a light, a switch, an input_boolean), night
+  # waits: the panel stays as bright as by day. The default helper does not
+  # exist until you make it, and a missing entity never keeps a panel awake.
+  night_keep_awake_entity: input_boolean.family_panel_keep_awake
   day_brightness: 80%
   idle_brightness: 35%
   night_brightness: 10%
@@ -29,7 +41,7 @@ esphome:
   min_version: 2026.10.0
   project:
     name: dervish666.family-dashboard-panel
-    version: "0.1.0"
+    version: "0.2.0"
   on_boot:
     priority: -100
     then:
@@ -72,7 +84,11 @@ time:
           - script.execute: check_night
 
 globals:
+  # Night as the panel acts on it: inside the window and not kept awake.
   - id: is_night
+    type: bool
+    initial_value: "false"
+  - id: keep_awake
     type: bool
     initial_value: "false"
   # What the panel last heard from Home Assistant, kept so a missing or broken
@@ -92,11 +108,31 @@ script:
       - lambda: |-
           auto t = id(ha_time).now();
           if (!t.is_valid()) return;
-          lv_label_set_text(id(clock_label), t.strftime("%H:%M").c_str());
-          lv_label_set_text(id(date_label), t.strftime("%a %d %b").c_str());
+          int hour = t.hour, minute = t.minute;
+          bool twelve = std::string("${clock_format}") == "12h";
+          std::string clock, suffix;
+          // BEGIN clock-format (tests/panels/check.py compiles this block)
+          {
+            char buf[8];
+            if (twelve) {
+              int h = hour % 12;
+              if (h == 0) h = 12;
+              snprintf(buf, sizeof buf, "%d:%02d", h, minute);
+              suffix = hour < 12 ? "am" : "pm";
+            } else {
+              snprintf(buf, sizeof buf, "%02d:%02d", hour, minute);
+            }
+            clock = buf;
+          }
+          // END clock-format
+          std::string date = t.strftime("%a %d %b");
+          if (!suffix.empty()) date += ", " + suffix;
+          lv_label_set_text(id(clock_label), clock.c_str());
+          lv_label_set_text(id(date_label), date.c_str());
 
-  # Works out night or day from night_start and night_end, and switches the
-  # screen on the minute either one passes.
+  # Works out night or day from night_start, night_end and the keep-awake
+  # entity, and switches the screen when the answer changes: on the minute
+  # either time passes, or the moment the keep-awake entity changes.
   - id: check_night
     then:
       - lambda: |-
@@ -106,17 +142,36 @@ script:
           sscanf("${night_start}", "%d:%d", &sh, &sm);
           sscanf("${night_end}", "%d:%d", &eh, &em);
           int now_m = t.hour * 60 + t.minute, start_m = sh * 60 + sm, end_m = eh * 60 + em;
-          bool night = start_m == end_m ? false
-                     : start_m < end_m ? (now_m >= start_m && now_m < end_m)
-                                       : (now_m >= start_m || now_m < end_m);
+          bool keep = id(keep_awake), night;
+          // BEGIN night-window (tests/panels/check.py compiles this block)
+          {
+            bool window = start_m == end_m ? false
+                        : start_m < end_m ? (now_m >= start_m && now_m < end_m)
+                                          : (now_m >= start_m || now_m < end_m);
+            night = window && !keep;
+          }
+          // END night-window
           if (night == id(is_night)) return;
           id(is_night) = night;
           if (night) id(screen_off).execute(); else id(wake_screen).execute();
 
+  # Night rest: a low glow with the clock running (night_mode dim), or the
+  # backlight off and drawing paused (night_mode off, the default).
   - id: screen_off
     then:
-      - light.turn_off: backlight
-      - lvgl.pause:
+      - if:
+          condition:
+            lambda: return std::string("${night_mode}") == "dim";
+          then:
+            - if:
+                condition: lvgl.is_paused
+                then:
+                  - lvgl.resume:
+                  - lvgl.widget.redraw:
+            - light.turn_on: { id: backlight, brightness: "${night_glow_brightness}" }
+          else:
+            - light.turn_off: backlight
+            - lvgl.pause:
 
   # Boards call this on every touch release. At night it lights the screen
   # dimly; by day it brings a dimmed screen back to full.
@@ -136,6 +191,16 @@ script:
             - light.turn_on: { id: backlight, brightness: "${day_brightness}" }
 
 text_sensor:
+  # Keeps night waiting while it reads "on". Anything else, a missing entity
+  # included, lets night happen on schedule.
+  - platform: homeassistant
+    id: keep_awake_state
+    entity_id: ${night_keep_awake_entity}
+    internal: true
+    on_value:
+      - lambda: id(keep_awake) = x == "on";
+      - script.execute: check_night
+
   # The card's announcement helper. Same contract as the card: plain text,
   # "Name: text", or "minutes|from|text" as script.family_announce writes it.
   # Read-only here; no panel can change it except through Home Assistant.

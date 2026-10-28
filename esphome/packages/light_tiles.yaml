@@ -1,0 +1,217 @@
+# Light tiles: a Lights page with up to four room tiles and an All off button.
+#
+# Each tile stands for a room or a group of lights. Its colour follows one
+# Home Assistant entity (tile_N_entity: a light, a light group, a switch, or
+# a template binary_sensor that is on while any light in the room is on):
+# amber when on, white when off, grey with "Unavailable" when Home Assistant
+# cannot say. A tap toggles the room; All off turns every tile's room off.
+#
+# The panel does not switch anything itself. A tap fires
+# esphome.family_panel_light with the tile's target, a short name like
+# kitchen, and toggle or off. The automation family_panel_light in
+# homeassistant/panels-kitchen.example.yaml looks the target up in its own
+# allowlist (light_targets) and switches only the entities listed there. A
+# target it does not know, or an entity id sent in place of a target, changes
+# nothing and is logged. So the panel needs no "allow actions" permission,
+# and a panel with a changed firmware still reaches only the listed lights.
+#
+# Leave a tile's name empty ("") to hide it. tile_N_target must be a key in
+# light_targets; tile_N_entity should be what that key switches, or a sensor
+# that follows it. Names: no double quotes.
+#
+# Needs the kitchen profile, whose page buttons this joins (the fourth slot).
+
+substitutions:
+  tile_1_name: "Kitchen"
+  tile_1_target: kitchen
+  tile_1_entity: light.kitchen
+  tile_2_name: "Living room"
+  tile_2_target: living_room
+  tile_2_entity: light.living_room
+  tile_3_name: "Hall"
+  tile_3_target: hall
+  tile_3_entity: light.hall
+  tile_4_name: "Landing"
+  tile_4_target: landing
+  tile_4_entity: light.landing
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          lv_obj_t *tiles[] = {id(tile_1), id(tile_2), id(tile_3), id(tile_4)};
+          const char *names[] = {"${tile_1_name}", "${tile_2_name}", "${tile_3_name}", "${tile_4_name}"};
+          for (int i = 0; i < 4; i++)
+            if (!names[i][0]) lv_obj_add_flag(tiles[i], LV_OBJ_FLAG_HIDDEN);
+
+text_sensor:
+  - platform: homeassistant
+    id: tile_1_src
+    entity_id: ${tile_1_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: tile_show, slot: 0 }
+  - platform: homeassistant
+    id: tile_2_src
+    entity_id: ${tile_2_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: tile_show, slot: 1 }
+  - platform: homeassistant
+    id: tile_3_src
+    entity_id: ${tile_3_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: tile_show, slot: 2 }
+  - platform: homeassistant
+    id: tile_4_src
+    entity_id: ${tile_4_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: tile_show, slot: 3 }
+
+script:
+  - id: tile_show
+    mode: queued
+    max_runs: 8
+    parameters:
+      slot: int
+    then:
+      - lambda: |-
+          text_sensor::TextSensor *src[] = {id(tile_1_src), id(tile_2_src), id(tile_3_src), id(tile_4_src)};
+          lv_obj_t *tiles[] = {id(tile_1), id(tile_2), id(tile_3), id(tile_4)};
+          lv_obj_t *notes[] = {id(tile_1_note), id(tile_2_note), id(tile_3_note), id(tile_4_note)};
+          if (slot < 0 || slot > 3) return;
+          std::string x = src[slot]->state;
+          int on;
+          // BEGIN tile-state (tests/panels/check.py compiles this block)
+          {
+            // 1 on, 0 off, -1 Home Assistant cannot say. "on" and "off" are
+            // what a light, a group, a switch and a binary_sensor all report;
+            // anything else (unavailable, unknown, a typo'd entity) is -1.
+            on = x == "on" ? 1 : x == "off" ? 0 : -1;
+          }
+          // END tile-state
+          uint32_t bg = on == 1 ? 0xE0A050 : on == 0 ? 0xFFFFFF : 0xEDE6D8;
+          const char *note = on == 1 ? "On" : on == 0 ? "Off" : "Unavailable";
+          lv_obj_set_style_bg_color(tiles[slot], lv_color_hex(bg), LV_PART_MAIN);
+          if (strcmp(lv_label_get_text(notes[slot]), note) != 0) lv_label_set_text(notes[slot], note);
+
+  - id: light_send
+    mode: queued
+    max_runs: 8
+    parameters:
+      target: std::string
+      action: std::string
+    then:
+      - if:
+          condition: api.connected
+          then:
+            - homeassistant.event:
+                event: esphome.family_panel_light
+                data:
+                  target: !lambda return target;
+                  action: !lambda return action;
+                  panel: ${name}
+          else:
+            - logger.log:
+                level: WARN
+                format: "Not connected to Home Assistant: the light tap was not sent"
+
+  - id: lights_all_off
+    then:
+      - lambda: |-
+          const char *names[] = {"${tile_1_name}", "${tile_2_name}", "${tile_3_name}", "${tile_4_name}"};
+          const char *targets[] = {"${tile_1_target}", "${tile_2_target}", "${tile_3_target}", "${tile_4_target}"};
+          for (int i = 0; i < 4; i++)
+            if (names[i][0]) id(light_send).execute(std::string(targets[i]), std::string("off"));
+
+lvgl:
+  style_definitions:
+    - id: tile_style
+      bg_color: 0xFFFFFF
+      text_color: 0x2E2A24
+      radius: 16
+      border_width: 2
+      border_color: 0xE8DCC4
+      shadow_width: 0
+      pad_all: 10
+
+  pages:
+    - id: lights_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      pad_bottom: 64
+      layout:
+        type: flex
+        flex_flow: row_wrap
+        flex_align_main: space_between
+        pad_row: 8
+      widgets:
+        - label:
+            text: "Lights"
+            text_font: font_big
+            width: 100%
+        - button:
+            id: tile_1
+            width: 48%
+            height: 132
+            styles: tile_style
+            on_click:
+              - script.execute: { id: light_send, target: "${tile_1_target}", action: "toggle" }
+            widgets:
+              - label: { text: "${tile_1_name}", text_font: font_big, align: TOP_LEFT, width: 100%, long_mode: wrap }
+              - label: { id: tile_1_note, text: "Waiting", text_font: font_small, align: BOTTOM_LEFT }
+        - button:
+            id: tile_2
+            width: 48%
+            height: 132
+            styles: tile_style
+            on_click:
+              - script.execute: { id: light_send, target: "${tile_2_target}", action: "toggle" }
+            widgets:
+              - label: { text: "${tile_2_name}", text_font: font_big, align: TOP_LEFT, width: 100%, long_mode: wrap }
+              - label: { id: tile_2_note, text: "Waiting", text_font: font_small, align: BOTTOM_LEFT }
+        - button:
+            id: tile_3
+            width: 48%
+            height: 132
+            styles: tile_style
+            on_click:
+              - script.execute: { id: light_send, target: "${tile_3_target}", action: "toggle" }
+            widgets:
+              - label: { text: "${tile_3_name}", text_font: font_big, align: TOP_LEFT, width: 100%, long_mode: wrap }
+              - label: { id: tile_3_note, text: "Waiting", text_font: font_small, align: BOTTOM_LEFT }
+        - button:
+            id: tile_4
+            width: 48%
+            height: 132
+            styles: tile_style
+            on_click:
+              - script.execute: { id: light_send, target: "${tile_4_target}", action: "toggle" }
+            widgets:
+              - label: { text: "${tile_4_name}", text_font: font_big, align: TOP_LEFT, width: 100%, long_mode: wrap }
+              - label: { id: tile_4_note, text: "Waiting", text_font: font_small, align: BOTTOM_LEFT }
+        - button:
+            width: 100%
+            height: 56
+            bg_color: 0x2E2A24
+            on_click:
+              - script.execute: lights_all_off
+            widgets:
+              - label: { text: "All off", text_font: font_big, align: CENTER }
+
+  top_layer:
+    widgets:
+      # The fourth page button.
+      - button:
+          align: BOTTOM_LEFT
+          x: 75%
+          width: 25%
+          height: 54
+          styles: nav_style
+          on_click:
+            - lvgl.page.show: lights_page
+          widgets:
+            - label: { text: "Lights", align: CENTER }

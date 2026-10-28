@@ -1,14 +1,23 @@
-# Kitchen profile: the shared family view.
+# Kitchen profile: the shared family view, in pages.
 #
-# The clock, the family announcement, today's calendar, a lunch and kit line,
-# what is due soon, and four preset announcements anyone in the kitchen can
-# send. Home Assistant does the formatting: the three text sensors come from
-# homeassistant/panels.example.yaml, built from the card's own sensors
-# (sensor.family_today, the lunch and kit sensors, sensor.due_times).
+#   Home    the clock, the family announcement, the strip (bins, printer,
+#           rain) and four preset announcements anyone in the kitchen can send
+#   Today   the day's calendar, lunch and kit, and what is due soon
+#
+# packages/timers.yaml adds a Timers page and packages/light_tiles.yaml a
+# Lights page; examples/kitchen.yaml uses all three. A row of page buttons
+# along the bottom moves between them. There is no swipe: a swipe on a
+# capacitive panel by the cooker reads too many splashes as gestures.
+#
+# Home Assistant does the formatting. The sensors come from
+# homeassistant/panels.example.yaml (today, lunch and kit, due) and
+# homeassistant/panels-kitchen.example.yaml (the strip, rain). Each one keeps
+# a short state under the 255 characters a state can hold, and the full text
+# in a `lines` attribute, newline separated, which is what this page reads.
 #
 # Sending a preset fires an esphome.family_panel_broadcast event. An
 # automation in panels.example.yaml checks the message against its own list
-# and only then calls script.family_announce, so this panel cannot post
+# and only then calls the announce script, so this panel cannot post
 # arbitrary text and needs no "allow actions" permission.
 #
 # The presets must match broadcast_presets in panels.example.yaml, word for
@@ -18,6 +27,10 @@ substitutions:
   today_entity: sensor.panel_today
   lunch_entity: sensor.panel_lunch_and_kit
   due_entity: sensor.panel_due
+  strip_entity: sensor.panel_strip
+  rain_entity: sensor.panel_rain
+  # The most lines one card shows before "+N more".
+  today_max_lines: "12"
   preset_1: "Dinner's ready"
   preset_2: "Shoes on, we're leaving"
   preset_3: "Come downstairs please"
@@ -29,35 +42,130 @@ globals:
     initial_value: '""'
 
 text_sensor:
+  # Each card reads its sensor twice: the `lines` attribute for the text, and
+  # the state to notice the sensor going unavailable. Home Assistant sends
+  # nothing at all when an attribute disappears, so without the state an
+  # unavailable sensor would leave yesterday's lines on the screen.
   - platform: homeassistant
     id: today_text
     entity_id: ${today_entity}
+    attribute: lines
     internal: true
     on_value:
-      - lvgl.label.update:
-          id: today_label
-          text: !lambda |-
-            return (x == "unavailable" || x == "unknown") ? std::string("Calendar unavailable") : x;
+      - script.execute: { id: show_lines, target: 0 }
+  - platform: homeassistant
+    id: today_state
+    entity_id: ${today_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: show_lines, target: 0 }
   - platform: homeassistant
     id: lunch_text
     entity_id: ${lunch_entity}
+    attribute: lines
     internal: true
     on_value:
-      - lvgl.label.update:
-          id: lunch_label
-          text: !lambda |-
-            return (x == "unavailable" || x == "unknown") ? std::string("Lunch and kit unavailable") : x;
+      - script.execute: { id: show_lines, target: 1 }
+  - platform: homeassistant
+    id: lunch_state
+    entity_id: ${lunch_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: show_lines, target: 1 }
   - platform: homeassistant
     id: due_text
     entity_id: ${due_entity}
+    attribute: lines
     internal: true
     on_value:
-      - lvgl.label.update:
-          id: due_label
-          text: !lambda |-
-            return (x == "unavailable" || x == "unknown") ? std::string("Due times unavailable") : x;
+      - script.execute: { id: show_lines, target: 2 }
+  - platform: homeassistant
+    id: due_state
+    entity_id: ${due_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: show_lines, target: 2 }
+  - platform: homeassistant
+    id: strip_text
+    entity_id: ${strip_entity}
+    attribute: lines
+    internal: true
+    on_value:
+      - script.execute: { id: show_lines, target: 3 }
+  - platform: homeassistant
+    id: strip_state
+    entity_id: ${strip_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: show_lines, target: 3 }
+  - platform: homeassistant
+    id: rain_text
+    entity_id: ${rain_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: show_lines, target: 4 }
 
 script:
+  # Formats every card: names a missing source, and caps the lines so a busy
+  # day cannot push the card off the screen. A label is only touched when its
+  # text changes, because on the JC3248W535 every touch costs a full frame.
+  - id: show_lines
+    mode: queued
+    max_runs: 12
+    parameters:
+      target: int
+    then:
+      - lambda: |-
+          static const char *const NAMES[] = {"Calendar", "Lunch and kit", "Due times", "The strip", "Rain"};
+          text_sensor::TextSensor *attr[] = {id(today_text), id(lunch_text), id(due_text), id(strip_text), id(rain_text)};
+          text_sensor::TextSensor *st[] = {id(today_state), id(lunch_state), id(due_state), id(strip_state), id(rain_text)};
+          lv_obj_t *labels[] = {id(today_label), id(lunch_label), id(due_label), id(strip_label), id(rain_label)};
+          if (target < 0 || target > 4) return;
+          bool state_heard = st[target]->has_state(), lines_heard = attr[target]->has_state();
+          std::string state = st[target]->state, raw = attr[target]->state;
+          std::string what = NAMES[target];
+          lv_obj_t *label = labels[target];
+          int max_lines = target == 4 ? 2 : ${today_max_lines};
+          std::string shown;
+          bool wait = false;
+          // BEGIN panel-lines (tests/panels/check.py compiles this block)
+          {
+            auto trim = [](std::string v) {
+              size_t a = v.find_first_not_of(" \t\r\n");
+              if (a == std::string::npos) return std::string();
+              size_t b = v.find_last_not_of(" \t\r\n");
+              return v.substr(a, b - a + 1);
+            };
+            // An unavailable sensor loses its attributes, and Home Assistant
+            // sends nothing for a missing attribute, so the old lines would
+            // stay. The state is what says the sensor has gone.
+            if (state_heard && (state == "unavailable" || state == "unknown")) raw = "unavailable";
+            else if (!lines_heard) wait = true;  // keeps "Waiting for Home Assistant"
+            std::string s = trim(raw);
+            // An attribute holding None arrives as the text "None".
+            if (wait) {
+            } else if (s.empty() || s == "None" || s == "unknown" || s == "unavailable") {
+              shown = what + " unavailable";
+            } else {
+              std::vector<std::string> lines;
+              size_t at = 0;
+              while (true) {
+                size_t nl = s.find('\n', at);
+                std::string line = trim(s.substr(at, nl == std::string::npos ? std::string::npos : nl - at));
+                if (!line.empty()) lines.push_back(line);
+                if (nl == std::string::npos) break;
+                at = nl + 1;
+              }
+              if (max_lines < 2) max_lines = 2;
+              size_t keep = lines.size() > (size_t) max_lines ? (size_t) max_lines - 1 : lines.size();
+              for (size_t i = 0; i < keep; i++) shown += (i ? "\n" : "") + lines[i];
+              if (keep < lines.size()) shown += "\n+" + std::to_string(lines.size() - keep) + " more";
+            }
+          }
+          // END panel-lines
+          if (wait) return;
+          if (shown != lv_label_get_text(label)) lv_label_set_text(label, shown.c_str());
+
   - id: ask_preset
     parameters:
       message: std::string
@@ -67,6 +175,7 @@ script:
           id: confirm_label
           text: !lambda return "Send to every panel?\n\n" + message;
       - lvgl.widget.show: confirm_box
+      - lambda: lv_obj_move_foreground(id(confirm_box));
 
   - id: send_preset
     then:
@@ -84,10 +193,24 @@ script:
                 text: "Not connected to Home Assistant.\nNothing was sent."
 
 lvgl:
+  style_definitions:
+    - id: nav_style
+      bg_color: 0xFFFFFF
+      text_color: 0x3F7A50
+      radius: 0
+      border_width: 0
+      shadow_width: 0
+      pad_all: 4
+    - id: card_title_style
+      text_font: font_small
+      text_color: 0x3F7A50
+
   pages:
     - id: main_page
       bg_color: 0xFFF8EC
       pad_all: 8
+      # Room for the page buttons, and for the timer chip above them.
+      pad_bottom: 108
       layout:
         type: flex
         flex_flow: column
@@ -138,6 +261,7 @@ lvgl:
                   text: ""
                   text_font: font_big
                   long_mode: wrap
+        # The strip: bins, the printer, and rain, one short line each.
         - obj:
             width: 100%
             height: SIZE_CONTENT
@@ -145,53 +269,24 @@ lvgl:
             layout:
               type: flex
               flex_flow: column
-              pad_row: 2
+              pad_row: 4
             widgets:
               - label:
-                  text: "Today"
-                  text_font: font_small
-                  text_color: 0x3F7A50
-              - label:
-                  id: today_label
+                  id: strip_label
                   width: 100%
                   text: "Waiting for Home Assistant"
+                  long_mode: wrap
+              - label:
+                  id: rain_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  text_font: font_small
+                  text_color: 0x3F6F8F
                   long_mode: wrap
         - obj:
             width: 100%
-            height: SIZE_CONTENT
-            styles: card_style
-            layout:
-              type: flex
-              flex_flow: column
-              pad_row: 2
-            widgets:
-              - label:
-                  text: "Lunch and kit"
-                  text_font: font_small
-                  text_color: 0x3F7A50
-              - label:
-                  id: lunch_label
-                  width: 100%
-                  text: "Waiting for Home Assistant"
-                  long_mode: wrap
-        - obj:
-            width: 100%
-            height: SIZE_CONTENT
-            styles: card_style
-            layout:
-              type: flex
-              flex_flow: column
-              pad_row: 2
-            widgets:
-              - label:
-                  text: "Due"
-                  text_font: font_small
-                  text_color: 0x3F7A50
-              - label:
-                  id: due_label
-                  width: 100%
-                  text: "Waiting for Home Assistant"
-                  long_mode: wrap
+            flex_grow: 1
+            bg_opa: TRANSP
         - obj:
             width: 100%
             height: SIZE_CONTENT
@@ -235,10 +330,103 @@ lvgl:
                   widgets:
                     - label: { text: "${preset_4}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
 
-  # The confirm step, above whatever page is showing. A stray elbow on a
-  # preset button asks first instead of shouting at the whole house.
+    - id: today_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      pad_bottom: 64
+      layout:
+        type: flex
+        flex_flow: column
+        pad_row: 8
+      widgets:
+        - label:
+            text: "Today"
+            text_font: font_big
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label: { text: "Calendar", styles: card_title_style }
+              - label:
+                  id: today_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label: { text: "Lunch and kit", styles: card_title_style }
+              - label:
+                  id: lunch_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 2
+            widgets:
+              - label: { text: "Due", styles: card_title_style }
+              - label:
+                  id: due_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  long_mode: wrap
+
   top_layer:
     widgets:
+      # The page buttons. Four slots of a quarter each: Home and Today here,
+      # Timers (packages/timers.yaml) and Lights (packages/light_tiles.yaml)
+      # bring their own, so a kitchen without them has an empty slot, not a
+      # button to nowhere.
+      - obj:
+          align: BOTTOM_MID
+          width: 100%
+          height: 56
+          bg_color: 0xFFFFFF
+          border_width: 2
+          border_side: TOP
+          border_color: 0xE8DCC4
+          clickable: false
+          scrollable: false
+      - button:
+          align: BOTTOM_LEFT
+          x: 0
+          width: 25%
+          height: 54
+          styles: nav_style
+          on_click:
+            - lvgl.page.show: main_page
+          widgets:
+            - label: { text: "Home", align: CENTER }
+      - button:
+          align: BOTTOM_LEFT
+          x: 25%
+          width: 25%
+          height: 54
+          styles: nav_style
+          on_click:
+            - lvgl.page.show: today_page
+          widgets:
+            - label: { text: "Today", align: CENTER }
+
+      # The confirm step, above whatever page is showing. A stray elbow on a
+      # preset button asks first instead of shouting at the whole house.
       - obj:
           id: confirm_box
           hidden: true
