@@ -133,6 +133,16 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .chip.pick { background: #F3E3A2; color: #26352C; }
 #next { transition: opacity .6s; }
 .foot .bad { color: var(--warn); }
+
+/* When the post goes, by the postbox (or under the corner hint): a pill like the name tags. */
+#posthint { display: flex; align-items: center; height: 34px; padding: 0 13px 0 8px; border-radius: 999px; box-sizing: border-box;
+  background: rgba(255, 255, 255, .96); border: 2.5px solid #D9433A; font: 600 17px Fredoka, sans-serif; color: #26352C;
+  white-space: nowrap; pointer-events: none; }
+#posthint svg { flex: none; margin-right: 7px; }
+#posthint.at { position: absolute; transform: translate(-50%, -100%); margin-top: -10px; }
+#posthint.at::after { content: ""; position: absolute; left: 50%; bottom: -9px; margin-left: -7px;
+  border: 7px solid transparent; border-top-color: #D9433A; border-bottom: 0; }
+#posthint.corner { display: inline-flex; margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) { #card, #scrim { transition: none; } .dchip.now, .ann, .ann .dic { animation: none; } }
 `;
 

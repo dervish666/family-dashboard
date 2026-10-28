@@ -36,6 +36,9 @@
 //                    hangs (1 right, -1 left); top the scroll's top edge (default below the back
 //                    row); look { col, hat } its colour and hat; say the shout ("Hear ye!"), head
 //                    the scroll's heading, style "parchment" or "holo". It walks the path back home.
+//   postbox(S)       { x, y }: the top of the scene's postbox, where "Post goes at 07:09" points
+//                    while a letter waits for the morning (v1.9.0). Without one the hint sits
+//                    under the corner hint.
 //   hotspots         the landmarks a tap opens, one for every id in HOTSPOT_IDS below:
 //                    { box(S) -> [x0, y0, x1, y1], tap(S) } where tap() makes the puff or the
 //                    "ding!". school opens the School card; home, music, printer and office

@@ -7,7 +7,7 @@
 # announcement, due-time and status-tile parsers and config, and v1.7.0's town crier: its
 # config, what counts as new or late, its steps, the scroll's words and each scene's walk,
 # and v1.8.0's per-person letters: the from|text parser, the copy it matches against the
-# postie, the dedupe and their config). The breaks go in src/, not dist/, because dist/ is
+# postie, the dedupe and their config, and v1.9.0's post hours, hint and badge). The breaks go in src/, not dist/, because dist/ is
 # minified and its names change with every build. Exits 1 if any broken copy passes. Needs
 # npm ci first.
 set -u
@@ -142,5 +142,22 @@ letters.js|s/if (p.kind === "unavailable") { out.bad.push/if (p.kind === "unavai
 config.js|s/  if (!\/^(input_text/  if (false \&\& !\/^(input_text/|a sensor is accepted as a letter helper
 config.js|s/if (twin) throw/if (false) throw/|two people share one letter helper
 config.js|s/if (p.letter .. p.letter === out.sensors.letter)/if (false)/|a person's helper can be the postie's
+post.js|s/export const POST_GATE = 0.35;/export const POST_GATE = 0.3;/|the hint's gate drifts from the postie's
+post.js|s/  if (h < 7.5) return 7.5 - h;/  if (h < 7.5) return 7.4 - h;/|the morning curve moves and the post goes at 07:03
+post.js|s/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE); }/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE + 0.01); }/|the hint's gate is a hair looser than the postie's
+post.js|s/ + (m >= hrs.closes ? " tomorrow" : "");/ + (m > hrs.closes ? " tomorrow" : "");/|the cut-off minute itself says today
+post.js|s/  if (!waiting) return "";//|the hint shows with nothing waiting
+post.js|s/  if (open(m, bed) .. hrs.opens >= 1440) return "";/  if (hrs.opens >= 1440) return "";/|the hint stays up while the post is going
+post.js|s/return { getHours: function () { return Math.floor(m \/ 60); }/return { getHours: function () { return Math.round(m \/ 60); }/|the clock is read to the nearest hour
+post.js|s/export function postBadge(letter) { return !!letter .. !letter.gone; }/export function postBadge(letter) { return !!letter; }/|a letter taken back keeps its badge
+post.js|s/export function badgeSpot(x, y) { return { x: x + 1, y: y + 19, r: 13 }; }/export function badgeSpot(x, y) { return { x: x + 24, y: y + 19, r: 13 }; }/|the badge covers the name
+engine/engine.js|s/^import { sleepCurve, postHint, postBadge, badgeSpot } from "..\/post.js";/import { postHint, postBadge, badgeSpot } from "..\/post.js"; function sleepCurve(d, bed) { return 0; }/|the engine keeps its own copy of the curve
+engine/engine.js|s/var txt = postHint(d, PARTY ? 21.5 : 20.5, LETTER.queue.length);/var txt = postHint(d, 20.5, LETTER.queue.length);/|the hint forgets a party night's later bedtime
+engine/engine.js|s/nightness > 0.35 \(..\) POSTIE.busy) return;/nightness > 0.4 \1 POSTIE.busy) return;/|the postie keeps other hours than the hint says
+engine/engine.js|s/if (!LETTER.queue.length \(..\) nightness > 0.35) return;/if (!LETTER.queue.length \1 nightness > 0.45) return;/|the airmail keeps other hours than the hint says
+engine/engine.js|s/if (postBadge(t.letter)) {/if (t.letter) {/|the tags draw the badge on their own rule
+scenes/meadow.js|s/  postbox: function (S) { var p = S.lay.post; return { x: p.x + 57, y: S.lay.B - 32 }; },/  postbox: function (S) { return { x: S.W \/ 2, y: 20 }; },/|the meadow's hint points at the sky
+scenes/winter.js|s/  postbox: function () { var p = G.postbox; return { x: p.x, y: p.y - 36 }; },/  postbox: function () { var p = G.postbox; return { x: p.x, y: NaN }; },/|the winter postbox is nowhere
+scenes/winter.js|s/  postbox: function () {/  postbox: 3, xx: function () {/|a postbox that is not a function
 EOF
 echo "ok: all $n sabotaged copies failed the check"

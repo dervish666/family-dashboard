@@ -725,6 +725,8 @@ export default {
     var d = G.churchDoor;
     return { path: [{ x: d.x, y: d.y }, { x: d.x, y: G.B + 30 }, { x: Math.round(G.W * 0.3), y: Math.round(G.H * 0.6) }], face: 1 };
   },
+  // The pillar box on the post office's kerb.
+  postbox: function () { var p = G.postbox; return { x: p.x, y: p.y - 36 }; },
   hotspots: {
     school:  { box: function () { var s = G.school; return [s.x - 84, s.y - 132, s.x + 84, s.y + 10]; },
                tap: function (S) { var s = G.school; S.say("ding!", s.x, s.y - 136); } },

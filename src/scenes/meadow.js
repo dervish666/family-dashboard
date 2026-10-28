@@ -26,6 +26,8 @@ export default {
     var d = S.layout.doors.cottage, R = S.lay.R, lx = Math.round(S.W * 0.855), spot = { x: Math.round(S.W * 0.83), y: S.H - 150 };
     return { path: [{ x: d.x, y: d.y }, { x: d.x, y: R }, { x: lx, y: R }, { x: lx, y: spot.y - 24 }, spot], face: -1, top: R + 12 };
   },
+  // The pillar box outside the post office: where a letter waits for the morning post.
+  postbox: function (S) { var p = S.lay.post; return { x: p.x + 57, y: S.lay.B - 32 }; },
   hotspots: {
     school:  { box: function (S) { var s = S.lay.school; return [s.x - 90, s.y - 145, s.x + 90, s.y + 8]; },
                tap: function (S) { var s = S.lay.school; S.say("ding!", s.x + 22, s.y - 150); } },

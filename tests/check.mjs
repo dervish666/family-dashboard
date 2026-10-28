@@ -497,6 +497,33 @@ const wear = function (w) { return function (n) { return w[n] || null; }; };
 eq([m.nextLetter([sA, sB], wear({ "Kid A": { to: "Kid A" } })) === sA, m.nextLetter([], wear({})), m.nextLetter([pA], wear({ "Kid A": pA })) === pA], [true, null, true], "shared letters go in order, as in v1.7.0");
 eq([m.nextLetter([pA2, sB], wear({ "Kid A": pA })) === sB, m.nextLetter([sA, sB], wear({ "Kid A": pA })) === sB, m.nextLetter([pA2], wear({ "Kid A": pA }))], [true, true, null], "a letter for someone already wearing a per-person one waits");
 
+// ── The post office's hours and the letter badge (v1.9.0) ────────────────────────────────
+// The hours come off the curve the creatures sleep on, at the gate the postie keeps (nightness
+// over 0.35 and it stays in). Expected times worked out by hand from that curve: 7.5 - h <= 0.35
+// from 07:09, h - 19.5 > 0.35 from 19:51 (20:51 with bed at 21:30, a party night).
+const pat = function (h, mi) { return new Date(2026, 9, 26, h, mi, 0); };
+eq(m.POST_GATE, 0.35, "the post's gate is the postie's");
+eq([m.sleepCurve(pat(6, 29), 20.5), m.sleepCurve(pat(6, 30), 20.5), m.sleepCurve(pat(7, 0), 20.5), m.sleepCurve(pat(12, 0), 20.5), m.sleepCurve(pat(20, 0), 20.5), m.sleepCurve(pat(20, 30), 20.5)],
+  [1, 1, 0.5, 0, 0.5, 1], "the sleep curve the creatures and the postie share");
+eq(m.postHours(20.5), { opens: 7 * 60 + 9, closes: 19 * 60 + 51 }, "the post goes from 07:09, last post 19:50");
+eq(m.postHours(21.5), { opens: 7 * 60 + 9, closes: 20 * 60 + 51 }, "a party night: last post 20:50, the morning is the same");
+eq([m.postHint(pat(7, 8), 20.5, 1), m.postHint(pat(7, 9), 20.5, 1), m.postHint(pat(19, 50), 20.5, 1), m.postHint(pat(19, 51), 20.5, 1)],
+  ["Post goes at 07:09", "", "", "Post goes at 07:09 tomorrow"], "the boundaries: 07:08 waits, 07:09 goes, 19:50 goes, 19:51 waits for tomorrow");
+eq([m.postHint(pat(0, 0), 20.5, 2), m.postHint(pat(5, 0), 20.5, 1), m.postHint(pat(23, 59), 20.5, 1), m.postHint(pat(22, 0), 20.5, 0), m.postHint(pat(12, 0), 20.5, 3)],
+  ["Post goes at 07:09", "Post goes at 07:09", "Post goes at 07:09 tomorrow", "", ""], "after midnight it is today; nothing waiting, no hint; midday, the post is out");
+eq([m.postHint(pat(20, 50), 21.5, 1), m.postHint(pat(20, 51), 21.5, 1)], ["", "Post goes at 07:09 tomorrow"], "a party night keeps the post an hour longer");
+// The engine's own gate, read out of the source, is the one the hours use.
+const engSrc = fs.readFileSync(path.join(src, "engine", "engine.js"), "utf8");
+ok(/import \{[^}]*\bsleepCurve\b[^}]*\} from "\.\.\/post\.js"/.test(engSrc) && !/function sleepCurve/.test(engSrc), "the engine sleeps on post.js's curve, not a copy of it");
+ok(engSrc.indexOf("if (!LETTER.queue.length || asleep || nightness > 0.35 || POSTIE.busy) return;") >= 0 && engSrc.indexOf("if (!LETTER.queue.length || nightness > 0.35) return;") >= 0,
+  "the postie's letter run and the airmail stop at the same 0.35 the hint reads");
+ok(/postHint\(d, PARTY \? 21\.5 : 20\.5, LETTER\.queue\.length\)/.test(engSrc) && /sleepCurve\(now\(\), PARTY \? 21\.5 : 20\.5\)/.test(engSrc), "the hint and the frame use the same bedtime");
+// The badge: only a letter someone holds, not one taken back; docked on the tag's left end, clear of the name.
+eq([m.postBadge(null), m.postBadge(undefined), m.postBadge({ text: "hi" }), m.postBadge({ text: "hi", gone: true }), m.postBadge({ text: "hi", gone: false })], [false, false, true, false, true], "the badge: a letter held, and only that");
+const bsp = m.badgeSpot(100, 50);
+ok(bsp.x + bsp.r <= 100 + 17 && bsp.x - bsp.r >= 100 - 14 && Math.abs(bsp.y - (50 + 2 + 17)) <= 1 && bsp.r >= 11, "the badge sits on the pill's left end, centred on it, clear of the name");
+ok(/if \(postBadge\(t\.letter\)\)/.test(engSrc), "the tags draw the badge from postBadge");
+// The scenes' postboxes: a point on the card, below the sky, for each scene that has one.
 // ── The creature registry ───────────────────────────────────────────────────────
 const isFn = function (f) { return typeof f === "function"; };
 const C = m.CREATURES, ids = C.map(function (c) { return c && c.id; });
@@ -673,6 +700,8 @@ SL.forEach(function (sc) {
   ok(cw.top == null || (cw.top >= 112 && cw.top < S.H - 200), who + ": the scroll's top leaves the clock alone and room below");
   if (sc.flyer) { ok(isFn(sc.flyer), who + ": flyer is a function"); sc.flyer(g, 600, 160, 1, 2, S); sc.flyer(g, 600, 160, -1, 2.5, S); }
   if (sc.disco) { const dz = sc.disco(S); ok(dz && isFinite(dz.x) && isFinite(dz.top) && dz.y > dz.top + 26 && dz.y < S.H && dz.top >= (sc.indoor ? S.HZ : 0), who + ": the glitter ball hangs on the card, indoors under the roof"); }
+  if (sc.postbox) { ok(isFn(sc.postbox), who + ": postbox is a function"); const pb = sc.postbox(S);
+    ok(pb && isFinite(pb.x) && isFinite(pb.y) && pb.x > 140 && pb.x < S.W - 140 && pb.y > S.HZ && pb.y < S.H - 40, who + ": the postbox is on the card, below the horizon, with room for the hint"); }
   if (L.lay && L.lay.school) ok(isFinite(L.lay.school.x) && isFinite(L.lay.school.y) && (!L.lay.school.cut || (L.lay.school.cut.length === 4 && L.lay.school.cut.every(isFinite))), who + ": the School tag's spot is a point");
   if (sc.start) for (let i = 0; i < 8; i++) { const p = sc.start(i, S); ok(p && (p.x === null || (isFinite(p.x) && isFinite(p.y))), who + ": start(" + i + ") is a point"); }
   if (sc.ambient) {

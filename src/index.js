@@ -15,6 +15,7 @@
 //   extras.js         the announcement banner, due-time row and status tiles: config and parsing
 //   crier.js          the town crier for a new announcement: config, what is new or late, its steps
 //   letters.js        per-person letters (the room panels' from|text), and the dedupe with the postie
+//   post.js           the post office's hours (the hint by the postbox) and the letter badge on a name tag
 //   engine/engine.js  the world: creatures, the day, weather, parties, the cards
 //   engine/draw.js    canvas helpers shared by the engine, creatures and scenes
 //   creatures/*.js    one module per animal, listed in creatures/index.js
@@ -28,5 +29,6 @@ export { parseTimetable, parseLunch, lunchChoice, lessonsEnd, lessonsOver } from
 export { parseAnnouncement, parseDue, dueForHud, tileState, thresholdText, parseThresholdText, TILE_ICONS, MAX_TILES } from "./extras.js";
 export { normCrier, parseAnnounce, annStep, newCrier, crierStep, crierShowing, holdFor, wrapWords, fitWords, CRIER_LATE, CRIER_TIMES } from "./crier.js";
 export { parseLetter, letterMirror, newLetterBook, letterStep, bridgeCopy, letterShared, letterRead, nextLetter } from "./letters.js";
+export { sleepCurve, postHours, postHint, postBadge, badgeSpot, POST_GATE } from "./post.js";
 export { CREATURES, HELPERS as CREATURE_HELPERS, bakeRig } from "./creatures/index.js";
 export { SCENE_LIST, HOTSPOT_IDS } from "./scenes/index.js";

@@ -7,6 +7,7 @@ import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
+import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -655,6 +656,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         g.fillStyle = "#B8A27E"; g.fillRect(5, 3, 6, 3); g.fillStyle = "#E0C98F"; g.beginPath(); g.arc(8, 12, 2.5, 0, 7); g.fill(); }),
       letter: icon(16, 11, function (g) { g.fillStyle = "#FFFFFF"; g.strokeStyle = "#B9B4AA"; g.lineWidth = 1; g.fillRect(1, 1, 14, 9.5); g.strokeRect(1, 1, 14, 9.5);
         g.beginPath(); g.moveTo(1, 1); g.lineTo(8, 6.5); g.lineTo(15, 1); g.stroke(); g.fillStyle = "#E86A5B"; g.fillRect(11, 2.5, 2.5, 2.5); }),
+      // the name tag's badge for a letter waiting: a postbox-red disc with an envelope on it
+      postbadge: icon(30, 30, function (g) { g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(15, 15, 14, 0, 7); g.fill();
+        g.fillStyle = "#D9433A"; g.beginPath(); g.arc(15, 15, 12, 0, 7); g.fill();
+        g.fillStyle = "#FFFFFF"; rr(g, 7.5, 10, 15, 10.5, 1.5); g.fill();
+        g.strokeStyle = "#D9433A"; g.lineWidth = 1.6; g.lineJoin = "round"; g.beginPath(); g.moveTo(8.5, 11); g.lineTo(15, 16); g.lineTo(21.5, 11); g.stroke(); }),
       gift: icon(16, 17, function (g) { g.fillStyle = "#E86A5B"; g.fillRect(2, 7, 12, 10); g.fillStyle = "#C94F44"; g.fillRect(1, 5, 14, 4);       // a present for the house party
         g.fillStyle = "#F3DE7C"; g.fillRect(7, 5, 2.5, 12); g.beginPath(); g.arc(5.5, 3.5, 2.2, 0, 7); g.arc(10.5, 3.5, 2.2, 0, 7); g.fill(); }),
       bucket: icon(14, 14, function (g) { g.fillStyle = "#8FA6B8"; g.beginPath(); g.moveTo(1, 3); g.lineTo(13, 3); g.lineTo(11, 13); g.lineTo(3, 13); g.closePath(); g.fill();
@@ -1506,13 +1512,6 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return 0;
   }
   // Bedtime, by the clock: sleepy from an hour before, asleep until 06:30.
-  function sleepCurve(d, bed) {
-    var h = d.getHours() + d.getMinutes() / 60;
-    if (h >= bed || h < 6.5) return 1;
-    if (h >= bed - 1) return h - (bed - 1);
-    if (h < 7.5) return 7.5 - h;
-    return 0;
-  }
   function updateWeather(dt) {
     var wm = weatherNow(), T;
     WX.live = !!wm;
@@ -2199,12 +2198,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // the workshop's board: the percent on the fence while a job is on (a tag above
     // would sit on the road, the plot is that close under it)
     var bd = VIL && shopBoard(); if (bd) ctx.drawImage(bd.c, LAY.shop.x - 60 - bd.w / 2, LAY.shop.y - 30 - bd.h, bd.w, bd.h);
-    // name tags last, so night never hides who is who; a letter rides above the tag
+    // name tags last, so night never hides who is who; a letter waiting for them (a tap opens it)
+    // is an envelope badge on the tag's left end
     for (i = 0; i < fam.length; i++) { t = fam[i]; var tag = TAGS[t.person.name]; if (!tag) continue;
       if (offStage(t)) { t.tagBox = null; continue; }
       var sc = depth(t.y), top = t.y + (t.dy || 0) - hopOf(t) * sc - t.r * sc * t.person.tg;
       ctx.drawImage(tag.c, t.x - tag.w / 2, top - tag.h, tag.w, tag.h); t.tagBox = [t.x - tag.w / 2, top - tag.h, tag.w, tag.h];
-      if (t.letter) blit(ICON.letter, t.x, top - tag.h - 6 + Math.sin(time * 2.4 + t.phase) * 2.5, 1, 1, 1, 2, Math.sin(time * 1.8) * 0.12); }
+      if (postBadge(t.letter)) { var bs = badgeSpot(t.x - tag.w / 2, top - tag.h);
+        blit(ICON.postbadge, bs.x, bs.y + ICON.postbadge.ay / K / 2, 1, 1, 1, 1, REDUCED ? 0 : Math.sin(time * 1.6 + t.phase) * 0.14 * Math.max(0, Math.sin(time * 0.9))); } }
     drawRobotBubble(time);                                   // the office robot's line, above the night like the tags
     if (CRIER) drawScroll();                                 // the crier's scroll, over everything
   }
@@ -3127,9 +3128,29 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (XS.clearErr) st = "Couldn't clear the announcement in Home Assistant";
     $("status").textContent = st;
     $("next").style.opacity = FLIGHT ? 0 : 1;
-    extrasHud(d);
+    extrasHud(d); postHud(d);
     WRAP.classList.toggle("night", DARK > 0.5);
     if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
+  }
+
+  // v1.9.0: letters waiting for the post overnight say when it goes (post.js reads the hours off
+  // the same curve the postie keeps), on a pill by the scene's postbox (scene.postbox), or under
+  // the corner hint in a scene without one. Made the first time it is needed, so a card with no
+  // letter waiting has no extra element; hidden again once the queue empties or the post goes.
+  var PH = null, PH_KEY = null;
+  var POST_MINI = '<svg viewBox="0 0 48 36" width="24" height="18" aria-hidden="true"><rect x="2" y="2" width="44" height="32" rx="4" fill="#fff" stroke="#B5583A" stroke-width="3.5"/>' +
+    '<path d="M3 4l21 16L45 4" fill="none" stroke="#B5583A" stroke-width="3.5" stroke-linejoin="round"/></svg>';
+  function postHud(d) {
+    var txt = postHint(d, PARTY ? 21.5 : 20.5, LETTER.queue.length);
+    if (!txt && !PH) return;
+    if (!PH) { PH = document.createElement("div"); PH.id = "posthint"; PH.innerHTML = POST_MINI + "<span></span>"; }
+    PH.style.display = txt ? "" : "none";
+    if (!txt) return;
+    var pb = SCENE.postbox && SCENE.postbox(SV), key = txt + (pb ? "|" + Math.round(pb.x) + "," + Math.round(pb.y) : "|corner");
+    if (key === PH_KEY && PH.parentNode) return;
+    PH_KEY = key; PH.lastChild.textContent = txt;
+    if (pb) { PH.className = "at"; PH.style.left = pb.x + "px"; PH.style.top = pb.y + "px"; if (PH.parentNode !== WRAP) WRAP.insertBefore(PH, $("scrim")); }
+    else { PH.className = "corner"; PH.style.left = PH.style.top = ""; if (PH.parentNode !== $("corner")) $("corner").insertBefore(PH, $("status").nextSibling); }
   }
 
   // ── The card ────────────────────────────────────────────────────────────────
