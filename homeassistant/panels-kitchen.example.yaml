@@ -1,0 +1,271 @@
+# The kitchen panel's extras: Home Assistant's half (optional).
+#
+# Goes with panels.example.yaml, which has the letters, the preset check and
+# the today, lunch and due sensors. This one has what the v2 kitchen panel
+# adds (esphome/examples/kitchen.yaml):
+#
+#   family_panel_light       the light tiles: switches only what light_targets lists
+#   family_panel_timer_done  says a finished timer on the house speakers
+#   rest_command             a POST to a text-to-speech service of your own
+#   sensor.panel_strip       bins and the printer, for the Home page strip
+#   sensor.panel_rain        raining, rain due, or dry, for the strip
+#
+# Install it next to the other one: copy it to
+# /config/packages/family_panels_kitchen.yaml, change the placeholders below,
+# restart Home Assistant.
+#
+# Placeholders to replace:
+#   light_targets            your rooms: tile target -> the entities it switches
+#   timer_names              the kitchen panel's timer_1_name..timer_3_name
+#   announce_satellites      Assist satellites to speak on, or []
+#   tts_entity, tts_players  a TTS engine and the speakers it plays on, or '' and []
+#   family_panel_say_url     in secrets.yaml, the URL of your own speech service,
+#                            or delete rest_command and set say_command to ''
+#   sensor.bin_collections   bins_src, the bin day sensor (configuration.example.yaml)
+#   sensor.a1mini_SERIAL_    printer, the Bambu Lab sensor prefix, or '' for none
+#   weather.forecast_home    weather_src; sensor.rain_sensor, rain_src
+#
+# ── Why events, and why allowlists ──────────────────────────────────────────
+# A panel fires esphome.* events and never calls an action itself, so it
+# needs no "Allow the device to perform Home Assistant actions". Home
+# Assistant accepts esphome.* events from any adopted ESPHome device, and an
+# event's data is whatever the firmware put there. So each automation below
+# treats the data as a request: a light tap names a key in light_targets, never
+# an entity id; a timer name is spoken only if it is in timer_names, and any
+# other name becomes "A kitchen timer is done".
+
+rest_command:
+  # Speaks a timer alert through a speech service of your own that takes a
+  # JSON POST of {"text": "..."}. The URL lives in secrets.yaml, for example
+  #   family_panel_say_url: "http://YOUR-SPEECH-HOST/api/say"
+  family_panel_say:
+    url: !secret family_panel_say_url
+    method: POST
+    content_type: application/json
+    payload: '{"text": {{ message | tojson }}}'
+    timeout: 10
+
+automation:
+  # A light tile on a panel. The panel sends a target (a key below) and an
+  # action, toggle or off. Toggle on a room with any light on turns the room
+  # off, otherwise on; off turns it off. Entities can be lights, switches or
+  # groups: homeassistant.turn_on and turn_off take them all.
+  - id: family_panel_light
+    alias: "Family: a panel switched a light"
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: event
+        event_type: esphome.family_panel_light
+    variables:
+      light_targets:
+        kitchen: [light.kitchen]
+        living_room: [light.living_room]
+        hall: [light.hall]
+        landing: [light.landing]
+        # A key can switch several entities at once.
+        downstairs: [light.kitchen, light.living_room]
+      wanted: "{{ trigger.event.data.target | default('') | string | trim }}"
+      how: "{{ trigger.event.data.action | default('') | string | trim | lower }}"
+      entities: >-
+        {% set e = light_targets[wanted] if wanted in light_targets else [] %}
+        {{ [e] if e is string else e | list }}
+      turn: >-
+        {% if how == 'off' %}off
+        {% elif how == 'toggle' %}{{ 'off' if entities | select('is_state', 'on') | list | count else 'on' }}
+        {% else %}none{% endif %}
+    actions:
+      - if: "{{ wanted not in light_targets or not entities }}"
+        then:
+          - action: system_log.write
+            data:
+              level: warning
+              logger: family_panels
+              message: >-
+                A panel asked for lights "{{ wanted[:60] }}", which is not in light_targets.
+                Nothing was switched. Known: {{ light_targets.keys() | join(', ') }}.
+          - stop: Not an allowed target
+      - if: "{{ turn not in ['on', 'off'] }}"
+        then:
+          - action: system_log.write
+            data:
+              level: warning
+              logger: family_panels
+              message: 'A panel sent light action "{{ how[:20] }}"; only toggle and off are allowed.'
+          - stop: Not an allowed action
+      - action: "homeassistant.turn_{{ turn }}"
+        target:
+          entity_id: "{{ entities }}"
+
+  # A kitchen timer finished. The panel has already chimed on its own
+  # speaker and shows the done card; this says it on the house speakers.
+  # Each way of speaking is optional: leave a list empty or a name '' to skip
+  # it. Nothing is spoken for a timer that ended while the panel was off.
+  - id: family_panel_timer_done
+    alias: "Family: a panel timer finished"
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: esphome.family_panel_timer_done
+    variables:
+      timer_names: ["Oven", "Hob", "Timer", "Timer 1", "Timer 2", "Timer 3"]
+      announce_satellites: []          # e.g. [assist_satellite.kitchen]
+      tts_entity: ""                   # e.g. tts.piper
+      tts_players: []                  # e.g. [media_player.kitchen_speaker]
+      say_command: rest_command.family_panel_say
+      name: "{{ trigger.event.data.timer | default('') | string | trim }}"
+      message: >-
+        {% if name in timer_names %}{{ name ~ (' is done' if 'timer' in name | lower else ' timer is done') }}
+        {%- else %}A kitchen timer is done{% endif %}
+    actions:
+      - action: system_log.write
+        data:
+          level: info
+          logger: family_panels
+          message: "Kitchen timer done: {{ message }}{{ '' if name in timer_names else ' (the panel sent a name not in timer_names)' }}"
+      - if: "{{ announce_satellites | count > 0 }}"
+        then:
+          - action: assist_satellite.announce
+            continue_on_error: true
+            target:
+              entity_id: "{{ announce_satellites }}"
+            data:
+              message: "{{ message }}"
+      - if: "{{ tts_entity != '' and tts_players | count > 0 }}"
+        then:
+          - action: tts.speak
+            continue_on_error: true
+            target:
+              entity_id: "{{ tts_entity }}"
+            data:
+              media_player_entity_id: "{{ tts_players }}"
+              message: "{{ message }}"
+      - if: "{{ say_command != '' }}"
+        then:
+          - action: "{{ say_command }}"
+            continue_on_error: true
+            data:
+              message: "{{ message }}"
+
+template:
+  # The Home page strip: bins on the day and the day before, and the printer
+  # while it is busy. Nothing to say reads "Nothing to flag". A bins sensor
+  # that is missing or could not fetch says so; a printer that is off says
+  # nothing, because off is its normal state.
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/1"
+      - trigger: state
+        entity_id: sensor.bin_collections
+    action:
+      - variables:
+          bins_src: sensor.bin_collections
+          printer: sensor.a1mini_SERIAL_
+          strip_lines: >-
+            {% set ns = namespace(lines=[]) %}
+            {% if states[bins_src] is none or states(bins_src) == 'unavailable' %}
+              {% set ns.lines = ['Bins unavailable (' ~ bins_src ~ ')'] %}
+            {% elif state_attr(bins_src, 'fetch') not in [none, 'ok'] %}
+              {% set ns.lines = ['Bins: could not check'] %}
+            {% else %}
+              {% set days = state_attr(bins_src, 'next_days') %}
+              {% set which = state_attr(bins_src, 'next_short') %}
+              {% set which = which | join(', ') if which is sequence and which is not string else (which or 'bins') %}
+              {% if days is not none and days | int(-1) == 0 %}
+                {% set ns.lines = ['Bins today: ' ~ which] %}
+              {% elif days is not none and days | int(-1) == 1 %}
+                {% set ns.lines = ['Bins out tonight: ' ~ which] %}
+              {% endif %}
+            {% endif %}
+            {% if printer %}
+              {% set st = states(printer ~ 'print_status') %}
+              {% set pct = states(printer ~ 'print_progress') | int(-1) %}
+              {% set end = as_timestamp(states(printer ~ 'end_time'), none) %}
+              {% if st == 'running' %}
+                {% set ns.lines = ns.lines + ['Printing' ~ (' ' ~ pct ~ '%' if pct >= 0 else '') ~ (', done ' ~ end | timestamp_custom('%H:%M') if end else '')] %}
+              {% elif st == 'pause' %}
+                {% set ns.lines = ns.lines + ['Printer paused' ~ (' at ' ~ pct ~ '%' if pct >= 0 else '')] %}
+              {% elif st == 'prepare' %}
+                {% set ns.lines = ns.lines + ['Printer getting ready'] %}
+              {% elif st == 'failed' %}
+                {% set ns.lines = ns.lines + ['Print failed'] %}
+              {% endif %}
+            {% endif %}
+            {{ ns.lines if ns.lines else ['Nothing to flag'] }}
+    sensor:
+      - name: Panel strip
+        unique_id: panel_strip
+        icon: mdi:view-headline
+        state: "{{ (strip_lines | join('\n'))[:255] }}"
+        attributes:
+          lines: "{{ strip_lines | join('\n') }}"
+
+  # Rain for the strip: "Raining", "Raining, dry from 15:00", "Rain from
+  # 15:00" or "Dry, no rain due", over the next 12 hours. Wet is the rain
+  # sensor (the card's sensors.rain, read with the same wet and dry states as
+  # the card's rainStates) or the hourly forecast: a rainy condition, or a
+  # chance of rain at or above rain_chance percent. Either source alone is
+  # enough; with neither it says "Rain unavailable".
+  # Fire the event family_panel_refresh to work it out again at once.
+  - trigger:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/10"
+      - trigger: state
+        entity_id: sensor.rain_sensor
+      - trigger: event
+        event_type: family_panel_refresh
+    action:
+      - variables:
+          weather_src: weather.forecast_home
+          rain_src: sensor.rain_sensor
+      - action: weather.get_forecasts
+        continue_on_error: true
+        target:
+          entity_id: "{{ weather_src }}"
+        data:
+          type: hourly
+        response_variable: forecast
+      - variables:
+          wet_states: [raining, wet, "on"]
+          dry_states: [none, dry, "off"]
+          wet_conditions: [rainy, pouring, lightning-rainy, snowy-rainy, hail]
+          rain_chance: 50
+          rain_text: >-
+            {% set s = states(rain_src) | lower %}
+            {% set fc = forecast if forecast is defined and forecast is mapping else {} %}
+            {% set hours = (fc.get(weather_src) or {}).get('forecast') or [] %}
+            {% set nowts = as_timestamp(now()) %}
+            {% set ns = namespace(now_wet=s in wet_states, fc_wet=false, first_wet=none, first_dry=none, seen=0) %}
+            {% if states(weather_src) in wet_conditions %}{% set ns.now_wet = true %}{% endif %}
+            {# "dry from" only when the forecast itself has this hour wet: a
+               forecast that missed the rain cannot say when it stops. #}
+            {% for h in hours if h is mapping %}
+              {% set ts = as_timestamp(h.datetime | default(''), 0) %}
+              {% if ts and ts + 3600 > nowts and ts - nowts < 12 * 3600 %}
+                {% set ns.seen = ns.seen + 1 %}
+                {% set wet = h.condition | default('') in wet_conditions
+                             or h.precipitation_probability | default(0) | float(0) >= rain_chance | float %}
+                {% if wet and ts <= nowts %}{% set ns.now_wet = true %}{% set ns.fc_wet = true %}{% endif %}
+                {% if wet and ts > nowts and ns.first_wet is none %}{% set ns.first_wet = ts %}{% endif %}
+                {% if not wet and ts > nowts and ns.fc_wet and ns.first_dry is none %}{% set ns.first_dry = ts %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {% set known = s in wet_states or s in dry_states or ns.seen > 0 %}
+            {% if not known %}
+              Rain unavailable ({{ rain_src }}, {{ weather_src }})
+            {% elif ns.now_wet %}
+              Raining{{ ', dry from ' ~ ns.first_dry | timestamp_custom('%H:%M') if ns.first_dry else '' }}
+            {% elif ns.first_wet %}
+              Rain from {{ ns.first_wet | timestamp_custom('%H:%M') }}
+            {% else %}
+              Dry, no rain due
+            {% endif %}
+    sensor:
+      - name: Panel rain
+        unique_id: panel_rain
+        icon: mdi:weather-rainy
+        state: "{{ rain_text | trim }}"
