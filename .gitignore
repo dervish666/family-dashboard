@@ -16,3 +16,7 @@ __pycache__/
 # Build tooling
 node_modules/
 build/
+
+# ESPHome's build cache and the .gitignore it writes when an example is compiled in place
+esphome/examples/.esphome/
+esphome/examples/.gitignore
