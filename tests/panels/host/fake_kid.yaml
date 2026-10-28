@@ -1,6 +1,7 @@
 # Fake Home Assistant for a kid render: the garden by day with no letter and
 # with one waiting, the letter open, an announcement, the light page for each
-# lamp (the globe takes brightness only; the big light warmth and colour too),
+# lamp (the globe takes brightness only; the big light off, then warm white,
+# then in colour under its two tabs),
 # then the garden at night. See fake_kitchen.yaml.
 
 esphome:
@@ -39,12 +40,24 @@ script:
       - script.execute: { id: light_hold_open, target: kid_a_globe, name: "Globe" }
       - delay: 300ms
       - snapshot.take: { filename: "kid-light-brightness.bmp" }
-      - lambda: |-
-          id(lamp_2_src).publish_state("on");
-          id(lights_text).publish_state("kid_a_globe on 40 - - - b - -\nkid_a_main on 85 - 2000 6535 btc 300 70");
+      # The big light off: every value unknown, so every slider dims.
       - script.execute: { id: light_hold_open, target: kid_a_main, name: "Big light" }
       - delay: 300ms
+      - snapshot.take: { filename: "kid-light-off.bmp" }
+      # On, as a warm-white lamp: two blocks, centred.
+      - lambda: |-
+          id(lamp_2_src).publish_state("on");
+          id(lights_text).publish_state("kid_a_globe on 40 - - - b - -\nkid_a_main on 60 3200 2000 6535 bt - -");
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-light-warmth.bmp" }
+      # On, in colour mode: four controls under two tabs; kelvin unknown dims Warmth.
+      - lambda: |-
+          id(lights_text).publish_state("kid_a_globe on 40 - - - b - -\nkid_a_main on 85 - 2000 6535 btc 300 70");
+      - delay: 300ms
       - snapshot.take: { filename: "kid-light-colour.bmp" }
+      - script.execute: { id: light_hold_tab, tab: 1 }
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-light-colour-tab.bmp" }
       - script.execute: go_home
       - lambda: |-
           // Night: the garden asleep, the clock in pale ink, the fireflies out.
