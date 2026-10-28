@@ -1,8 +1,9 @@
 # The kitchen panel on a Guition JC3248W535 (3.5", ESP32-S3, speaker socket).
 #
-# Pages: Home (clock, announcement, the strip, four presets), Today, Timers
-# and Lights. The Home Assistant half is homeassistant/panels.example.yaml
-# plus homeassistant/panels-kitchen.example.yaml.
+# Pages: Home (clock, announcement, the strip, the room light tiles and All
+# off), Today, Timers and Announce (four presets). The Home Assistant half is
+# homeassistant/panels.example.yaml plus
+# homeassistant/panels-kitchen.example.yaml.
 #
 # Copy this file into your ESPHome folder, add panel_kitchen_api_key to
 # secrets.yaml (esphome/README.md says how to make one), and change what is
@@ -34,7 +35,8 @@ substitutions:
   timer_3_name: "Timer"
   # timer_chime: "done:d=8,o=6,b=180:c,e,g,2c7"
 
-  # The light tiles. An empty name hides a tile.
+  # The light tiles, on the Home page. An empty name hides a tile; tile_5 to
+  # tile_8 add more rooms (the page then scrolls).
   tile_1_name: "Kitchen"
   tile_1_target: kitchen
   tile_1_entity: light.kitchen

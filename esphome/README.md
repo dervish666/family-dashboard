@@ -3,10 +3,10 @@
 Small ESP32 touchscreens for around the house, built with ESPHome. A panel in a child's room
 shows a clock, the family announcement, and letters sent to that child from a phone, another
 panel or an automation. The child taps the envelope, reads it, taps **Done**, and the letter is
-gone from every screen. A kitchen panel shows the family's day over four pages: Home (clock,
-announcement, bins, printer and rain, four preset announcements), Today (calendar, lunch and
-kit, what is due), Timers (three timers with a chime, a "Timer done" card and a spoken alert on
-the house speakers) and Lights (room tiles and All off).
+gone from every screen. A kitchen panel shows the house over four pages: Home (clock,
+announcement, bins, printer and rain, and the room light tiles with All off), Today (calendar,
+lunch and kit, what is due), Timers (three timers with a chime, a "Timer done" card and a spoken
+alert on the house speakers) and Announce (four preset announcements).
 
 None of this is needed for the card. The panels and the card share Home Assistant helpers and
 nothing else.
@@ -85,18 +85,21 @@ picture.
 | Profile | For | Shows | Needs in Home Assistant |
 |---|---|---|---|
 | `kid` | one child's room | clock, announcement, that child's letters | `input_text.letter_<child>` |
-| `kitchen` | the shared family view | Home: clock, announcement, the strip, four presets. Today: calendar, lunch and kit, due | `sensor.panel_today`, `sensor.panel_lunch_and_kit`, `sensor.panel_due`, `sensor.panel_strip`, `sensor.panel_rain` |
+| `kitchen` | the shared family view | Home: clock, announcement, the strip. Today: calendar, lunch and kit, due. Announce: four presets | `sensor.panel_today`, `sensor.panel_lunch_and_kit`, `sensor.panel_due`, `sensor.panel_strip`, `sensor.panel_rain` |
 | `generic` | a hallway, a spare room | clock, announcement, one line of text from any sensor | any text sensor (`info_entity`) |
 
-The kitchen takes two more packages, each its own page with its own page button:
+The kitchen takes two more packages:
 
 | Package | Adds | Needs |
 |---|---|---|
-| `packages/timers.yaml` | three timers, the chime, the "Timer done" card, `esphome.family_panel_timer_done` | a board with a speaker: the JC3248W535 |
-| `packages/light_tiles.yaml` | four room tiles (amber when on) and All off, by `esphome.family_panel_light` | any board |
+| `packages/timers.yaml` | a Timers page: three timers, the chime, the "Timer done" card, `esphome.family_panel_timer_done` | a board with a speaker: the JC3248W535 |
+| `packages/light_tiles.yaml` | up to eight room tiles (amber when on) and All off on the Home page, by `esphome.family_panel_light` | any board |
 
-The pages change with the buttons along the bottom: Home, Today, Timers, Lights. There is no
-swipe; a capacitive panel by the cooker reads too many wet fingers as gestures.
+The pages change with the buttons along the bottom: Home, Today, Timers, Announce, with the
+page on the screen marked. The panel boots to Home and goes back to it after `idle_timeout`.
+There is no swipe; a capacitive panel by the cooker reads too many wet fingers as gestures.
+The layout is drawn for the JC3248W535's 320x480 portrait screen on an 8 px grid; on a 320x240
+board the kitchen profile passes `esphome config` but the Home page scrolls.
 
 Every profile shows `input_text.family_announcement` read-only, the same helper the card's
 announcement banner reads (`announcement_entity` changes it). A panel that cannot reach Home
@@ -116,8 +119,10 @@ with no chime and nothing said; after six hours it is forgotten.
 
 **Light tiles.** Each tile follows one entity (a light, a light group, a switch, or a template
 `binary_sensor` that is on while any light in the room is on) and sends a target name, never an
-entity id. Home Assistant switches only what its `light_targets` list says that name means. An
-empty `tile_N_name` hides a tile.
+entity id. Home Assistant switches only what its `light_targets` list says that name means. A
+tap toggles the room; All off turns every tile's room off, and is amber itself while any is on.
+Four tiles fit under the strip card; tiles 5 to 8 are hidden until named, and with them the
+Home page scrolls. An empty `tile_N_name` hides a tile.
 
 ## Options
 
@@ -137,7 +142,9 @@ Set any of these under `substitutions:` in the device file.
 | `preset_1` .. `preset_4` | four phrases | the kitchen's preset announcements; must match `broadcast_presets` |
 | `timer_1_name` .. `timer_3_name` | `"Timer 1"` .. | must be in `timer_names` for Home Assistant to say the name |
 | `timer_chime` | a four-note RTTTL tune | any RTTTL string |
-| `tile_N_name`, `tile_N_target`, `tile_N_entity` | four example rooms | the tile's label, its key in `light_targets`, and what it follows |
+| `tile_N_name`, `tile_N_target`, `tile_N_entity` | four example rooms, N up to 8 | the tile's label, its key in `light_targets`, and what it follows; an empty name hides the tile |
+| `tile_height` | `"96"` | tile height in pixels; two rows of 96 fit under the strip card on the JC3248W535 |
+| `font_header` | `"44"` | the kitchen Home page clock |
 | `speaker_channel`, `speaker_gain` | `mono`, `60%` | JC3248W535 only |
 
 A new letter brightens a kid panel by day; at night it leaves the screen as it is (dark, or
@@ -331,6 +338,11 @@ From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable conta
   the examples against the allowlists. It also works out the night glow's real duty on every
   board and example, the level raised to the backlight's `gamma_correct`. `--sabotage` breaks each piece on purpose and proves a
   check fails.
+- `tests/panels/host/render.sh` draws every page of the kitchen and a kid panel on the
+  development machine: the same LVGL pages, built for ESPHome's host platform into a headless
+  SDL surface, fed made-up Home Assistant states, and saved as PNGs. Needs SDL2 (`brew install
+  sdl2`). It is how the layout was checked before a flash; fonts are rendered at 4 bits per
+  pixel (ESPHome's default is 1, which is what made the first firmware's text look jagged).
 - `tests/panels/ha_live.py` runs both packages in a throwaway Home Assistant: letters, presets,
   light tiles switching template lights (and refusing entity ids, unknown targets and other
   actions), timer alerts posted to a stand-in speech service, the strip, rain from the sensor

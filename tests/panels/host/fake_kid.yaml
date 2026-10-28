@@ -1,0 +1,31 @@
+# Fake Home Assistant for a kid render: no letter, a letter, the letter open,
+# and an announcement. See fake_kitchen.yaml.
+
+esphome:
+  on_boot:
+    priority: -200
+    then:
+      - script.execute: render_all
+
+script:
+  - id: render_all
+    then:
+      - lambda: |-
+          id(ha_time).set_epoch_time(1793197800);
+          id(update_clock).execute();
+          id(letter_raw).publish_state("");
+          id(announcement_raw).publish_state("");
+      - delay: 400ms
+      - snapshot.take: { filename: "kid-home.bmp" }
+      - lambda: |-
+          id(letter_raw).publish_state("Parent 1|Well done in your spelling test! Tea is at six, and Grandma is coming on Saturday. Love you lots.");
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-letter.bmp" }
+      - lambda: id(announcement_raw).publish_state("20|Kitchen|Dinner's ready");
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-announcement.bmp" }
+      - script.execute: open_letter
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-letter-open.bmp" }
+      - delay: 200ms
+      - lambda: exit(0);

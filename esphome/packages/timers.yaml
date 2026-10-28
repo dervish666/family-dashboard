@@ -1,9 +1,9 @@
 # Three kitchen timers that run on the panel itself.
 #
-# A Timers page with three rows: +1, +5 and +10 add minutes (to the set time
+# A Timers page with three cards: +1, +5 and +10 add minutes (to the set time
 # while a timer is stopped, to the time left while it runs), Go starts it and
 # Stop stops it. Tap a stopped timer's time to clear it. While any timer runs,
-# a chip above the page buttons on the other pages shows the time left in
+# a chip in the top right corner of the other pages shows the time left in
 # minutes; tap it for the Timers page.
 #
 # When a timer ends the panel:
@@ -29,7 +29,9 @@
 #
 # Needs a board with a speaker and an rtttl player called panel_chime: only
 # boards/guition_jc3248w535.yaml has one. Needs the kitchen profile, whose
-# page buttons this joins (the third slot).
+# page buttons this joins (the third slot). Three cards of 130 px fill the
+# 320x480 screen above the page buttons, each with a row of four 64x44
+# buttons.
 
 substitutions:
   timer_1_name: "Timer 1"
@@ -39,7 +41,7 @@ substitutions:
   timer_chime: "done:d=8,o=6,b=180:c,e,g,2c7"
   timer_chime_every: "5"
   timer_ring_seconds: "120"
-  font_timer: "44"
+  font_timer: "40"
 
 preferences:
   # How long a changed end time waits before it is written to flash. The
@@ -93,6 +95,7 @@ font:
   - file: "gfonts://Nunito@800"
     id: font_timer
     size: ${font_timer}
+    bpp: 4
     glyphs: "0123456789:-"
 
 interval:
@@ -186,6 +189,7 @@ script:
           static const char *const NAMES[] = {"${timer_1_name}", "${timer_2_name}", "${timer_3_name}"};
           lv_obj_t *times[] = {id(timer_1_time), id(timer_2_time), id(timer_3_time)};
           lv_obj_t *gos[] = {id(timer_1_go_label), id(timer_2_go_label), id(timer_3_go_label)};
+          lv_obj_t *go_btns[] = {id(timer_1_go), id(timer_2_go), id(timer_3_go)};
           auto t = id(ha_time).now();
           bool clock = t.is_valid();
           bool on_page = lv_scr_act() == id(timers_page)->obj;
@@ -213,6 +217,11 @@ script:
             if (on_page) {
               set_if(times[i], phase >= 2 ? std::string("0:00") : full);
               set_if(gos[i], phase == 0 ? std::string("Go") : phase == 1 ? std::string("Stop") : std::string("Done"));
+              // Green to go, red to stop, amber once it has rung. Set only on
+              // a change: every style write is a full frame on this board.
+              lv_color_t want = lv_color_hex(phase == 0 ? 0x3F7A50 : phase == 1 ? 0xC9594A : 0xE0932A);
+              if (!lv_color_eq(lv_obj_get_style_bg_color(go_btns[i], LV_PART_MAIN), want))
+                lv_obj_set_style_bg_color(go_btns[i], want, LV_PART_MAIN);
             }
             if (phase == 1) chip += (chip.empty() ? "" : "   ") + std::string(NAMES[i]) + " " + brief;
           }
@@ -307,27 +316,35 @@ script:
             else id(timer_unsent)[i] = false;
 
 lvgl:
+  style_definitions:
+    # +1, +5, +10: sand with dark figures, so Go and Stop stand out.
+    - id: add_style
+      bg_color: 0xF3E9D2
+      text_color: 0x2E2A24
+      radius: 12
+
   pages:
     - id: timers_page
       bg_color: 0xFFF8EC
       pad_all: 8
       pad_bottom: 64
+      scrollbar_mode: "OFF"
       layout:
         type: flex
         flex_flow: column
         pad_row: 8
       on_load:
+        - script.execute: { id: nav_mark, slot: 2 }
         - script.execute: timer_show
+      # One card per timer. YAML has no loops, so the three are written out;
+      # they differ only in the number.
       widgets:
-        - label:
-            text: "Timers"
-            text_font: font_big
-        # One row per timer. YAML has no loops, so the three rows are written
-        # out; they differ only in the number.
         - obj:
             width: 100%
-            flex_grow: 1
+            height: 130
             styles: card_style
+            pad_all: 10
+            scrollable: false
             layout: { type: flex, flex_flow: column, pad_row: 6 }
             widgets:
               - obj:
@@ -336,7 +353,7 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
                   widgets:
-                    - label: { text: "${timer_1_name}", text_font: font_big }
+                    - label: { text: "${timer_1_name}", text_font: font_body }
                     - label:
                         id: timer_1_time
                         text: "0:00"
@@ -350,21 +367,23 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between }
                   widgets:
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 0, minutes: 1 }], widgets: [label: { text: "+1", align: CENTER }] }
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 0, minutes: 5 }], widgets: [label: { text: "+5", align: CENTER }] }
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 0, minutes: 10 }], widgets: [label: { text: "+10", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 0, minutes: 1 }], widgets: [label: { text: "+1", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 0, minutes: 5 }], widgets: [label: { text: "+5", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 0, minutes: 10 }], widgets: [label: { text: "+10", align: CENTER }] }
                     - button:
-                        width: 23%
-                        height: 48
-                        bg_color: 0xC9594A
+                        id: timer_1_go
+                        width: 64
+                        height: 44
                         on_click:
                           - script.execute: { id: timer_go, slot: 0 }
                         widgets:
                           - label: { id: timer_1_go_label, text: "Go", align: CENTER }
         - obj:
             width: 100%
-            flex_grow: 1
+            height: 130
             styles: card_style
+            pad_all: 10
+            scrollable: false
             layout: { type: flex, flex_flow: column, pad_row: 6 }
             widgets:
               - obj:
@@ -373,7 +392,7 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
                   widgets:
-                    - label: { text: "${timer_2_name}", text_font: font_big }
+                    - label: { text: "${timer_2_name}", text_font: font_body }
                     - label:
                         id: timer_2_time
                         text: "0:00"
@@ -387,21 +406,23 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between }
                   widgets:
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 1, minutes: 1 }], widgets: [label: { text: "+1", align: CENTER }] }
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 1, minutes: 5 }], widgets: [label: { text: "+5", align: CENTER }] }
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 1, minutes: 10 }], widgets: [label: { text: "+10", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 1, minutes: 1 }], widgets: [label: { text: "+1", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 1, minutes: 5 }], widgets: [label: { text: "+5", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 1, minutes: 10 }], widgets: [label: { text: "+10", align: CENTER }] }
                     - button:
-                        width: 23%
-                        height: 48
-                        bg_color: 0xC9594A
+                        id: timer_2_go
+                        width: 64
+                        height: 44
                         on_click:
                           - script.execute: { id: timer_go, slot: 1 }
                         widgets:
                           - label: { id: timer_2_go_label, text: "Go", align: CENTER }
         - obj:
             width: 100%
-            flex_grow: 1
+            height: 130
             styles: card_style
+            pad_all: 10
+            scrollable: false
             layout: { type: flex, flex_flow: column, pad_row: 6 }
             widgets:
               - obj:
@@ -410,7 +431,7 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
                   widgets:
-                    - label: { text: "${timer_3_name}", text_font: font_big }
+                    - label: { text: "${timer_3_name}", text_font: font_body }
                     - label:
                         id: timer_3_time
                         text: "0:00"
@@ -424,51 +445,56 @@ lvgl:
                   bg_opa: TRANSP
                   layout: { type: flex, flex_flow: row, flex_align_main: space_between }
                   widgets:
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 2, minutes: 1 }], widgets: [label: { text: "+1", align: CENTER }] }
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 2, minutes: 5 }], widgets: [label: { text: "+5", align: CENTER }] }
-                    - button: { width: 23%, height: 48, on_click: [script.execute: { id: timer_add, slot: 2, minutes: 10 }], widgets: [label: { text: "+10", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 2, minutes: 1 }], widgets: [label: { text: "+1", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 2, minutes: 5 }], widgets: [label: { text: "+5", align: CENTER }] }
+                    - button: { width: 64, height: 44, styles: add_style, on_click: [script.execute: { id: timer_add, slot: 2, minutes: 10 }], widgets: [label: { text: "+10", align: CENTER }] }
                     - button:
-                        width: 23%
-                        height: 48
-                        bg_color: 0xC9594A
+                        id: timer_3_go
+                        width: 64
+                        height: 44
                         on_click:
                           - script.execute: { id: timer_go, slot: 2 }
                         widgets:
                           - label: { id: timer_3_go_label, text: "Go", align: CENTER }
-        - label:
-            text: "Tap a stopped timer's time to clear it."
-            text_font: font_small
-            text_color: 0x7A7366
 
   top_layer:
     widgets:
       # The third page button.
       - button:
+          id: nav_timers
           align: BOTTOM_LEFT
-          x: 50%
-          width: 25%
-          height: 54
+          x: 164
+          y: -6
+          width: 72
+          height: 44
           styles: nav_style
+          checked:
+            styles: nav_checked_style
           on_click:
             - lvgl.page.show: timers_page
           widgets:
             - label: { text: "Timers", align: CENTER }
 
       # Running timers, in minutes, on every page but Timers.
+      # It sits over the top right corner, where every page keeps only its
+      # date or nothing, so it covers no button.
       - button:
           id: timer_chip
           hidden: true
-          align: BOTTOM_MID
-          y: -62
-          width: 94%
-          height: 40
+          align: TOP_RIGHT
+          x: -8
+          y: 10
+          width: 150
+          height: 36
           bg_color: 0xFCE7B2
-          text_color: 0x2E2A24
+          text_color: 0x8E2A14
           radius: 12
+          pad_left: 10
+          pad_right: 10
           on_click:
             - lvgl.page.show: timers_page
           widgets:
-            - label: { id: timer_chip_label, text: "", align: CENTER, text_font: font_small }
+            - label: { id: timer_chip_label, text: "", align: CENTER, width: 100%, text_align: CENTER, long_mode: dot, text_font: font_small }
 
       # Timer done. Full width, above everything, until Dismiss.
       - obj:
@@ -478,6 +504,7 @@ lvgl:
           width: 100%
           height: SIZE_CONTENT
           bg_color: 0xFCE7B2
+          text_color: 0x3A2606
           border_width: 4
           border_color: 0xC9594A
           radius: 16
@@ -505,9 +532,10 @@ lvgl:
                 id: timer_done_when
                 text: ""
                 text_font: font_small
+                text_color: 0x6A4612
             - button:
                 width: 100%
-                height: 64
+                height: 56
                 bg_color: 0xC9594A
                 on_click:
                   - script.execute: timer_dismiss

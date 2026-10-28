@@ -165,12 +165,13 @@ lvgl:
     - id: main_page
       bg_color: 0xFFF8EC
       pad_all: 8
+      scrollbar_mode: "OFF"
       layout:
         type: flex
         flex_flow: column
         flex_align_main: space_between
         flex_align_cross: center
-        pad_row: 6
+        pad_row: 8
       widgets:
         - obj:
             width: 100%
@@ -199,6 +200,7 @@ lvgl:
                         id: date_label
                         text: ""
                         text_font: font_small
+                        text_color: 0x7A7366
                     - label:
                         id: offline_label
                         text: "offline"
@@ -216,7 +218,7 @@ lvgl:
               flex_flow: row
               flex_align_main: center
               flex_align_cross: center
-              pad_column: 14
+              pad_column: 16
             on_click:
               - script.execute: open_letter
             widgets:
@@ -246,15 +248,15 @@ lvgl:
                         border_width: 2
                         border_color: 0xFFFFFF
                         align: TOP_RIGHT
-                        x: 8
-                        y: -8
+                        x: -5
+                        y: 5
                         hidden: true
               - label:
                   id: letter_status
                   text: "Waiting for Home Assistant"
                   text_font: font_big
                   long_mode: wrap
-                  width: 55%
+                  width: 160
         - obj:
             id: announce_box
             width: 100%
@@ -266,20 +268,21 @@ lvgl:
                   id: announce_label
                   width: 100%
                   text: ""
-                  long_mode: scroll_circular
+                  long_mode: wrap
 
     - id: letter_page
       bg_color: 0xFFF8EC
       pad_all: 8
+      scrollbar_mode: "OFF"
       layout:
         type: flex
         flex_flow: column
-        pad_row: 6
+        pad_row: 8
       widgets:
         - label:
             id: letter_heading
             text: ""
-            text_font: font_small
+            styles: section_style
             text_color: 0xC9594A
         - obj:
             width: 100%
@@ -292,12 +295,12 @@ lvgl:
                   width: 100%
                   text: ""
                   text_font: font_big
+                  text_line_space: 2
                   long_mode: wrap
         - button:
             id: done_button
             width: 100%
-            height: SIZE_CONTENT
-            pad_all: 10
+            height: 48
             on_click:
               - script.execute: letter_done
             widgets:
