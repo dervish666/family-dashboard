@@ -384,6 +384,24 @@ PARSE_CASES = [
     ("kitchen 12 50 - - - b - -", "kitchen", (-1, 50, -1, -1, -1, "b", -1, -1)),
 ]
 
+# hue -> the light page's words for it
+HUE_CASES = [
+    (0, "Red 0\u00b0"),
+    (14, "Red 14\u00b0"),
+    (15, "Orange 15\u00b0"),
+    (30, "Orange 30\u00b0"),
+    (60, "Yellow 60\u00b0"),
+    (120, "Green 120\u00b0"),
+    (210, "Sky 210\u00b0"),
+    (240, "Blue 240\u00b0"),
+    (300, "Magenta 300\u00b0"),
+    (344, "Pink 344\u00b0"),
+    (345, "Red 345\u00b0"),
+    (359, "Red 359\u00b0"),
+    (360, "Red 0\u00b0"),
+    (-1, "\u2013"),
+]
+
 # timer name the panel sent -> what the house hears
 TIMER_MSG_CASES = [
     ("Oven", "Oven timer is done"),
@@ -544,6 +562,7 @@ def check_panel_v2(r: Report, srcs: dict, cxx: str | None):
     tfmt = cpp_block(srcs["timers"], "timer-format")
     tile = cpp_block(srcs["tiles"], "tile-state")
     parse = cpp_block(srcs["hold"], "light-summary-parse")
+    huename = cpp_block(srcs["hold"], "hue-name")
     m = lambda hm: int(hm[:2]) * 60 + int(hm[3:])  # noqa: E731
     calls = []
     calls += [f'clockfmt({h}, {mi}, {str(tw).lower()});' for h, mi, tw, _, _ in CLOCK_CASES]
@@ -560,6 +579,8 @@ def check_panel_v2(r: Report, srcs: dict, cxx: str | None):
     calls += [f'tilestate({cstr(x)});' for x, _ in TILE_CASES]
     calls.append('sep();')
     calls += [f'parse({cstr(sm)}, {cstr(tg)});' for sm, tg, _ in PARSE_CASES]
+    calls.append('sep();')
+    calls += [f'huename({h});' for h, _ in HUE_CASES]
     body = "\n  ".join(calls)
     src = f"""
 #include <algorithm>
@@ -609,6 +630,11 @@ static void parse(const std::string &summary, const std::string &target) {{
 {parse}
   printf("%d %d %d %d %d %s %d %d\\x1e", on, bri, kelvin, kmin, kmax, caps.empty() ? "-" : caps.c_str(), hue, sat);
 }}
+static void huename(int hue) {{
+  std::string text;
+{huename}
+  printf("%s\\x1e", text.c_str());
+}}
 int main() {{
   {body}
   return 0;
@@ -618,10 +644,10 @@ int main() {{
     if out is None:
         return
     parts = [p.split("\x1e")[:-1] for p in out.split("\x1d")]
-    if len(parts) != 7:
-        r.check(False, f"panel v2 C++: expected seven result groups, got {len(parts)}")
+    if len(parts) != 8:
+        r.check(False, f"panel v2 C++: expected eight result groups, got {len(parts)}")
         return
-    pc, pn, pl, ps, pf, pt, pp = parts
+    pc, pn, pl, ps, pf, pt, pp, ph = parts
     for (h, mi, tw, clock, suffix), got in zip(CLOCK_CASES, pc):
         r.check(got == f"{clock}\x1f{suffix}", f"clock {h:02d}:{mi:02d} {'12h' if tw else '24h'}: got {got!r}, want {clock!r} {suffix!r}")
     for (n, s, e, k, want), got in zip(NIGHT_CASES, pn):
@@ -638,10 +664,12 @@ int main() {{
     for (sm, tg, want), got in zip(PARSE_CASES, pp):
         w = " ".join(str(v) if v != "" else "-" for v in want)
         r.check(got == w, f"summary parse {tg!r} in {sm[:40]!r}: got {got!r}, want {w!r}")
+    for (h, want), got in zip(HUE_CASES, ph):
+        r.check(got == want, f"hue {h}: got {got!r}, want {want!r}")
     for name, n, table in (("clock", len(pc), CLOCK_CASES), ("night", len(pn), NIGHT_CASES),
                            ("lines", len(pl), LINES_CASES), ("timer step", len(ps), TIMER_STEP_CASES),
                            ("timer format", len(pf), TIMER_FMT_CASES), ("tile", len(pt), TILE_CASES),
-                           ("summary parse", len(pp), PARSE_CASES)):
+                           ("summary parse", len(pp), PARSE_CASES), ("hue name", len(ph), HUE_CASES)):
         r.check(n == len(table), f"panel v2 C++ {name}: {n} results for {len(table)} cases")
 
 
@@ -717,6 +745,19 @@ def check_mirrors(r: Report, ha: dict):
         ctx = render_vars(env, script["variables"], {"to": to, "sender": sender, "text": text})
         r.check(ctx["value"] == stored, f"letters.json {to!r}/{sender!r}: script stores {ctx['value']!r}, fixture says {stored!r}")
         r.check(ctx["postie_value"] == postie, f"letters.json {to!r}/{sender!r}: script copies {ctx['postie_value']!r}, fixture says {postie!r}")
+
+
+def walk_widgets(items):
+    """Every widget dict under an LVGL pages or widgets list, at any depth."""
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        yield item
+        for v in item.values():
+            if isinstance(v, list):
+                yield from walk_widgets(v)
+            elif isinstance(v, dict):
+                yield from walk_widgets([v])
 
 
 def made_sensors(*has) -> set:
@@ -811,6 +852,28 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
         r.check("hold: !include light_hold.yaml" in srcs[key], f"{FILES[key].name}: must include light_hold.yaml")
     r.check(esphome_subs(srcs["hold"]).get("lights_entity") in made_sensors(ha, hak),
             "light_hold.yaml: lights_entity is not a sensor the packages make")
+    # The light page's layout contract: four sliders that send on release
+    # only, each with the finger-sized click area, a 10 px track whose
+    # opacity is set (LVGL's theme draws a slider track at 20%), and the two
+    # tabs a 320x240 screen needs for a lamp with all four controls.
+    hold = srcs["hold"]
+    for sid in ("hold_bri", "hold_warm", "hold_hue", "hold_sat"):
+        r.check(f"id({sid})" in hold.split("lv_obj_set_ext_click_area(o, 8)")[0].split("lv_obj_t *s[]")[-1],
+                f"light_hold.yaml: {sid} has no extended click area")
+    sliders = {w["slider"]["id"]: w["slider"] for w in walk_widgets(load_ha(hold)["lvgl"]["pages"]) if "slider" in w}
+    r.check(set(sliders) == {"hold_bri", "hold_warm", "hold_hue", "hold_sat"}, f"light_hold.yaml: sliders {sorted(sliders)}")
+    for sid, sl in sliders.items():
+        release, value = json.dumps(sl.get("on_release", [])), json.dumps(sl.get("on_value", []))
+        r.check("light_send_pending" in release or "light_hold_colour_pending" in release,
+                f"light_hold.yaml: {sid} does not send on release")
+        r.check("light_send_pending" not in value and "light_hold_colour_pending" not in value and "homeassistant.event" not in value,
+                f"light_hold.yaml: {sid} sends on every value change (a burst on every drag step)")
+        r.check(sl.get("height") == 10 and sl.get("width") == "100%", f"light_hold.yaml: {sid} is not a full-width 10 px track")
+    r.check("bg_opa: COVER" in hold.split("hold_slider_style")[1].split("- id:")[0],
+            "light_hold.yaml: the track style must set its opacity")
+    r.check("id: hold_tab_light" in hold and "id: hold_tab_colour" in hold and "room < 300" in hold,
+            "light_hold.yaml: the Light and Colour tabs for a short screen are missing")
+    r.check("lv_obj_set_ext_click_area(id(hold_switch), 6)" in hold, "light_hold.yaml: the switch's touch height is under 44 px")
     # The kid profile shows nothing for no letter: the envelope starts hidden
     # and no "No letters" text exists to show.
     r.check("No letters" not in srcs["kid"] and "Letters unavailable" not in srcs["kid"],
@@ -1157,6 +1220,15 @@ SABOTAGES = [
     ("parser keeps unknown capability letters", "hold", "if ((c == 'b' || c == 't' || c == 'c') && caps.find(c) == std::string::npos) caps += c;", "caps += c;"),
     ("parser matches a target by prefix", "hold", 'if (f.size() >= 2 && f[0] == target) {', 'if (f.size() >= 2 && f[0].compare(0, target.size(), target) == 0) {'),
     ("parser reads an odd state as on", "hold", 'on = f[1] == "on" ? 1 : f[1] == "off" ? 0 : -1;', 'on = f[1] == "off" ? 0 : 1;'),
+    ("hue names shift by half a step", "hold", "names[((h + 15) % 360) / 30]", "names[h / 30]"),
+    ("hue 360 reads past the names", "hold", "int h = hue % 360;", "int h = hue;"),
+    ("light page slider sends while dragging", "hold", "                  on_value:\n                    - lambda: |-\n                        char buf[12];\n                        snprintf(buf, sizeof buf, \"%d%%\", (int) lv_slider_get_value(id(hold_bri)));",
+     "                  on_value:\n                    - script.execute: light_send_pending\n                    - lambda: |-\n                        char buf[12];\n                        snprintf(buf, sizeof buf, \"%d%%\", (int) lv_slider_get_value(id(hold_bri)));"),
+    ("light page track back at the theme's 20%", "hold", "      bg_opa: COVER\n      radius: 5\n", "      radius: 5\n"),
+    ("light page loses a slider's click area", "hold", "lv_obj_t *s[] = {id(hold_bri), id(hold_warm), id(hold_hue), id(hold_sat)};",
+     "lv_obj_t *s[] = {id(hold_bri), id(hold_warm), id(hold_hue)};"),
+    ("light page stacks four rows on a 240 px screen", "hold", "bool tabs = b && t && c && room < 300;", "bool tabs = false;"),
+    ("light page switch back to 32 px of touch", "hold", "          lv_obj_set_ext_click_area(id(hold_switch), 6);\n", ""),
     ("light page drops the switch's on", "hak", "{% if how in ['off', 'on'] %}{{ how }}", "{% if how == 'off' %}off"),
     ("light set takes an entity id as the target", "hak", "light: \"{{ light_hold[wanted] if wanted in light_hold else '' }}\"",
      "light: \"{{ light_hold[wanted] if wanted in light_hold else wanted }}\""),
