@@ -1,0 +1,22 @@
+# A kid panel's pages rendered on the host, at the CYD's landscape 320x240.
+substitutions:
+  name: host-kid
+  friendly_name: Host kid
+  child: kid_a
+  api_key: !secret panel_kid_a_api_key
+  clock_format: "12h"
+  panel_width: "320"
+  panel_height: "240"
+  font_small: "14"
+  font_body: "18"
+  font_big: "24"
+  font_clock: "52"
+
+packages:
+  base: !include ../../../esphome/packages/base.yaml
+  board: !include board.yaml
+  profile: !include ../../../esphome/profiles/kid.yaml
+  fake: !include fake_kid.yaml
+
+wifi: !remove
+ota: !remove

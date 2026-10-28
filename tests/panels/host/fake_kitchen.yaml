@@ -1,0 +1,87 @@
+# Fake Home Assistant for the kitchen render: pushes made-up states into the
+# same sensors the real panel reads, then walks the pages and takes a
+# snapshot of each. Names are Kid A, B and C and generic rooms.
+#
+# Every snapshot lands in $ESPHOME_SNAPSHOT_DIR as a BMP (render.sh converts
+# them to PNG). The process exits when it has the lot.
+
+esphome:
+  on_boot:
+    priority: -200
+    then:
+      - script.execute: render_all
+
+script:
+  - id: render_all
+    then:
+      - lambda: |-
+          // Wed 28 Oct 2026 14:30 local (Europe/London is GMT then).
+          id(ha_time).set_epoch_time(1793197800);
+          id(update_clock).execute();
+          // Timer ends survive a run in the host's preferences file.
+          id(timer_1_end) = 0; id(timer_2_end) = 0; id(timer_3_end) = 0;
+          id(strip_state).publish_state("ok");
+          id(strip_text).publish_state("Nothing to flag");
+          id(rain_text).publish_state("Raining");
+          id(today_state).publish_state("4");
+          id(today_text).publish_state("All day Inset day (Kid A)\nAll day Cubs camp (Kid B)\n09:00 Swimming (Kid C)\n18:20 Running club 6:30 (Kid B)");
+          id(lunch_state).publish_state("3");
+          id(lunch_text).publish_state("Kid A: packed lunch, PE kit\nKid B: no school (Holiday)\nKid C: £2 dinner, recorder");
+          id(due_state).publish_state("2");
+          id(due_text).publish_state("Fri: Maths homework (Kid A)\nMon: Reading record (Kid C)");
+          id(tile_1_src).publish_state("on");
+          id(tile_2_src).publish_state("off");
+          id(tile_3_src).publish_state("on");
+          id(tile_4_src).publish_state("unavailable");
+          id(announcement_raw).publish_state("");
+      - delay: 400ms
+      - snapshot.take: { filename: "home.bmp" }
+      - lambda: |-
+          id(announcement_raw).publish_state("20|Kid A|Can someone pick me up at 4?");
+      - delay: 300ms
+      - snapshot.take: { filename: "home-announcement.bmp" }
+      - lambda: id(announcement_raw).publish_state("");
+      - lvgl.page.show: today_page
+      - delay: 300ms
+      - snapshot.take: { filename: "today.bmp" }
+      - lvgl.page.show: timers_page
+      - delay: 300ms
+      - snapshot.take: { filename: "timers.bmp" }
+      - lambda: |-
+          // Timer 2 set to 12 minutes and running, timer 3 with 5 minutes set.
+          id(timer_set)[1] = 12;
+          id(timer_go).execute(1);
+          id(timer_set)[2] = 5;
+      - delay: 1500ms
+      - snapshot.take: { filename: "timers-running.bmp" }
+      - lvgl.page.show: main_page
+      - delay: 1500ms
+      - snapshot.take: { filename: "home-chip.bmp" }
+      - lambda: |-
+          // Timer 1 ended ten seconds ago: the done card.
+          id(timer_1_end) = (uint32_t) id(ha_time).now().timestamp - 10;
+      - delay: 1500ms
+      - snapshot.take: { filename: "timer-done.bmp" }
+      - lambda: |-
+          id(timer_1_end) = 0;
+          id(timer_2_end) = 0;
+      - delay: 1500ms
+      - script.execute: { id: ask_preset, message: "${preset_2}" }
+      - delay: 300ms
+      - snapshot.take: { filename: "confirm.bmp" }
+      - lvgl.widget.hide: confirm_box
+      - lvgl.page.show: announce_page
+      - delay: 300ms
+      - snapshot.take: { filename: "announce.bmp" }
+      - lambda: |-
+          id(today_state).publish_state("unavailable");
+          id(tile_1_src).publish_state("off");
+          id(tile_3_src).publish_state("off");
+      - lvgl.page.show: today_page
+      - delay: 300ms
+      - snapshot.take: { filename: "today-unavailable.bmp" }
+      - lvgl.page.show: main_page
+      - delay: 300ms
+      - snapshot.take: { filename: "home-all-off.bmp" }
+      - delay: 200ms
+      - lambda: exit(0);

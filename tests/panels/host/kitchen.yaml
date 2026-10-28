@@ -1,0 +1,29 @@
+# The kitchen panel's pages rendered on the host (see board.yaml).
+substitutions:
+  name: host-kitchen
+  friendly_name: Host kitchen
+  api_key: !secret panel_kitchen_api_key
+  panel_width: "320"
+  panel_height: "480"
+  font_small: "16"
+  font_body: "20"
+  font_big: "28"
+  font_clock: "72"
+  timer_1_name: "Oven"
+  timer_2_name: "Hob"
+  timer_3_name: "Timer"
+  tile_1_name: "Kitchen"
+  tile_2_name: "Living room"
+  tile_3_name: "Hall"
+  tile_4_name: "Landing"
+
+packages:
+  base: !include ../../../esphome/packages/base.yaml
+  board: !include board.yaml
+  profile: !include ../../../esphome/profiles/kitchen.yaml
+  timers: !include ../../../esphome/packages/timers.yaml
+  lights: !include ../../../esphome/packages/light_tiles.yaml
+  fake: !include fake_kitchen.yaml
+
+wifi: !remove
+ota: !remove

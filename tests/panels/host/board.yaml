@@ -1,0 +1,54 @@
+# A "board" for ESPHome's host platform: the same LVGL pages drawn into an
+# SDL surface on the development machine, with no window, so the panel UI can
+# be looked at (and kept in a screenshot) without flashing anything.
+#
+# The device file sets panel_width, panel_height and the font sizes to match
+# the real board it stands in for. tests/panels/host/render.sh runs it.
+#
+# What stands in for hardware: a template output for the backlight and the
+# chime (the rtttl player needs an output), and nothing for touch. Wi-Fi and
+# OTA are removed by the device file; the API stays so the homeassistant
+# sensors exist, and the fake package feeds them from on_boot.
+
+substitutions:
+  rotation: "0"
+
+host:
+
+display:
+  - platform: sdl
+    id: panel_display
+    headless: true
+    auto_clear_enabled: false
+    update_interval: never
+    dimensions:
+      width: ${panel_width}
+      height: ${panel_height}
+
+output:
+  - platform: template
+    id: backlight_output
+    type: float
+    write_action:
+      - lambda: (void) state;
+  - platform: template
+    id: chime_output
+    type: float
+    write_action:
+      - lambda: (void) state;
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Screen
+    output: backlight_output
+    gamma_correct: ${backlight_gamma}
+    restore_mode: ALWAYS_ON
+
+rtttl:
+  id: panel_chime
+  output: chime_output
+
+lvgl:
+  full_refresh: true
+  rotation: ${rotation}
