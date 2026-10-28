@@ -34,6 +34,10 @@ substitutions:
   timer_2_name: "Hob"
   timer_3_name: "Timer"
   # timer_chime: "done:d=8,o=6,b=180:c,e,g,2c7"
+  # The chime starts at timer_volume and gets louder each repeat, to full
+  # scale 30 s in. Press Test alarm in Home Assistant to hear it.
+  # timer_volume: "0.85"
+  # timer_escalate: "false"
 
   # The light tiles, on the Home page. An empty name hides a tile; tile_5 to
   # tile_8 add more rooms (the page then scrolls).

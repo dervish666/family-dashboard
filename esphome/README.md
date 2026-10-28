@@ -47,8 +47,10 @@ on the screen (on other pages a chip shows whole minutes).
 The speaker socket is driven over I2S: bit clock GPIO42, word select GPIO2, data GPIO41, no
 master clock, no enable pin. ESPHome's own JC3248W535 preset covers the display only; these
 pins are the ones Guition's factory firmware sets up, and yoRadio's JC3248W535 pin file has the
-same three. Nobody names the amplifier chip, so whether it wants `speaker_channel: mono` or
-`stereo`, and what `speaker_gain` sounds right, only the board can tell you.
+same three. Nobody names the amplifier chip. On a real kitchen panel the chime plays with
+`speaker_channel: mono` (ESPHome sends the mono sample on both slots, as the old Arduino firmware
+did with its stereo frames). How loud full scale is on your speaker only the board can tell you:
+press **Test alarm** (see Timers below).
 
 **JC2432W328C.** The cheap board to buy if you are buying new. Same size as the Cheap Yellow
 Display with an IPS screen and capacitive touch that needs no calibration. The listing must say
@@ -120,6 +122,26 @@ say it out loud. End times are kept in flash: after a reboot, a timer still runn
 one that ended in the last two minutes rings; one that ended longer ago shows its card quietly,
 with no chime and nothing said; after six hours it is forgotten.
 
+The chime starts at `timer_volume` (0.85) and, with `timer_escalate` on (the default), each
+repeat is a step louder until it reaches `timer_volume_max` (1.0, full scale) 30 seconds in:
+0.85, 0.875, 0.9 ... 1.0, then full scale until Dismiss or the two minutes are up. ESPHome's
+speaker volume is a dB scale, not a share: 0.0 to 1.0 maps onto -49 dB to 0 dB, so each 0.1 is
+4.9 dB.
+
+| `timer_volume` | dB | Share of full scale | |
+|---|---|---|---|
+| `1.0` | 0 | 1.00 | the loudest the samples go without clipping |
+| `0.85` | -7.4 | 0.43 | the first chime by default |
+| `0.75` | -12.0 | 0.25 | the old Arduino kitchen firmware |
+| `0.6` | -19.6 | 0.10 | rtttl's own default, which v1.9.2 and earlier used: too quiet |
+
+**Hear it without a timer.** Press **Test alarm** on the panel's device page in Home Assistant
+(under Configuration), or hold the first timer's name on the Timers page for half a second. It
+plays the ring a timer would, chime by chime and getting louder, for `timer_escalate_seconds`
+(seven chimes over 30 seconds by default). Press or hold again to stop it. It shows no card and
+fires no event, and a real timer ending takes over from it. The log says each chime's volume
+(`Chime 3 at volume 0.900`).
+
 **Light tiles.** Each tile follows one entity (a light, a light group, a switch, or a template
 `binary_sensor` that is on while any light in the room is on) and sends a target name, never an
 entity id. Home Assistant switches only what its `light_targets` list says that name means. A
@@ -146,10 +168,13 @@ Set any of these under `substitutions:` in the device file.
 | `preset_1` .. `preset_4` | four phrases | the kitchen's preset announcements; must match `broadcast_presets` |
 | `timer_1_name` .. `timer_3_name` | `"Timer 1"` .. | must be in `timer_names` for Home Assistant to say the name |
 | `timer_chime` | a four-note RTTTL tune | any RTTTL string |
+| `timer_volume` | `"0.85"` | the first chime's volume, 0.0 to 1.0 on ESPHome's dB scale (see Timers above) |
+| `timer_escalate`, `timer_volume_max`, `timer_escalate_seconds` | `"true"`, `"1.0"`, `"30"` | each repeat a step louder, from `timer_volume` to `timer_volume_max` over `timer_escalate_seconds`. `"false"` keeps every chime at `timer_volume`. If full scale rasps on your speaker, set `timer_volume_max: "0.95"` |
+| `timer_chime_every`, `timer_ring_seconds` | `"5"`, `"120"` | seconds between chimes, and how long a timer rings before it goes quiet |
 | `tile_N_name`, `tile_N_target`, `tile_N_entity` | four example rooms, N up to 8 | the tile's label, its key in `light_targets`, and what it follows; an empty name hides the tile |
 | `tile_height` | `"96"` | tile height in pixels; two rows of 96 fit under the strip card on the JC3248W535 |
 | `font_header` | `"44"` | the kitchen Home page clock |
-| `speaker_channel`, `speaker_gain` | `mono`, `60%` | JC3248W535 only |
+| `speaker_channel`, `speaker_gain` | `mono`, `85%` | JC3248W535 only. `speaker_gain` is the rtttl player's starting volume; the timer chime sets its own from `timer_volume` |
 
 A new letter brightens a kid panel by day; at night it leaves the screen as it is (dark, or
 the glow). No double quotes in names, presets or tile labels: they land in C++ strings.
@@ -356,8 +381,9 @@ Only the board can prove the rest. Treat the first flash of each board as the te
 
 - the screen, touch mapping and calibration, rotation (a flipped CYD at 270 included) and
   whether an ILI9341 board needs `invert_colors`;
-- the JC3248W535 speaker: that the pins drive the amp, mono or stereo, how loud `speaker_gain`
-  is, and that the RTTTL chime sounds like a chime;
+- the JC3248W535 speaker: that the pins drive the amp (yes, on one panel, with mono), how loud
+  `timer_volume` and full scale are on your speaker, and whether the amp distorts at the top of
+  the escalation (Test alarm plays the whole climb);
 - how low `night_glow_brightness` can go and still glow (the old Arduino firmware's 4/255,
   1.6%, glowed on a CYD), and the backlight levels in a dark room;
 - that a timer's end time survives a power cut (written to flash up to 10 seconds after a

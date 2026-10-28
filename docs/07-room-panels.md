@@ -175,6 +175,11 @@ its own, and fires `esphome.family_panel_timer_done` with `timer` (the name), `s
 (unless it ended in the last two minutes): the house speakers do not announce a timer from
 twenty minutes ago.
 
+The chime on the panel gets louder each time it repeats, from `timer_volume` to full scale 30
+seconds in, and the panel's **Test alarm** button in Home Assistant plays that climb without a
+timer and without the event, so testing the level never sets the house speakers off. Details
+and the volume table are in [esphome/README.md](../esphome/README.md).
+
 The `family_panel_timer_done` automation builds the words itself: "Oven timer is done" for a
 name in `timer_names` ("Timer 2 is done" when the name already says timer), and "A kitchen
 timer is done" for any other name, so a panel can never make the house say arbitrary text. It

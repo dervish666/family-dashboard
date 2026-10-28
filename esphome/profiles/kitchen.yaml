@@ -7,7 +7,9 @@
 #   Today     the day's calendar, lunch and kit, and what is due soon
 #   Announce  four preset announcements anyone in the kitchen can send
 #
-# packages/timers.yaml adds a Timers page. A row of page buttons along the
+# packages/timers.yaml adds a Timers page, the chime (louder each repeat,
+# timer_volume and timer_escalate) and a Test alarm button that plays the
+# ring without a timer. A row of page buttons along the
 # bottom moves between them, Home, Today, Timers, Announce, with the page on
 # the screen marked. There is no swipe: a swipe on a capacitive panel by the
 # cooker reads too many splashes as gestures.
