@@ -2504,20 +2504,23 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     LETTER.queue.push(l);
     if (OWNERS.length) letterShared(BOOK, l, text);
   }
-  function clearLetter(l, tap) {
-    if (l.src) { clearPersonLetter(l, tap); return; }
+  // The shared helper's letter, v1.7.0's way: empty the helper. was is what it held when the card
+  // opened: if it holds something else now, a newer letter landed while the card was up, so leave it.
+  function clearLetter(l, was) {
     if (DEMO || l.key === "hook" || !SENSORS.letter) return;
     hassToken().then(function (h) {
+      var s = h && h.states && h.states[SENSORS.letter];
+      if (was != null && s && String(s.state) !== was) return;
       return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });
     }).then(function () { LETTER.clearErr = null; })
       .catch(function (e) { console.warn("meadow: could not clear the letter", e); LETTER.clearErr = e.message || String(e); });
   }
   // A per-person letter, read on a real tap: empty that person's helper, and the shared one if
   // it still holds the bridge's copy, each only while it holds what was read (a newer letter
-  // that landed since stays). Demo, the test hooks and a card opened by ?open= never write.
-  function clearPersonLetter(l, tap) {
-    var h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
-    var w = letterRead(BOOK, l, SENSORS.letter, sh);
+  // that landed since stays). w is letterRead's list. Demo, the test hooks and a card opened
+  // by ?open= never write.
+  function clearPersonLetter(l, tap, w) {
+    var h = HA.hass();
     if (DEMO || !tap || l.hook || !h) return;
     w.forEach(function (c) {
       var s = h.states && h.states[c.entity];
@@ -3166,14 +3169,43 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (DATA.extraErr) return "School info unavailable (" + DATA.extraErr + ").";
     return DATA.gotAt ? "School info unavailable." : "";
   }
+  // A letter opened on someone's card (v1.9.0). It stays theirs while the card is up, so it can
+  // be read: Got it, or closing the card, clears it. What to empty is worked out when the card
+  // opens (letterRead, as v1.8.0 did on open) and written then, each helper only while it still
+  // holds what was shown, so a newer letter that lands while the card is up is never eaten.
+  var READING = null;
+  function readLetter(t, tap) {
+    var l = t.letter, h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
+    READING = { t: t, l: l, tap: tap, plan: l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null, was: sh && sh.state != null ? String(sh.state) : null };
+  }
+  function settleLetter() {
+    var r = READING; if (!r) return false;
+    READING = null;
+    if (r.t.letter === r.l) r.t.letter = null;
+    if (r.plan) clearPersonLetter(r.l, r.tap, r.plan); else clearLetter(r.l, r.was);
+    return true;
+  }
+  function postBlock(l) {
+    var long = String(l.text).length > 90 ? " long" : "";
+    return '<div class="post"><div class="pin"><div class="ph">' + POST_SVG + '<div><div class="pk">You\'ve got post</div>' +
+      '<div class="pf">' + (l.from ? "Letter from <b>" + esc(l.from) + "</b>" : "A letter") + ' <span class="pt">' + pad2(l.at.getHours()) + ":" + pad2(l.at.getMinutes()) + "</span></div></div></div>" +
+      '<div class="px' + long + '">' + esc(l.text) + "</div>" +
+      '<div class="pg"><button class="pgot" type="button">Got it</button><span>Got it clears the letter. So does closing this card.</span></div></div></div>';
+  }
+  var POST_SVG = '<svg class="pe" viewBox="0 0 48 36" width="56" height="42" aria-hidden="true"><rect x="2" y="2" width="44" height="32" rx="4" fill="#fff" stroke="#B5583A" stroke-width="2.5"/>' +
+    '<path d="M3 4l21 16L45 4" fill="none" stroke="#B5583A" stroke-width="2.5" stroke-linejoin="round"/><rect x="34" y="7" width="8" height="9" rx="1" fill="#D9433A"/></svg>';
+  function gotIt() {
+    var r = READING; if (!settleLetter()) return;
+    var b = $("lists").querySelector(".post");
+    if (b) b.outerHTML = '<div class="post done">' + (r.l.from ? "Letter from " + esc(r.l.from) + " cleared." : "Letter cleared.") + "</div>";
+    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+  }
   function openCard(t, tap) {
     var p = t.person, name = p.name, td = ymd(now()), html = "";
     var mine = DATA.events.filter(function (e) { return e.who === name; });
     var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
-    if (t.letter) {                                                          // the postie's letter, read once
-      var lt = t.letter; t.letter = null; clearLetter(lt, tap);
-      html += "<h2>" + (lt.from ? "A letter from " + esc(lt.from) : "A letter") + "</h2>" + row(pad2(lt.at.getHours()) + ":" + pad2(lt.at.getMinutes()), lt.text, "Post");
-    }
+    settleLetter();
+    if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); }     // the postie's letter, read once
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
       : '<div class="empty">' + ((DATA.calFailed || []).some(function (f) { return f.who === name; }) ? "Calendar unavailable, so this card can't say what's on."
@@ -3227,6 +3259,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);      // a wall panel forgets
   }
   function closeCard() {
+    settleLetter();
     $("scrim").classList.remove("open");
     if (openThing) { openThing.happy = 0; openThing.wait = 1; }
     openThing = null; clearTimeout(closeTimer);
@@ -3375,6 +3408,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return out;
   }
   function openSchool() {
+    settleLetter();
     var d = now(), td = ymd(d), ex = DATA.extra || {}, S = DATA.school || {}, html = "", sum = "";
     // Each child with a timetable in one grid, then today's lunch for each child with a menu
     html += schoolWeek(td);
@@ -3431,6 +3465,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     slicing: "Slicing", init: "Starting up", offline: "Offline", unknown: "Unknown", missing: "Not reachable" };
   function mins(m) { return m >= 60 ? Math.floor(m / 60) + "h " + pad2(m % 60) + "m" : m + " min"; }
   function openShop() {
+    settleLetter();
     var ps = printerState(), live = ps !== "empty", st = live ? PR.status : (PR.err ? "missing" : PR.status), html = "", sum;
     var label = PR_LABEL[st] || st;
     html += "<h2>The printer</h2>" + row("Status", label);
@@ -3543,6 +3578,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
 
   $("done").addEventListener("click", closeCard);
+  $("lists").addEventListener("click", function (e) { if (e.target && e.target.className === "pgot") gotIt(); });
   $("scrim").addEventListener("pointerdown", function (e) { if (e.target === $("scrim")) closeCard(); });
   $("lists").addEventListener("scroll", function () { clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000); });
 
@@ -3592,6 +3628,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function size() {
     W = WRAP.clientWidth || 1280; H = WRAP.clientHeight || 800; DPR = Math.min(window.devicePixelRatio || 1, 2);
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + "px"; cv.style.height = H + "px";
+    if (W < 640) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack
     HZ = Math.round(H * 0.27); TOP = HZ + 44;
     bakeBackground();
   }

@@ -134,6 +134,28 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #next { transition: opacity .6s; }
 .foot .bad { color: var(--warn); }
 
+/* v1.9.0: a letter waiting on someone's card. Airmail stripes round a sheet of paper that stays
+   cream at night, an envelope that wiggles now and then, the text large, and Got it. */
+.post { padding: 7px; border-radius: 22px; box-shadow: 0 6px 18px rgba(120, 60, 30, .2);
+  background: repeating-linear-gradient(135deg, #D9433A 0 14px, #FFF8EE 14px 24px, #3F6FB5 24px 38px, #FFF8EE 38px 48px);
+  animation: pin .6s cubic-bezier(.2, 1.3, .4, 1); }
+.post .pin { background: #FFF8EE; border-radius: 16px; padding: 18px 24px 20px; color: #26352C; }
+.ph { display: flex; align-items: center; }
+.pe { flex: none; margin-right: 16px; transform-origin: 50% 85%; animation: pwig 3.2s ease-in-out infinite; }
+.pk { font-size: 15px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: #B5583A; }
+.pf { font-size: 22px; font-weight: 500; color: #3E5146; margin-top: 2px; }
+.pf b { font-weight: 600; color: #26352C; }
+.pt { font-size: 17px; color: #7A6A58; margin-left: 6px; }
+.px { font-size: 34px; font-weight: 500; line-height: 1.25; margin: 14px 0 18px; overflow-wrap: break-word; }
+.px.long { font-size: 26px; }
+.pg { display: flex; align-items: center; flex-wrap: wrap; }
+.pgot { font: 600 22px Fredoka, sans-serif; color: #fff; background: #C9503F; border: 0; border-radius: 999px;
+  padding: 12px 36px; margin-right: 16px; cursor: pointer; box-shadow: 0 3px 0 #9E3F36; }
+.pgot:active { transform: translateY(2px); box-shadow: 0 1px 0 #9E3F36; }
+.pg span { font-size: 16px; color: #7A6A58; padding: 6px 0; }
+.post.done { padding: 10px 16px; background: var(--paper-2); box-shadow: none; animation: none; font-size: 18px; color: var(--ink-soft); }
+@keyframes pwig { 0%, 72%, 100% { transform: rotate(0); } 78% { transform: rotate(-10deg); } 86% { transform: rotate(8deg); } 93% { transform: rotate(-4deg); } }
+@keyframes pin { from { transform: translateY(-10px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
 /* When the post goes, by the postbox (or under the corner hint): a pill like the name tags. */
 #posthint { display: flex; align-items: center; height: 34px; padding: 0 13px 0 8px; border-radius: 999px; box-sizing: border-box;
   background: rgba(255, 255, 255, .96); border: 2.5px solid #D9433A; font: 600 17px Fredoka, sans-serif; color: #26352C;
@@ -143,7 +165,24 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #posthint.at::after { content: ""; position: absolute; left: 50%; bottom: -9px; margin-left: -7px;
   border: 7px solid transparent; border-top-color: #D9433A; border-bottom: 0; }
 #posthint.corner { display: inline-flex; margin-top: 8px; }
-@media (prefers-reduced-motion: reduce) { #card, #scrim { transition: none; } .dchip.now, .ann, .ann .dic { animation: none; } }
+/* A card narrower than a tablet (a phone): the face becomes a header row over the lists. */
+.fd.narrow #card { flex-direction: column; border-radius: 24px; max-width: calc(100% - 20px); max-height: calc(100% - 20px); }
+.fd.narrow #face { width: auto; display: grid; grid-template-columns: 60px 1fr auto; column-gap: 12px; align-items: center; padding: 10px 14px; }
+.fd.narrow #portrait { width: 60px; height: 60px; grid-row: 1 / 3; }
+.fd.narrow #who { font-size: 26px; margin: 0; grid-column: 2; align-self: end; }
+.fd.narrow #sum { font-size: 15px; margin: 0; text-align: left; grid-column: 2; align-self: start; }
+.fd.narrow #done { margin: 0; padding: 10px 20px; font-size: 18px; grid-column: 3; grid-row: 1 / 3; }
+.fd.narrow #lists { padding: 16px 16px 20px; }
+.fd.narrow #lists h2 { font-size: 17px; margin: 20px 0 6px; }
+.fd.narrow .row { font-size: 19px; }
+.fd.narrow .when { width: 76px; font-size: 15px; }
+.fd.narrow .post .pin { padding: 14px 16px 16px; }
+.fd.narrow .pe { width: 42px; height: 32px; margin-right: 12px; }
+.fd.narrow .pf { font-size: 18px; }
+.fd.narrow .px { font-size: 26px; }
+.fd.narrow .px.long { font-size: 21px; }
+.fd.narrow .pgot { font-size: 20px; padding: 10px 28px; }
+@media (prefers-reduced-motion: reduce) { #card, #scrim { transition: none; } .dchip.now, .ann, .ann .dic, .post, .pe { animation: none; } }
 `;
 
 const MARKUP = `<div class="fd">
