@@ -57,6 +57,7 @@ esphome:
   on_boot:
     priority: -100
     then:
+      - script.execute: theme_apply
       - script.execute: check_night
 
 logger:
@@ -108,6 +109,11 @@ globals:
   - id: keep_awake
     type: bool
     initial_value: "false"
+  # A theme package (packages/garden.yaml) sets this when its night look is
+  # dark, so a profile's text turns light at night: see theme_apply.
+  - id: theme_night_dark
+    type: bool
+    initial_value: "false"
   # What the panel last heard from Home Assistant, kept so a missing or broken
   # entity reads as "unavailable" instead of as a quiet day.
   - id: announcement_text
@@ -119,6 +125,13 @@ script:
   - id: resend_pending
     then:
       - logger.log: "Connected to Home Assistant"
+
+  # Runs at boot and whenever night starts or ends. Profiles and theme
+  # packages extend it to recolour what they draw; the base draws nothing
+  # that changes.
+  - id: theme_apply
+    then:
+      - lambda: (void) 0;
 
   - id: update_clock
     then:
@@ -170,6 +183,7 @@ script:
           // END night-window
           if (night == id(is_night)) return;
           id(is_night) = night;
+          id(theme_apply).execute();
           if (night) id(screen_off).execute(); else id(wake_screen).execute();
 
   # Night rest: a low glow with the clock running (night_mode dim), or the
@@ -307,6 +321,7 @@ font:
     glyphs: "0123456789:"
 
 lvgl:
+  id: panel_lvgl
   default_font: font_body
   on_idle:
     # A list, so a profile can add its own idle step (the kitchen goes home).

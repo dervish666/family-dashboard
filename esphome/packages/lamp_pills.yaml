@@ -1,0 +1,195 @@
+# Lamp pills: two lamp buttons along the bottom of a kid panel's Home page.
+#
+# Each pill follows one Home Assistant entity (lamp_N_entity): amber when on,
+# white when off, sand with "No answer" when Home Assistant cannot say. A lit
+# pill shows the brightness ("On 40%") when sensor.panel_lights knows it. A
+# tap toggles the lamp; a hold (about half a second) opens the light page
+# from packages/light_hold.yaml, included from here: brightness, and warmth
+# and colour where the lamp can do them. lamp_N_hold: off makes a pill
+# tap-only.
+#
+# The panel never switches anything itself. A tap fires
+# esphome.family_panel_light with the pill's target, a short name like
+# kid_a_globe, and Home Assistant's family_panel_light automation
+# (homeassistant/panels-kitchen.example.yaml) switches only what its
+# light_targets list says that name means. The light page works the same way
+# with family_panel_light_set and the light_hold list.
+#
+# At night, while the screen is only glowing, a tap or a hold just wakes it,
+# so a hand feeling for the clock in the dark cannot switch the big light on.
+# Once the screen is awake, taps work as usual.
+#
+# An empty lamp_2_name hides the second pill and widens the first. Names: no
+# double quotes. Needs the kid profile (it extends main_page); not with
+# packages/light_tiles.yaml in the same panel.
+
+substitutions:
+  lamp_1_name: "Globe"
+  lamp_1_target: kid_a_globe
+  lamp_1_entity: light.kid_a_globe
+  lamp_1_hold: auto
+  lamp_2_name: "Big light"
+  lamp_2_target: kid_a_main
+  lamp_2_entity: light.kid_a_main
+  lamp_2_hold: auto
+  lamp_height: "58"
+
+packages:
+  hold: !include light_hold.yaml
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          if (!std::string("${lamp_2_name}").empty()) return;
+          lv_obj_add_flag(id(lamp_2_btn), LV_OBJ_FLAG_HIDDEN);
+          lv_obj_set_width(id(lamp_1_btn), lv_pct(100));
+
+text_sensor:
+  - platform: homeassistant
+    id: lamp_1_src
+    entity_id: ${lamp_1_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: lamp_show, slot: 0 }
+  - platform: homeassistant
+    id: lamp_2_src
+    entity_id: ${lamp_2_entity}
+    internal: true
+    on_value:
+      - script.execute: { id: lamp_show, slot: 1 }
+
+script:
+  - id: lamp_show
+    mode: queued
+    max_runs: 6
+    parameters:
+      slot: int
+    then:
+      - lambda: |-
+          text_sensor::TextSensor *src[] = {id(lamp_1_src), id(lamp_2_src)};
+          lv_obj_t *btns[] = {id(lamp_1_btn), id(lamp_2_btn)};
+          lv_obj_t *names[] = {id(lamp_1_label), id(lamp_2_label)};
+          lv_obj_t *notes[] = {id(lamp_1_note), id(lamp_2_note)};
+          const char *targets[] = {"${lamp_1_target}", "${lamp_2_target}"};
+          if (slot < 0 || slot > 1) return;
+          std::string x = src[slot]->state;
+          int on = x == "on" ? 1 : x == "off" ? 0 : -1;
+          bool dark = id(is_night) && id(theme_night_dark);
+          // Lit: amber with brown ink, day or night. Off: a white pill by day,
+          // navy with pale ink on a dark night theme. No answer: sand, dim ink.
+          uint32_t bg = on == 1 ? 0xF4B250 : on == 0 ? (dark ? 0x1D2246 : 0xFFFFFF) : (dark ? 0x30366A : 0xEDE6D8);
+          uint32_t rim = on == 1 ? 0xE0932A : on == 0 ? (dark ? 0x30366A : 0xE8DCC4) : (dark ? 0x3A4078 : 0xE3DCCB);
+          uint32_t ink = on == 1 ? 0x3A2606 : on == 0 ? (dark ? 0xC9BCE4 : 0x2E2A24) : (dark ? 0x8F89B6 : 0xA8A195);
+          uint32_t ink2 = on == 1 ? 0x6A4612 : on == 0 ? (dark ? 0x8F89B6 : 0x7A7366) : (dark ? 0x8F89B6 : 0xA8A195);
+          lv_obj_set_style_bg_color(btns[slot], lv_color_hex(bg), LV_PART_MAIN);
+          lv_obj_set_style_border_color(btns[slot], lv_color_hex(rim), LV_PART_MAIN);
+          lv_obj_set_style_text_color(names[slot], lv_color_hex(ink), LV_PART_MAIN);
+          lv_obj_set_style_text_color(notes[slot], lv_color_hex(ink2), LV_PART_MAIN);
+          id(light_parse).execute(std::string(targets[slot]));
+          char buf[16];
+          if (on == 1 && id(li_bri) >= 0) snprintf(buf, sizeof buf, "On %d%%", id(li_bri));
+          else snprintf(buf, sizeof buf, "%s", on == 1 ? "On" : on == 0 ? "Off" : "No answer");
+          if (strcmp(lv_label_get_text(notes[slot]), buf) != 0) lv_label_set_text(notes[slot], buf);
+
+  - id: !extend lights_changed
+    then:
+      - script.execute: { id: lamp_show, slot: 0 }
+      - script.execute: { id: lamp_show, slot: 1 }
+
+  - id: !extend theme_apply
+    then:
+      - script.execute: { id: lamp_show, slot: 0 }
+      - script.execute: { id: lamp_show, slot: 1 }
+
+  - id: lamp_tap
+    parameters:
+      target: std::string
+    then:
+      - if:
+          condition:
+            lambda: return id(is_night) && id(backlight).current_values.get_brightness() < 0.10f;
+          then:
+            - logger.log: "Night: that tap only woke the screen"
+          else:
+            - if:
+                condition: api.connected
+                then:
+                  - homeassistant.event:
+                      event: esphome.family_panel_light
+                      data:
+                        target: !lambda return target;
+                        action: toggle
+                        panel: ${name}
+                else:
+                  - logger.log:
+                      level: WARN
+                      format: "Not connected to Home Assistant: the lamp tap was not sent"
+
+  - id: lamp_hold
+    parameters:
+      slot: int
+    then:
+      - if:
+          condition:
+            lambda: return id(is_night) && id(backlight).current_values.get_brightness() < 0.10f;
+          then:
+            - logger.log: "Night: that hold only woke the screen"
+          else:
+            - lambda: |-
+                const char *names[] = {"${lamp_1_name}", "${lamp_2_name}"};
+                const char *targets[] = {"${lamp_1_target}", "${lamp_2_target}"};
+                const char *holds[] = {"${lamp_1_hold}", "${lamp_2_hold}"};
+                if (slot < 0 || slot > 1 || strcmp(holds[slot], "off") == 0) return;
+                id(light_hold_open).execute(std::string(targets[slot]), std::string(names[slot]));
+
+lvgl:
+  style_definitions:
+    - id: pill_style
+      bg_color: 0xFFFFFF
+      radius: 16
+      border_width: 2
+      border_color: 0xE8DCC4
+      shadow_width: 0
+      pad_all: 6
+      pad_left: 10
+
+  pages:
+    # Appended to the kid Home page: the bottom row.
+    - id: !extend main_page
+      widgets:
+        - obj:
+            width: 100%
+            height: ${lamp_height}
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              pad_column: 8
+            widgets:
+              - button:
+                  id: lamp_1_btn
+                  width: 148
+                  height: 100%
+                  styles: pill_style
+                  on_short_click:
+                    - script.execute: { id: lamp_tap, target: "${lamp_1_target}" }
+                  on_long_press:
+                    - script.execute: { id: lamp_hold, slot: 0 }
+                  widgets:
+                    - label: { id: lamp_1_label, text: "${lamp_1_name}", text_font: font_big, align: TOP_LEFT }
+                    - label: { id: lamp_1_note, text: "Waiting", text_font: font_small, align: BOTTOM_LEFT }
+              - button:
+                  id: lamp_2_btn
+                  width: 148
+                  height: 100%
+                  styles: pill_style
+                  on_short_click:
+                    - script.execute: { id: lamp_tap, target: "${lamp_2_target}" }
+                  on_long_press:
+                    - script.execute: { id: lamp_hold, slot: 1 }
+                  widgets:
+                    - label: { id: lamp_2_label, text: "${lamp_2_name}", text_font: font_big, align: TOP_LEFT }
+                    - label: { id: lamp_2_note, text: "Waiting", text_font: font_small, align: BOTTOM_LEFT }

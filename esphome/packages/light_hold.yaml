@@ -1,0 +1,505 @@
+# The light page: hold a light tile (packages/light_tiles.yaml) or a lamp pill
+# (packages/lamp_pills.yaml) and this opens, with the room's name, an On/Off
+# switch, a brightness slider and, where the lamp can do them, a warmth
+# slider across the lamp's own kelvin range and two colour sliders (the
+# colour and how vivid). Back, or 20 seconds untouched, goes home. Those two packages
+# include this one; a device file never lists it itself.
+#
+# What the panel knows about each lamp comes from one Home Assistant sensor,
+# sensor.panel_lights (homeassistant/panels-kitchen.example.yaml), whose
+# `lines` attribute has one line per target:
+#
+#   kitchen on 72 2700 2000 6535 bt - -
+#   target  state brightness kelvin min max caps hue sat
+#
+# caps is b (brightness), t (colour temperature), c (colour), or - for a
+# lamp that only switches; "-" elsewhere means not known or not now (a lamp
+# in colour mode has no kelvin). So eight tiles cost one API subscription,
+# not forty-eight, and the panel never learns an entity id: it asks Home
+# Assistant for a target name, and Home Assistant's light_hold list says
+# which lamp that is. A target without a line still opens the page, with the
+# switch only and a note saying Home Assistant has no details for it.
+#
+# Changes go out as esphome.family_panel_light_set with the target and only
+# the fields that changed (brightness_pct, kelvin, hue, sat), on release of a
+# slider, at most one event every 150 ms. The family_panel_light_set
+# automation checks the target against light_hold, clamps every value to the
+# lamp's own range, drops fields the lamp cannot do, and calls light.turn_on
+# with what is left. The switch sends on or off through family_panel_light.
+# No "allow actions" permission on either path.
+#
+# Substitutions a device file may set:
+#   lights_entity     the summary sensor (sensor.panel_lights)
+#   hold_row_height   a row on the page, 44 by default; 40 fits five rows on
+#   hold_row_gap      a 320x240 screen with hold_row_gap 4
+
+substitutions:
+  lights_entity: sensor.panel_lights
+  hold_row_height: "44"
+  hold_row_gap: "8"
+
+globals:
+  - id: hold_target
+    type: std::string
+    initial_value: '""'
+  - id: hold_name
+    type: std::string
+    initial_value: '""'
+  # What light_parse found for the target it was last asked about.
+  - id: li_on
+    type: int
+    initial_value: "-1"
+  - id: li_bri
+    type: int
+    initial_value: "-1"
+  - id: li_kelvin
+    type: int
+    initial_value: "-1"
+  - id: li_kmin
+    type: int
+    initial_value: "-1"
+  - id: li_kmax
+    type: int
+    initial_value: "-1"
+  - id: li_hue
+    type: int
+    initial_value: "-1"
+  - id: li_sat
+    type: int
+    initial_value: "-1"
+  - id: li_caps
+    type: std::string
+    initial_value: '""'
+  # Slider values waiting to go out, -1 for none.
+  - id: pend_bri
+    type: int
+    initial_value: "-1"
+  - id: pend_kelvin
+    type: int
+    initial_value: "-1"
+  - id: pend_hue
+    type: int
+    initial_value: "-1"
+  - id: pend_sat
+    type: int
+    initial_value: "-1"
+
+text_sensor:
+  - platform: homeassistant
+    id: lights_text
+    entity_id: ${lights_entity}
+    attribute: lines
+    internal: true
+    on_value:
+      - script.execute: light_page_refresh
+      - script.execute: lights_changed
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          // A finger needs more than a thin track: 8 px either side.
+          lv_obj_t *s[] = {id(hold_bri), id(hold_warm), id(hold_hue), id(hold_sat)};
+          for (auto *o : s) lv_obj_set_ext_click_area(o, 8);
+
+script:
+  # Runs whenever the summary changes. The tiles and the pills extend it to
+  # refresh their "On 72%" notes.
+  - id: lights_changed
+    then:
+      - lambda: (void) 0;
+
+  # Finds the target's line in the summary and leaves what it says in the
+  # li_* globals. Missing, malformed or "-" fields read as -1; the state is
+  # 1 on, 0 off, -1 unknown or unavailable.
+  - id: light_parse
+    parameters:
+      target: std::string
+    then:
+      - lambda: |-
+          std::string summary = id(lights_text).has_state() ? id(lights_text).state : std::string();
+          int on, bri, kelvin, kmin, kmax, hue, sat;
+          std::string caps;
+          // BEGIN light-summary-parse (tests/panels/check.py compiles this block)
+          {
+            on = -1; bri = kelvin = kmin = kmax = hue = sat = -1; caps = "";
+            auto num = [](const std::string &t, int top) {
+              if (t.empty() || t == "-") return -1;
+              char *end = nullptr;
+              long v = strtol(t.c_str(), &end, 10);
+              if (end == t.c_str() || *end || v < 0) return -1;
+              return v > top ? top : (int) v;
+            };
+            size_t at = 0;
+            while (at <= summary.size()) {
+              size_t nl = summary.find('\n', at);
+              std::string line = summary.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+              std::vector<std::string> f;
+              size_t i = 0;
+              while (i < line.size()) {
+                while (i < line.size() && isspace((unsigned char) line[i])) i++;
+                size_t j = i;
+                while (j < line.size() && !isspace((unsigned char) line[j])) j++;
+                if (j > i) f.push_back(line.substr(i, j - i));
+                i = j;
+              }
+              if (f.size() >= 2 && f[0] == target) {
+                on = f[1] == "on" ? 1 : f[1] == "off" ? 0 : -1;
+                if (f.size() >= 9) {
+                  bri = num(f[2], 100);
+                  kelvin = num(f[3], 20000);
+                  kmin = num(f[4], 20000);
+                  kmax = num(f[5], 20000);
+                  hue = num(f[7], 360);
+                  sat = num(f[8], 100);
+                  for (char c : f[6])
+                    if ((c == 'b' || c == 't' || c == 'c') && caps.find(c) == std::string::npos) caps += c;
+                  // A range needs both ends, the right way round and apart.
+                  if (kmin < 0 || kmax < 0 || kmin >= kmax) kmin = kmax = -1;
+                  if (kmin < 0) caps.erase(std::remove(caps.begin(), caps.end(), 't'), caps.end());
+                  if (kelvin >= 0 && kmin >= 0) kelvin = kelvin < kmin ? kmin : kelvin > kmax ? kmax : kelvin;
+                }
+                break;
+              }
+              if (nl == std::string::npos) break;
+              at = nl + 1;
+            }
+          }
+          // END light-summary-parse
+          id(li_on) = on; id(li_bri) = bri; id(li_kelvin) = kelvin; id(li_kmin) = kmin; id(li_kmax) = kmax;
+          id(li_hue) = hue; id(li_sat) = sat; id(li_caps) = caps;
+
+  # Opens the page for a target. The name is what the tile or pill shows.
+  - id: light_hold_open
+    parameters:
+      target: std::string
+      name: std::string
+    then:
+      - lambda: |-
+          id(hold_target) = target;
+          id(hold_name) = name;
+          id(pend_bri) = id(pend_kelvin) = id(pend_hue) = id(pend_sat) = -1;
+          lv_label_set_text(id(hold_title), name.c_str());
+      - script.execute: light_page_refresh
+      - lvgl.page.show: light_page
+
+  - id: light_hold_close
+    then:
+      - lvgl.page.show: main_page
+
+  # Puts the target's current values on the page, leaving a slider alone while
+  # a finger is on it. Rows the lamp cannot do are hidden, not greyed.
+  - id: light_page_refresh
+    then:
+      - lambda: |-
+          if (id(hold_target).empty()) return;
+          id(light_parse).execute(id(hold_target));
+          int on = id(li_on), bri = id(li_bri), kelvin = id(li_kelvin), kmin = id(li_kmin), kmax = id(li_kmax);
+          int hue = id(li_hue), sat = id(li_sat);
+          const std::string &caps = id(li_caps);
+          bool has_line = id(lights_text).has_state() && id(lights_text).state.find(id(hold_target) + " ") != std::string::npos;
+          auto show = [](lv_obj_t *o, bool yes) {
+            if (yes) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+          };
+          auto busy = [](lv_obj_t *o) { return lv_obj_has_state(o, LV_STATE_PRESSED); };
+          char buf[24];
+          // The switch follows the lamp; grey while Home Assistant cannot say.
+          if (on == 1) lv_obj_add_state(id(hold_switch), LV_STATE_CHECKED);
+          else lv_obj_remove_state(id(hold_switch), LV_STATE_CHECKED);
+          if (on < 0) lv_obj_add_state(id(hold_switch), LV_STATE_DISABLED);
+          else lv_obj_remove_state(id(hold_switch), LV_STATE_DISABLED);
+          bool b = caps.find('b') != std::string::npos, t = caps.find('t') != std::string::npos;
+          bool c = caps.find('c') != std::string::npos;
+          show(id(hold_bri_row), b);
+          show(id(hold_warm_row), t);
+          show(id(hold_hue_row), c);
+          show(id(hold_sat_row), c);
+          if (b) {
+            if (!busy(id(hold_bri))) lv_slider_set_value(id(hold_bri), bri > 0 ? bri : 1, LV_ANIM_OFF);
+            if (bri >= 0) snprintf(buf, sizeof buf, "%d%%", bri); else snprintf(buf, sizeof buf, "%s", on == 0 ? "off" : "--");
+            lv_label_set_text(id(hold_bri_val), buf);
+          }
+          if (t) {
+            lv_slider_set_range(id(hold_warm), kmin, kmax);
+            int k = kelvin >= 0 ? kelvin : (kmin + kmax) / 2;
+            if (!busy(id(hold_warm))) lv_slider_set_value(id(hold_warm), k, LV_ANIM_OFF);
+            if (kelvin >= 0) snprintf(buf, sizeof buf, "%d K", kelvin); else snprintf(buf, sizeof buf, "--");
+            lv_label_set_text(id(hold_warm_val), buf);
+          }
+          if (c) {
+            int h = hue >= 0 ? hue : 30, s = sat >= 0 ? sat : 100;
+            if (!busy(id(hold_hue))) lv_slider_set_value(id(hold_hue), h, LV_ANIM_OFF);
+            if (!busy(id(hold_sat))) lv_slider_set_value(id(hold_sat), s, LV_ANIM_OFF);
+            lv_color_t col = lv_color_hsv_to_rgb(h, s, 100);
+            lv_obj_set_style_bg_color(id(hold_swatch), col, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(id(hold_hue), col, LV_PART_KNOB);
+            lv_obj_set_style_bg_color(id(hold_sat), col, LV_PART_KNOB);
+          }
+          const char *note = !has_line ? "Home Assistant has no details for this light"
+                           : on < 0 ? "Unavailable"
+                           : caps.empty() ? "This light only switches on and off" : "";
+          lv_label_set_text(id(hold_note), note);
+          show(id(hold_note), note[0] != 0);
+
+  # The switch: on or off, by name, through the same allowlisted automation
+  # as a tap on the tile.
+  - id: light_hold_switch
+    then:
+      - if:
+          condition: api.connected
+          then:
+            - homeassistant.event:
+                event: esphome.family_panel_light
+                data:
+                  target: !lambda return id(hold_target);
+                  action: !lambda |-
+                    return lv_obj_has_state(id(hold_switch), LV_STATE_CHECKED) ? "on" : "off";
+                  panel: ${name}
+          else:
+            - logger.log:
+                level: WARN
+                format: "Not connected to Home Assistant: the switch was not sent"
+
+  # A slider was let go: remember its value and send soon. Restarting the
+  # delay means two quick releases go out as one event with both fields.
+  - id: light_send_pending
+    mode: restart
+    then:
+      - delay: 150ms
+      - if:
+          condition: api.connected
+          then:
+            - homeassistant.event:
+                event: esphome.family_panel_light_set
+                data:
+                  target: !lambda return id(hold_target);
+                  brightness_pct: !lambda |-
+                    return id(pend_bri) >= 0 ? std::to_string(id(pend_bri)) : std::string("");
+                  kelvin: !lambda |-
+                    return id(pend_kelvin) >= 0 ? std::to_string(id(pend_kelvin)) : std::string("");
+                  hue: !lambda |-
+                    return id(pend_hue) >= 0 ? std::to_string(id(pend_hue)) : std::string("");
+                  sat: !lambda |-
+                    return id(pend_sat) >= 0 ? std::to_string(id(pend_sat)) : std::string("");
+                  panel: ${name}
+          else:
+            - logger.log:
+                level: WARN
+                format: "Not connected to Home Assistant: the light change was not sent"
+      - lambda: id(pend_bri) = id(pend_kelvin) = id(pend_hue) = id(pend_sat) = -1;
+
+  - id: light_hold_colour_pending
+    then:
+      - lambda: |-
+          id(pend_hue) = lv_slider_get_value(id(hold_hue));
+          id(pend_sat) = lv_slider_get_value(id(hold_sat));
+      - script.execute: light_send_pending
+
+lvgl:
+  on_idle:
+    # The page puts itself away once nobody has touched it for a while.
+    - timeout: 20s
+      then:
+        - if:
+            condition:
+              lambda: return lv_scr_act() == id(light_page)->obj;
+            then:
+              - script.execute: light_hold_close
+
+  style_definitions:
+    - id: hold_label_style
+      text_font: font_body
+      text_color: 0x7A7366
+    # The knob stays inside the track: its centre runs over the padded part.
+    - id: hold_slider_style
+      bg_color: 0xEDE6D8
+      radius: 14
+      pad_top: 0
+      pad_bottom: 0
+      pad_left: 16
+      pad_right: 16
+    - id: hold_slider_ind_style
+      bg_color: 0xF4B250
+      radius: 14
+    - id: hold_slider_knob_style
+      bg_color: 0xFFFFFF
+      border_color: 0xE0932A
+      border_width: 2
+      radius: 22
+      pad_all: 6
+
+  pages:
+    - id: light_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      scrollbar_mode: AUTO
+      layout:
+        type: flex
+        flex_flow: column
+        pad_row: ${hold_row_gap}
+      widgets:
+        # The name, the switch, Back.
+        - obj:
+            width: 100%
+            height: ${hold_row_height}
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              flex_align_cross: center
+              pad_column: 8
+            widgets:
+              - label:
+                  id: hold_title
+                  text: ""
+                  text_font: font_big
+                  width: 148
+                  height: ${hold_row_height}
+                  long_mode: dot
+              - switch:
+                  id: hold_switch
+                  width: 64
+                  height: 32
+                  bg_color: 0xEDE6D8
+                  border_width: 0
+                  checked:
+                    bg_color: 0xE8DCC4
+                  indicator:
+                    bg_color: 0xEDE6D8
+                    checked:
+                      bg_color: 0xF4B250
+                  knob:
+                    bg_color: 0xFFFFFF
+                    border_color: 0xE0932A
+                    border_width: 2
+                    pad_all: 2
+                  on_click:
+                    - script.execute: light_hold_switch
+              - button:
+                  width: 72
+                  height: ${hold_row_height}
+                  bg_color: 0xFFFFFF
+                  text_color: 0x7A7366
+                  border_width: 2
+                  border_color: 0xE8DCC4
+                  radius: 12
+                  on_click:
+                    - script.execute: light_hold_close
+                  widgets:
+                    - label: { text: "Back", align: CENTER }
+        - obj:
+            id: hold_bri_row
+            width: 100%
+            height: ${hold_row_height}
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_cross: center
+              pad_column: 8
+            widgets:
+              - label: { text: "Bright", styles: hold_label_style, width: 76, long_mode: clip }
+              - slider:
+                  id: hold_bri
+                  flex_grow: 1
+                  height: 28
+                  min_value: 1
+                  max_value: 100
+                  styles: hold_slider_style
+                  indicator: { styles: hold_slider_ind_style }
+                  knob: { styles: hold_slider_knob_style }
+                  on_release:
+                    - lambda: id(pend_bri) = lv_slider_get_value(id(hold_bri));
+                    - script.execute: light_send_pending
+              - label: { id: hold_bri_val, text: "", width: 56, text_align: RIGHT }
+        - obj:
+            id: hold_warm_row
+            width: 100%
+            height: ${hold_row_height}
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_cross: center
+              pad_column: 8
+            widgets:
+              - label: { text: "Warmth", styles: hold_label_style, width: 76, long_mode: clip }
+              - slider:
+                  id: hold_warm
+                  flex_grow: 1
+                  height: 28
+                  min_value: 2000
+                  max_value: 6500
+                  styles: hold_slider_style
+                  indicator: { styles: hold_slider_ind_style, bg_color: 0xFFD28A }
+                  knob: { styles: hold_slider_knob_style }
+                  on_release:
+                    - lambda: id(pend_kelvin) = lv_slider_get_value(id(hold_warm));
+                    - script.execute: light_send_pending
+              - label: { id: hold_warm_val, text: "", width: 56, text_align: RIGHT }
+        - obj:
+            id: hold_hue_row
+            width: 100%
+            height: ${hold_row_height}
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_cross: center
+              pad_column: 8
+            widgets:
+              - label: { text: "Colour", styles: hold_label_style, width: 76, long_mode: clip }
+              - slider:
+                  id: hold_hue
+                  flex_grow: 1
+                  height: 28
+                  min_value: 0
+                  max_value: 360
+                  styles: hold_slider_style
+                  bg_color: 0xE8DCC4
+                  indicator: { styles: hold_slider_ind_style, bg_opa: TRANSP }
+                  knob: { styles: hold_slider_knob_style }
+                  on_release:
+                    - script.execute: light_hold_colour_pending
+              - obj:
+                  id: hold_swatch
+                  width: 32
+                  height: 32
+                  radius: 16
+                  bg_color: 0xF4B250
+                  border_width: 2
+                  border_color: 0xE8DCC4
+                  clickable: false
+        - obj:
+            id: hold_sat_row
+            width: 100%
+            height: ${hold_row_height}
+            bg_opa: TRANSP
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_cross: center
+              pad_column: 8
+            widgets:
+              - label: { text: "Vivid", styles: hold_label_style, width: 76, long_mode: clip }
+              - slider:
+                  id: hold_sat
+                  flex_grow: 1
+                  height: 28
+                  min_value: 0
+                  max_value: 100
+                  styles: hold_slider_style
+                  indicator: { styles: hold_slider_ind_style, bg_color: 0xE8DCC4 }
+                  knob: { styles: hold_slider_knob_style }
+                  on_release:
+                    - script.execute: light_hold_colour_pending
+              - label: { text: "", width: 32 }
+        - label:
+            id: hold_note
+            width: 100%
+            text: ""
+            styles: section_style
+            long_mode: wrap
+            hidden: true

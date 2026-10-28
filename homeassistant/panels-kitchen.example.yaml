@@ -5,6 +5,10 @@
 # adds (esphome/examples/kitchen.yaml):
 #
 #   family_panel_light       the light tiles: switches only what light_targets lists
+#   family_panel_light_set   the light page: brightness, warmth and colour for one
+#                            lamp from light_hold, clamped to its range
+#   sensor.panel_lights      one line per lamp in light_hold: state, brightness,
+#                            kelvin and range, what it can do, hue and saturation
 #   family_panel_timer_done  says a finished timer on the house speakers
 #   rest_command             a POST to a text-to-speech service of your own
 #   sensor.panel_strip       bins and the printer, for the Home page strip
@@ -16,6 +20,7 @@
 #
 # Placeholders to replace:
 #   light_targets            your rooms: tile target -> the entities it switches
+#   light_hold               the same targets -> the one light the page adjusts
 #   timer_names              the kitchen panel's timer_1_name..timer_3_name
 #   announce_satellites      Assist satellites to speak on, or []
 #   tts_entity, tts_players  a TTS engine and the speakers it plays on, or '' and []
@@ -33,6 +38,22 @@
 # treats the data as a request: a light tap names a key in light_targets, never
 # an entity id; a timer name is spoken only if it is in timer_names, and any
 # other name becomes "A kitchen timer is done".
+#
+# The light page is the same shape twice over. What the panel shows comes
+# from sensor.panel_lights, a template sensor here that reads each lamp in
+# light_hold and writes one line per target into its `lines` attribute, so a
+# panel subscribes to one attribute and never to a lamp. What the panel sends
+# back (esphome.family_panel_light_set) names a target and some of
+# brightness_pct, kelvin, hue and sat; the automation looks the target up in
+# light_hold, clamps each value to the lamp's own range, drops any the lamp
+# cannot do, and calls light.turn_on once with what is left. A burst from a
+# slider is queued six deep and spaced 150 ms apart; anything past six is
+# dropped and logged.
+#
+# The panel_lights sensor is state-based: Home Assistant re-renders it when
+# any lamp it reads changes, so a brightness set from the page shows on the
+# panel a moment later. The light_hold list is written once, as a YAML
+# anchor, and both the sensor and the automation read it.
 
 rest_command:
   # Speaks a timer alert through a speech service of your own that takes a
@@ -47,9 +68,10 @@ rest_command:
 
 automation:
   # A light tile on a panel. The panel sends a target (a key below) and an
-  # action, toggle or off. Toggle on a room with any light on turns the room
-  # off, otherwise on; off turns it off. Entities can be lights, switches or
-  # groups: homeassistant.turn_on and turn_off take them all.
+  # action: toggle, on or off. Toggle on a room with any light on turns the
+  # room off, otherwise on; on and off (the light page's switch) do what they
+  # say. Entities can be lights, switches or groups: homeassistant.turn_on
+  # and turn_off take them all.
   - id: family_panel_light
     alias: "Family: a panel switched a light"
     mode: queued
@@ -65,13 +87,16 @@ automation:
         landing: [light.landing]
         # A key can switch several entities at once.
         downstairs: [light.kitchen, light.living_room]
+        # A kid panel's lamp pills (packages/lamp_pills.yaml).
+        kid_a_globe: [light.kid_a_globe]
+        kid_a_main: [light.kid_a_main]
       wanted: "{{ trigger.event.data.target | default('') | string | trim }}"
       how: "{{ trigger.event.data.action | default('') | string | trim | lower }}"
       entities: >-
         {% set e = light_targets[wanted] if wanted in light_targets else [] %}
         {{ [e] if e is string else e | list }}
       turn: >-
-        {% if how == 'off' %}off
+        {% if how in ['off', 'on'] %}{{ how }}
         {% elif how == 'toggle' %}{{ 'off' if entities | select('is_state', 'on') | list | count else 'on' }}
         {% else %}none{% endif %}
     actions:
@@ -91,11 +116,85 @@ automation:
             data:
               level: warning
               logger: family_panels
-              message: 'A panel sent light action "{{ how[:20] }}"; only toggle and off are allowed.'
+              message: 'A panel sent light action "{{ how[:20] }}"; only toggle, on and off are allowed.'
           - stop: Not an allowed action
       - action: "homeassistant.turn_{{ turn }}"
         target:
           entity_id: "{{ entities }}"
+
+  # The light page on a panel. The panel sends a target (a key in light_hold)
+  # and any of brightness_pct, kelvin, hue and sat as it changed them; empty
+  # or missing fields are left alone. Each value is held to the lamp's own
+  # range (its min and max kelvin from Home Assistant; 1-100, 0-360, 0-100
+  # otherwise) and dropped if the lamp cannot do it, then light.turn_on is
+  # called once. hue and sat only count together.
+  - id: family_panel_light_set
+    alias: "Family: a panel adjusted a light"
+    mode: queued
+    max: 6
+    max_exceeded: warning
+    triggers:
+      - trigger: event
+        event_type: esphome.family_panel_light_set
+    variables:
+      light_hold: &panel_light_hold
+        kitchen: light.kitchen
+        living_room: light.living_room
+        hall: light.hall
+        landing: light.landing
+        kid_a_globe: light.kid_a_globe
+        kid_a_main: light.kid_a_main
+      wanted: "{{ trigger.event.data.target | default('') | string | trim }}"
+      light: "{{ light_hold[wanted] if wanted in light_hold else '' }}"
+      modes: "{{ state_attr(light, 'supported_color_modes') or [] if light else [] }}"
+      can_bri: "{{ modes | reject('in', ['onoff', 'unknown']) | list | count > 0 }}"
+      can_temp: "{{ 'color_temp' in modes }}"
+      can_colour: "{{ modes | select('in', ['hs', 'xy', 'rgb', 'rgbw', 'rgbww']) | list | count > 0 }}"
+      kmin: "{{ state_attr(light, 'min_color_temp_kelvin') | int(2000) if light else 2000 }}"
+      kmax: "{{ state_attr(light, 'max_color_temp_kelvin') | int(6500) if light else 6500 }}"
+      raw_bri: "{{ trigger.event.data.brightness_pct | default('') | string | trim }}"
+      raw_kelvin: "{{ trigger.event.data.kelvin | default('') | string | trim }}"
+      raw_hue: "{{ trigger.event.data.hue | default('') | string | trim }}"
+      raw_sat: "{{ trigger.event.data.sat | default('') | string | trim }}"
+      bri: "{{ [1, [100, raw_bri | int(-1)] | min] | max if raw_bri is match('^\\d+$') else -1 }}"
+      kelvin: "{{ [kmin, [kmax, raw_kelvin | int(-1)] | min] | max if raw_kelvin is match('^\\d+$') else -1 }}"
+      hue: "{{ [0, [360, raw_hue | int(-1)] | min] | max if raw_hue is match('^\\d+$') else -1 }}"
+      sat: "{{ [0, [100, raw_sat | int(-1)] | min] | max if raw_sat is match('^\\d+$') else -1 }}"
+      data: >-
+        {% set ns = namespace(d={}) %}
+        {% if can_bri and bri | int >= 1 %}{% set ns.d = dict(ns.d, brightness_pct=bri | int) %}{% endif %}
+        {% if can_temp and kelvin | int >= 0 %}{% set ns.d = dict(ns.d, color_temp_kelvin=kelvin | int) %}{% endif %}
+        {% if can_colour and hue | int >= 0 and sat | int >= 0 %}{% set ns.d = dict(ns.d, hs_color=[hue | int, sat | int]) %}{% endif %}
+        {{ ns.d }}
+    actions:
+      - if: "{{ wanted not in light_hold or not light }}"
+        then:
+          - action: system_log.write
+            data:
+              level: warning
+              logger: family_panels
+              message: >-
+                A panel asked to adjust "{{ wanted[:60] }}", which is not in light_hold.
+                Nothing was changed. Known: {{ light_hold.keys() | join(', ') }}.
+          - stop: Not an allowed target
+      - if: "{{ data | count == 0 }}"
+        then:
+          - action: system_log.write
+            data:
+              level: info
+              logger: family_panels
+              message: >-
+                A panel sent nothing {{ light }} can do (brightness "{{ (raw_bri | string)[:8] }}",
+                kelvin "{{ (raw_kelvin | string)[:8] }}", hue "{{ (raw_hue | string)[:8] }}", sat
+                "{{ (raw_sat | string)[:8] }}"; it does {{ modes | join(', ') }}). Nothing was changed.
+          - stop: Nothing to set
+      - action: light.turn_on
+        target:
+          entity_id: "{{ light }}"
+        data: "{{ data }}"
+      # Paces a burst from a slider: six queued at most, 150 ms apart.
+      - delay:
+          milliseconds: 150
 
   # A kitchen timer finished. The panel has already chimed on its own
   # speaker and shows the done card; this says it on the house speakers.
@@ -148,6 +247,50 @@ automation:
               message: "{{ message }}"
 
 template:
+  # What the light page shows: one line per target in light_hold, in the
+  # `lines` attribute, as the panel reads it:
+  #   kitchen on 72 2700 2000 6535 bt - -
+  #   target  state brightness% kelvin min max caps hue sat
+  # caps: b brightness, t colour temperature, c colour, or - for a lamp that
+  # only switches. "-" elsewhere is not known or not now (a lamp in colour
+  # mode has no kelvin; an unavailable lamp has nothing). The state is how
+  # many of them are on. State-based, so it follows every lamp it reads.
+  - sensor:
+      - name: Panel lights
+        unique_id: panel_lights
+        icon: mdi:lightbulb-group
+        variables:
+          light_hold: *panel_light_hold
+        state: "{{ light_hold.values() | select('is_state', 'on') | list | count }}"
+        attributes:
+          lines: >-
+            {% set ns = namespace(lines=[]) %}
+            {% for target, light in light_hold.items() %}
+              {% set st = states(light) %}
+              {% set st = st if st in ['on', 'off'] else 'unavailable' %}
+              {% set modes = state_attr(light, 'supported_color_modes') or [] %}
+              {% set caps = namespace(s='') %}
+              {% if modes | reject('in', ['onoff', 'unknown']) | list | count %}{% set caps.s = caps.s ~ 'b' %}{% endif %}
+              {% if 'color_temp' in modes %}{% set caps.s = caps.s ~ 't' %}{% endif %}
+              {% if modes | select('in', ['hs', 'xy', 'rgb', 'rgbw', 'rgbww']) | list | count %}{% set caps.s = caps.s ~ 'c' %}{% endif %}
+              {% set b = state_attr(light, 'brightness') %}
+              {% set k = state_attr(light, 'color_temp_kelvin') %}
+              {# A warm-white lamp reports an hs_color worked out from its kelvin; only a lamp
+                 in a colour mode has a colour of its own. #}
+              {% set hs = state_attr(light, 'hs_color') if state_attr(light, 'color_mode') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] else none %}
+              {% set ns.lines = ns.lines + [[
+                target, st,
+                ((b | float * 100 / 255) | round(0) | int) if st == 'on' and b is number else '-',
+                (k | int) if st == 'on' and k is number else '-',
+                (state_attr(light, 'min_color_temp_kelvin') | int) if st != 'unavailable' and state_attr(light, 'min_color_temp_kelvin') is number else '-',
+                (state_attr(light, 'max_color_temp_kelvin') | int) if st != 'unavailable' and state_attr(light, 'max_color_temp_kelvin') is number else '-',
+                caps.s if st != 'unavailable' and caps.s else '-',
+                (hs[0] | round(0) | int) if st == 'on' and hs is sequence and hs | count == 2 else '-',
+                (hs[1] | round(0) | int) if st == 'on' and hs is sequence and hs | count == 2 else '-'
+              ] | join(' ')] %}
+            {% endfor %}
+            {{ ns.lines | join('\n') }}
+
   # The Home page strip: bins on the day and the day before, and the printer
   # while it is busy. Nothing to say reads "Nothing to flag". A bins sensor
   # that is missing or could not fetch says so; a printer that is off says

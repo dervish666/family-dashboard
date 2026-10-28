@@ -5,7 +5,14 @@
 # a template binary_sensor that is on while any light in the room is on):
 # amber when on, white when off, grey with "Unavailable" when Home Assistant
 # cannot say. A tap toggles the room; All off turns every tile's room off,
-# and is amber itself while any room is on.
+# and is amber itself while any room is on. A lit tile shows the lamp's
+# brightness ("On 72%") when sensor.panel_lights knows it.
+#
+# Hold a tile (about half a second) and the light page opens: On/Off,
+# brightness, and warmth and colour where the lamp can do them. The page and
+# the summary sensor it reads are packages/light_hold.yaml, included from
+# here. tile_N_hold: auto reads the lamp's capabilities from Home Assistant;
+# off makes that tile tap-only.
 #
 # The panel does not switch anything itself. A tap fires
 # esphome.family_panel_light with the tile's target, a short name like
@@ -24,32 +31,45 @@
 # it. Names: no double quotes.
 #
 # Needs the kitchen profile: this file extends its Home page (main_page).
+# Not with packages/lamp_pills.yaml in the same panel: both bring the light
+# page.
+
+packages:
+  hold: !include light_hold.yaml
 
 substitutions:
   tile_1_name: "Kitchen"
   tile_1_target: kitchen
   tile_1_entity: light.kitchen
+  tile_1_hold: auto
   tile_2_name: "Living room"
   tile_2_target: living_room
   tile_2_entity: light.living_room
+  tile_2_hold: auto
   tile_3_name: "Hall"
   tile_3_target: hall
   tile_3_entity: light.hall
+  tile_3_hold: auto
   tile_4_name: "Landing"
   tile_4_target: landing
   tile_4_entity: light.landing
+  tile_4_hold: auto
   tile_5_name: ""
   tile_5_target: kitchen
   tile_5_entity: light.kitchen
+  tile_5_hold: auto
   tile_6_name: ""
   tile_6_target: kitchen
   tile_6_entity: light.kitchen
+  tile_6_hold: auto
   tile_7_name: ""
   tile_7_target: kitchen
   tile_7_entity: light.kitchen
+  tile_7_hold: auto
   tile_8_name: ""
   tile_8_target: kitchen
   tile_8_entity: light.kitchen
+  tile_8_hold: auto
   # Tile size. 148 x 96 fits two columns and two rows under the strip card.
   tile_height: "96"
 
@@ -146,7 +166,13 @@ script:
           uint32_t rim = on == 1 ? 0xE0932A : on == 0 ? 0xE8DCC4 : 0xE3DCCB;
           uint32_t ink = on == 1 ? 0x3A2606 : on == 0 ? 0x2E2A24 : 0xA8A195;
           uint32_t ink2 = on == 1 ? 0x6A4612 : on == 0 ? 0x7A7366 : 0xA8A195;
-          const char *note = on == 1 ? "On" : on == 0 ? "Off" : "Unavailable";
+          const char *targets[] = {"${tile_1_target}", "${tile_2_target}", "${tile_3_target}", "${tile_4_target}",
+                                   "${tile_5_target}", "${tile_6_target}", "${tile_7_target}", "${tile_8_target}"};
+          id(light_parse).execute(std::string(targets[slot]));
+          char buf[16];
+          if (on == 1 && id(li_bri) >= 0) snprintf(buf, sizeof buf, "On %d%%", id(li_bri));
+          else snprintf(buf, sizeof buf, "%s", on == 1 ? "On" : on == 0 ? "Off" : "Unavailable");
+          const char *note = buf;
           lv_obj_set_style_bg_color(tiles[slot], lv_color_hex(bg), LV_PART_MAIN);
           lv_obj_set_style_border_color(tiles[slot], lv_color_hex(rim), LV_PART_MAIN);
           lv_obj_set_style_text_color(tiles[slot], lv_color_hex(ink), LV_PART_MAIN);
@@ -180,6 +206,27 @@ script:
             - logger.log:
                 level: WARN
                 format: "Not connected to Home Assistant: the light tap was not sent"
+
+  # A hold on a tile: the light page, unless that tile's hold is off.
+  - id: tile_hold
+    parameters:
+      slot: int
+    then:
+      - lambda: |-
+          const char *names[] = {"${tile_1_name}", "${tile_2_name}", "${tile_3_name}", "${tile_4_name}",
+                                 "${tile_5_name}", "${tile_6_name}", "${tile_7_name}", "${tile_8_name}"};
+          const char *targets[] = {"${tile_1_target}", "${tile_2_target}", "${tile_3_target}", "${tile_4_target}",
+                                   "${tile_5_target}", "${tile_6_target}", "${tile_7_target}", "${tile_8_target}"};
+          const char *holds[] = {"${tile_1_hold}", "${tile_2_hold}", "${tile_3_hold}", "${tile_4_hold}",
+                                 "${tile_5_hold}", "${tile_6_hold}", "${tile_7_hold}", "${tile_8_hold}"};
+          if (slot < 0 || slot > 7 || strcmp(holds[slot], "off") == 0) return;
+          id(light_hold_open).execute(std::string(targets[slot]), std::string(names[slot]));
+
+  # The summary changed: every tile's "On 72%" may have.
+  - id: !extend lights_changed
+    then:
+      - lambda: |-
+          for (int i = 0; i < 8; i++) id(tile_show).execute(i);
 
   - id: lights_all_off
     then:
@@ -227,8 +274,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_1_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 0 }
                   widgets:
                     - label: { text: "${tile_1_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_1_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -237,8 +286,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_2_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 1 }
                   widgets:
                     - label: { text: "${tile_2_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_2_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -247,8 +298,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_3_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 2 }
                   widgets:
                     - label: { text: "${tile_3_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_3_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -257,8 +310,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_4_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 3 }
                   widgets:
                     - label: { text: "${tile_4_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_4_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -267,8 +322,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_5_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 4 }
                   widgets:
                     - label: { text: "${tile_5_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_5_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -277,8 +334,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_6_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 5 }
                   widgets:
                     - label: { text: "${tile_6_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_6_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -287,8 +346,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_7_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 6 }
                   widgets:
                     - label: { text: "${tile_7_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_7_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }
@@ -297,8 +358,10 @@ lvgl:
                   width: 148
                   height: ${tile_height}
                   styles: tile_style
-                  on_click:
+                  on_short_click:
                     - script.execute: { id: light_send, target: "${tile_8_target}", action: "toggle" }
+                  on_long_press:
+                    - script.execute: { id: tile_hold, slot: 7 }
                   widgets:
                     - label: { text: "${tile_8_name}", styles: tile_name_style, align: TOP_LEFT, width: 100%, long_mode: wrap }
                     - label: { id: tile_8_note, text: "Waiting", styles: tile_note_style, align: BOTTOM_LEFT }

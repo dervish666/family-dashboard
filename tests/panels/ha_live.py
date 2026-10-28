@@ -4,9 +4,9 @@
 Starts the official container with tests/panels/ha/configuration.yaml, the
 shipped homeassistant/panels.example.yaml, panels-kitchen.example.yaml and
 scripts.example.yaml, onboards a test user, then drives the letter, broadcast,
-light tile and timer flows over the REST API the way a phone, a panel and the
-wall card would, and checks the helpers, the lights and the panel sensors
-after each step. A small HTTP server on this machine stands in for the speech
+light tile, light page and timer flows over the REST API the way a phone, a
+panel and the wall card would, and checks the helpers, the lights, the
+panel_lights summary and the panel sensors after each step. A small HTTP server on this machine stands in for the speech
 service the timer alert posts to, so the test sees the words that would be
 spoken. Nothing here touches a real Home Assistant.
 
@@ -399,6 +399,89 @@ def main() -> int:
         check(light("light.kitchen") == "off" and light("light.living_room") == "off" and light("light.hall") == "off",
               "All off (one off per tile) leaves every room off, a listed but missing light included")
 
+        print("light page:")
+
+        def num(e):
+            try:
+                return float(state(token, e))
+            except (TypeError, ValueError):
+                return None
+
+        def lines():
+            return attr(token, "sensor.panel_lights", "lines") or ""
+
+        def line(target):
+            return next((ln for ln in lines().split("\n") if ln.startswith(target + " ")), "")
+
+        fire(token, "esphome.family_panel_light", {"target": "kitchen", "action": "on"})
+        settle()
+        check(light("light.kitchen") == "on", "the page's switch: on turns an allowed target on")
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "brightness_pct": "72", "kelvin": "", "hue": "", "sat": ""})
+        settle()
+        check(num("input_number.kitchen_level") == 184, f"brightness 72% reaches the lamp as 184/255 ({num('input_number.kitchen_level')})")
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "brightness_pct": "250"})
+        settle()
+        check(num("input_number.kitchen_level") == 255, "brightness 250 is clamped to 100%")
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "kelvin": "1000"})
+        settle()
+        check(num("input_number.kitchen_mireds") == 500, f"kelvin 1000 is clamped up to the lamp's minimum, 2000 K ({num('input_number.kitchen_mireds')} mireds)")
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "kelvin": "9000"})
+        settle()
+        check(num("input_number.kitchen_mireds") == 150, "kelvin 9000 is clamped down to the lamp's maximum")
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "kelvin": "4000", "brightness_pct": "50"})
+        settle()
+        check(num("input_number.kitchen_mireds") == 250 and num("input_number.kitchen_level") == 128,
+              "kelvin and brightness in one event both land")
+        before = (num("input_number.kitchen_level"), num("input_number.kitchen_mireds"))
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "hue": "120", "sat": "50"})
+        settle()
+        check((num("input_number.kitchen_level"), num("input_number.kitchen_mireds")) == before
+              and log_has(token, "A panel sent nothing light.kitchen can do"),
+              "colour sent to a lamp without colour changes nothing, and the log says so")
+        fire(token, "esphome.family_panel_light_set", {"target": "living_room", "hue": "400", "sat": "150"})
+        settle()
+        check(light("light.living_room") == "on" and num("input_number.living_room_hue") == 360 and num("input_number.living_room_sat") == 100,
+              "hue 400 and sat 150 are clamped to 360 and 100 on the colour lamp")
+        fire(token, "esphome.family_panel_light_set", {"target": "living_room", "hue": "210", "sat": "80", "brightness_pct": "0"})
+        settle()
+        check(num("input_number.living_room_hue") == 210 and num("input_number.living_room_sat") == 80 and num("input_number.living_room_level") == 3,
+              "hue 210, sat 80 and brightness 0 (held up to 1%) land together")
+        fire(token, "esphome.family_panel_light_set", {"target": "light.hall", "brightness_pct": "50"})
+        settle()
+        check(log_has(token, 'adjust "light.hall", which is not in light_hold'), "an entity id sent as the target is refused, and logged")
+        fire(token, "esphome.family_panel_light_set", {"target": "attic", "brightness_pct": "50"})
+        settle()
+        check(log_has(token, 'adjust "attic", which is not in light_hold'), "an unknown target is refused, and logged")
+        fire(token, "esphome.family_panel_light_set", {"target": "hall", "brightness_pct": "40"})
+        settle()
+        check(light("light.hall") == "off" and log_has(token, "A panel sent nothing light.hall can do"),
+              "brightness sent to an on/off lamp changes nothing")
+        fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "brightness_pct": "abc"})
+        settle()
+        check(num("input_number.kitchen_level") == 128, "a brightness that is not a number is ignored")
+        kl = line("kitchen")
+        print("    panel_lights:", lines().replace("\n", " / "))
+        check(kl.split() == ["kitchen", "on", "50", "4000", "2000", "6666", "bt", "-", "-"],
+              f"panel_lights: the kitchen line says on, 50%, 4000 K, 2000..6666, bt ({kl!r})")
+        lr = line("living_room")
+        check(lr.split()[:2] == ["living_room", "on"] and lr.split()[6] == "btc" and lr.split()[7:] == ["210", "80"],
+              f"panel_lights: the living room line says btc with hue 210 sat 80 ({lr!r})")
+        check(line("hall").split() == ["hall", "off", "-", "-", "-", "-", "-", "-", "-"] or line("hall").split() == ["hall", "off", "-", "-", "-", "-", "b", "-", "-"],
+              f"panel_lights: the hall line says off with no values ({line('hall')!r})")
+        check(line("landing").split()[:2] == ["landing", "unavailable"], f"panel_lights: a missing lamp reads unavailable ({line('landing')!r})")
+        check(line("kid_a_globe").split()[:2] == ["kid_a_globe", "unavailable"], "panel_lights: the kid lamps are listed too")
+        check(state(token, "sensor.panel_lights") == "2", f"panel_lights state counts the lamps that are on ({state(token, 'sensor.panel_lights')!r})")
+        fire(token, "esphome.family_panel_light", {"target": "kitchen", "action": "off"})
+        fire(token, "esphome.family_panel_light", {"target": "living_room", "action": "off"})
+        settle(2)
+        check(line("kitchen").split()[1:4] == ["off", "-", "-"], "panel_lights: off drops the brightness and kelvin, keeps the range")
+        burst = [{"target": "kitchen", "brightness_pct": str(p)} for p in range(10, 90, 10)]
+        for b in burst:
+            fire(token, "esphome.family_panel_light_set", b)
+        settle(3)
+        check(num("input_number.kitchen_level") in (round(p * 255 / 100) for p in range(10, 90, 10))
+              and log_has(token, "Maximum number of runs exceeded"), "a burst of eight is queued six deep and the rest logged")
+
         print("timer alerts:")
         fire(token, "esphome.family_panel_timer_done", {"timer": "Oven", "slot": "1", "panel": "panel-kitchen"})
         check(heard("Oven timer is done"), f"a named timer is spoken through the rest_command ({Speech.said[-3:]})")
@@ -416,7 +499,7 @@ def main() -> int:
         text = logs if isinstance(logs, str) else ""
         bad = [l for l in text.splitlines() if ("ERROR" in l or "TemplateError" in l or "Error rendering" in l)
                and "family_send_panel_letter" not in l and "Unknown recipient" not in l
-               and "Empty letter" not in l]
+               and "Empty letter" not in l and "Maximum number of runs exceeded" not in l]
         check(not bad, "no unexpected errors in the log" + ("" if not bad else ":\n    " + "\n    ".join(bad[:15])))
     finally:
         subprocess.run(["docker", "rm", "-f", NAME], capture_output=True)

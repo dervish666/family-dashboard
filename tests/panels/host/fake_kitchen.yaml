@@ -34,8 +34,28 @@ script:
           id(tile_3_src).publish_state("on");
           id(tile_4_src).publish_state("unavailable");
           id(announcement_raw).publish_state("");
+          // One lamp per kind: brightness only, with warmth, with warmth and colour.
+          id(lights_text).publish_state("kitchen on 72 2700 2000 6535 bt - -\nliving_room off - - 2000 6535 btc - -\nhall on 55 - - - b - -");
       - delay: 400ms
       - snapshot.take: { filename: "home.bmp" }
+      - script.execute: { id: light_hold_open, target: hall, name: "Hall" }
+      - delay: 300ms
+      - snapshot.take: { filename: "light-brightness.bmp" }
+      - script.execute: { id: light_hold_open, target: kitchen, name: "Kitchen" }
+      - delay: 300ms
+      - snapshot.take: { filename: "light-warmth.bmp" }
+      - lambda: |-
+          id(tile_2_src).publish_state("on");
+          id(lights_text).publish_state("kitchen on 72 2700 2000 6535 bt - -\nliving_room on 100 - 2000 6535 btc 210 80\nhall on 55 - - - b - -");
+      - script.execute: { id: light_hold_open, target: living_room, name: "Living room" }
+      - delay: 300ms
+      - snapshot.take: { filename: "light-colour.bmp" }
+      - script.execute: { id: light_hold_open, target: landing, name: "Landing" }
+      - delay: 300ms
+      - snapshot.take: { filename: "light-unavailable.bmp" }
+      - script.execute: light_hold_close
+      - lambda: id(tile_2_src).publish_state("off");
+      - delay: 300ms
       - lambda: |-
           id(announcement_raw).publish_state("20|Kid A|Can someone pick me up at 4?");
       - delay: 300ms

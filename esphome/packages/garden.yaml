@@ -1,0 +1,231 @@
+# The garden: a theme for a kid panel. A pastel garden behind the clock by
+# day, with two or three butterflies crossing the sky; the same garden asleep
+# at night, navy with a moon and stars and fireflies drifting about, and the
+# clock in pale ink so it still reads on the dark art. Night is the night
+# schedule from packages/base.yaml, so the dim glow and the wake-on-tap stay
+# as they are.
+#
+#   theme: garden     the art and the butterflies (the default)
+#   theme: plain      the cream page as before; leave the package out of the
+#                     device file to keep the art out of the flash too
+#
+# The art is esphome/art/*.png, drawn by esphome/art/garden.py: generic
+# flowers and butterflies, nothing private. ESPHome turns the backgrounds
+# into RGB565 (320x240, 150 KB each) and the sprites into RGB565 with alpha
+# at compile time, and all of it lives in flash, not RAM: LVGL draws a plain
+# image straight from where it sits. What moves is three small images on the
+# top layer, repositioned 25 times a second, so a redraw is a few hundred
+# pixels of background under each one and never the whole screen. They are
+# not clickable; a tap goes straight through to whatever is underneath.
+#
+# For a 320x240 landscape board. garden_art is where the PNGs come from:
+# GitHub by default (pin it to the same tag as the packages), or a local
+# path such as ../art for a checkout of this repo.
+
+substitutions:
+  theme: garden
+  garden_art: https://raw.githubusercontent.com/dervish666/family-dashboard/main/esphome/art
+
+image:
+  - platform: file
+    id: garden_day
+    file: ${garden_art}/bg_day.png
+    type: RGB565
+    dither: FLOYDSTEINBERG
+  - platform: file
+    id: garden_night
+    file: ${garden_art}/bg_night.png
+    type: RGB565
+    dither: FLOYDSTEINBERG
+  - platform: file
+    defaults:
+      type: RGB565
+      transparency: alpha_channel
+    files:
+      - { id: fly_pink_0, file: "${garden_art}/fly_pink_0.png" }
+      - { id: fly_pink_1, file: "${garden_art}/fly_pink_1.png" }
+      - { id: fly_pink_2, file: "${garden_art}/fly_pink_2.png" }
+      - { id: fly_lilac_0, file: "${garden_art}/fly_lilac_0.png" }
+      - { id: fly_lilac_1, file: "${garden_art}/fly_lilac_1.png" }
+      - { id: fly_lilac_2, file: "${garden_art}/fly_lilac_2.png" }
+      - { id: fly_peach_0, file: "${garden_art}/fly_peach_0.png" }
+      - { id: fly_peach_1, file: "${garden_art}/fly_peach_1.png" }
+      - { id: fly_peach_2, file: "${garden_art}/fly_peach_2.png" }
+      - { id: fly_blue_0, file: "${garden_art}/fly_blue_0.png" }
+      - { id: fly_blue_1, file: "${garden_art}/fly_blue_1.png" }
+      - { id: fly_blue_2, file: "${garden_art}/fly_blue_2.png" }
+      - { id: firefly_img, file: "${garden_art}/firefly.png" }
+
+globals:
+  - id: garden_on
+    type: bool
+    initial_value: "false"
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(garden_on) = std::string("${theme}") == "garden";
+          id(theme_night_dark) = id(garden_on);
+          if (!id(garden_on)) {
+            lv_obj_add_flag(id(garden_bg), LV_OBJ_FLAG_HIDDEN);
+            return;
+          }
+          // Behind everything on the page, and free of its 8 px padding.
+          lv_obj_move_background(id(garden_bg));
+          lv_obj_t *sprites[] = {id(fly_1), id(fly_2), id(fly_3), id(ff_1), id(ff_2), id(ff_3), id(ff_4)};
+          for (auto *o : sprites) {
+            lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+          }
+          lv_obj_clear_flag(lv_layer_top(), LV_OBJ_FLAG_CLICKABLE);
+      - script.execute: theme_apply
+
+script:
+  - id: !extend theme_apply
+    then:
+      - lambda: |-
+          if (!id(garden_on)) return;
+          bool night = id(is_night);
+          lv_image_set_src(id(garden_bg), night ? id(garden_night)->get_lv_image_dsc() : id(garden_day)->get_lv_image_dsc());
+          lv_obj_set_style_bg_color(id(main_page)->obj, lv_color_hex(night ? 0x0A0D26 : 0xFFF8EC), LV_PART_MAIN);
+
+interval:
+  # The critters. Butterflies cross the top of the screen by day, flapping
+  # open-half-shut-half with the odd glide; fireflies wander and pulse at
+  # night. Everything hides on any page but Home, while LVGL is paused
+  # (night with the screen off) and with theme plain.
+  - interval: 40ms
+    then:
+      - lambda: |-
+          struct Fly { bool live; float x, y0, vx, amp, w, ph; int col, frame, step; uint32_t frame_at, respawn_at, glide_until; int px, py; };
+          struct Firefly { float x, y, vx, vy, period, ph; uint32_t turn_at; int px, py, opa; };
+          static Fly fly[3];
+          static Firefly ff[4];
+          static bool seeded = false;
+          static uint32_t last = 0;
+          static bool was_shown = false;
+          lv_obj_t *fly_obj[] = {id(fly_1), id(fly_2), id(fly_3)};
+          lv_obj_t *ff_obj[] = {id(ff_1), id(ff_2), id(ff_3), id(ff_4)};
+          esphome::image::Image *frames[4][3] = {
+            {id(fly_pink_0), id(fly_pink_1), id(fly_pink_2)}, {id(fly_lilac_0), id(fly_lilac_1), id(fly_lilac_2)},
+            {id(fly_peach_0), id(fly_peach_1), id(fly_peach_2)}, {id(fly_blue_0), id(fly_blue_1), id(fly_blue_2)}};
+          const int FLY_W = 30, W = ${panel_width}, H = ${panel_height};
+          auto frand = [](float a, float b) { return a + (b - a) * (float) (random_uint32() & 0xFFFF) / 65535.0f; };
+          auto hide = [](lv_obj_t *o) { if (!lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); };
+          auto show = [](lv_obj_t *o) { if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); };
+          uint32_t now = millis();
+          if (!seeded) {
+            seeded = true;
+            for (int i = 0; i < 3; i++) { fly[i] = Fly{}; fly[i].respawn_at = now + 400 + i * 2200; fly[i].px = fly[i].py = -1000; }
+            for (int i = 0; i < 4; i++) {
+              ff[i] = Firefly{};
+              ff[i].x = frand(20, W - 30); ff[i].y = frand(50, H - 50);
+              ff[i].period = frand(2.4f, 4.2f); ff[i].ph = frand(0, 6.28f);
+              ff[i].px = ff[i].py = -1000; ff[i].opa = -100;
+              lv_image_set_src(ff_obj[i], id(firefly_img)->get_lv_image_dsc());
+            }
+          }
+          bool night = id(is_night);
+          bool shown = id(garden_on) && lv_scr_act() == id(main_page)->obj && !id(panel_lvgl).is_paused();
+          float dt = last ? (now - last) / 1000.0f : 0;
+          if (dt > 0.2f) dt = 0.2f;
+          last = now;
+          if (!shown) {
+            if (was_shown) { for (auto *o : fly_obj) hide(o); for (auto *o : ff_obj) hide(o); }
+            was_shown = false;
+            return;
+          }
+          was_shown = true;
+          float t = now / 1000.0f;
+          for (int i = 0; i < 3; i++) {
+            Fly &f = fly[i];
+            lv_obj_t *o = fly_obj[i];
+            if (night) {
+              if (f.live) { f.live = false; f.respawn_at = now + 500 + random_uint32() % 3000; }
+              hide(o);
+              continue;
+            }
+            if (!f.live) {
+              if ((int32_t) (now - f.respawn_at) < 0) { hide(o); continue; }
+              bool right = random_uint32() & 1;
+              f.vx = (right ? 1 : -1) * frand(16, 30);
+              f.x = right ? -FLY_W : W;
+              // Across the sky and the clock, above the flowers and the pills.
+              f.y0 = frand(16, 104);
+              f.amp = frand(5, 13); f.w = frand(2.0f, 4.2f); f.ph = frand(0, 6.28f);
+              for (int tries = 0; tries < 8; tries++) {
+                f.col = random_uint32() % 4;
+                bool taken = false;
+                for (int j = 0; j < 3; j++) if (j != i && fly[j].live && fly[j].col == f.col) taken = true;
+                if (!taken) break;
+              }
+              f.frame = 0; f.step = 0; f.frame_at = now; f.glide_until = 0; f.px = f.py = -1000;
+              f.live = true;
+              lv_image_set_src(o, frames[f.col][0]->get_lv_image_dsc());
+              show(o);
+            }
+            f.x += f.vx * dt;
+            float y = f.y0 + f.amp * sinf(f.ph + f.w * t) + 3.0f * sinf(f.ph * 1.7f + f.w * 2.3f * t);
+            if (f.x < -FLY_W - 2 || f.x > W + 2) {
+              f.live = false;
+              hide(o);
+              f.respawn_at = now + 1500 + random_uint32() % 5000;
+              continue;
+            }
+            if (now > f.glide_until && (int32_t) (now - f.frame_at) >= 60) {
+              f.frame_at = now;
+              static const int SEQ[4] = {0, 1, 2, 1};
+              f.step = (f.step + 1) & 3;
+              int fr = SEQ[f.step];
+              if (fr == 0 && (random_uint32() % 9) == 0) f.glide_until = now + 300 + random_uint32() % 600;
+              if (fr != f.frame) { f.frame = fr; lv_image_set_src(o, frames[f.col][fr]->get_lv_image_dsc()); }
+            }
+            int px = (int) f.x, py = (int) y;
+            if (px != f.px || py != f.py) { f.px = px; f.py = py; lv_obj_set_pos(o, px, py); }
+          }
+          for (int i = 0; i < 4; i++) {
+            Firefly &g = ff[i];
+            lv_obj_t *o = ff_obj[i];
+            if (!night) { hide(o); continue; }
+            show(o);
+            if ((int32_t) (now - g.turn_at) >= 0) {
+              g.turn_at = now + 1500 + random_uint32() % 2500;
+              g.vx = frand(-7, 7); g.vy = frand(-4, 4);
+            }
+            g.x += g.vx * dt; g.y += g.vy * dt;
+            if (g.x < 0) { g.x = 0; g.vx = fabsf(g.vx); }
+            if (g.x > W - 16) { g.x = W - 16; g.vx = -fabsf(g.vx); }
+            if (g.y < 40) { g.y = 40; g.vy = fabsf(g.vy); }
+            if (g.y > H - 44) { g.y = H - 44; g.vy = -fabsf(g.vy); }
+            float s = sinf(g.ph + t * 6.2832f / g.period);
+            int opa = s > 0 ? (int) (30 + 225 * s * s) : 30;
+            if (abs(opa - g.opa) >= 10) { g.opa = opa; lv_obj_set_style_image_opa(o, (lv_opa_t) opa, LV_PART_MAIN); }
+            int px = (int) g.x, py = (int) g.y;
+            if (px != g.px || py != g.py) { g.px = px; g.py = py; lv_obj_set_pos(o, px, py); }
+          }
+
+lvgl:
+  pages:
+    - id: !extend main_page
+      widgets:
+        # The background. ignore_layout keeps it out of the page's flex
+        # column; on_boot moves it behind everything.
+        - image:
+            id: garden_bg
+            src: garden_day
+            ignore_layout: true
+            x: -8
+            y: -8
+            clickable: false
+  top_layer:
+    widgets:
+      - image: { id: fly_1, src: fly_pink_0, hidden: true, clickable: false }
+      - image: { id: fly_2, src: fly_lilac_0, hidden: true, clickable: false }
+      - image: { id: fly_3, src: fly_peach_0, hidden: true, clickable: false }
+      - image: { id: ff_1, src: firefly_img, hidden: true, clickable: false }
+      - image: { id: ff_2, src: firefly_img, hidden: true, clickable: false }
+      - image: { id: ff_3, src: firefly_img, hidden: true, clickable: false }
+      - image: { id: ff_4, src: firefly_img, hidden: true, clickable: false }

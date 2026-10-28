@@ -27,7 +27,7 @@ check() {
   node=$(printf '%s-%s' "$b" "$label" | tr '_+' '--')
   {
     printf 'substitutions:\n  name: %s\n  friendly_name: Matrix %s %s\n' "$node" "$b" "$label"
-    printf '  child: kid_a\n  api_key: !secret panel_kid_a_api_key\n'
+    printf '  child: kid_a\n  api_key: !secret panel_kid_a_api_key\n  garden_art: %s\n' "$here/esphome/art"
     printf 'packages:\n  base: !include %s\n  board: !include %s\n  profile: !include %s\n' \
       "$here/esphome/packages/base.yaml" "$board" "$profile"
     n=0
@@ -51,7 +51,11 @@ for board in "$here"/esphome/boards/*.yaml; do
     check "$board" "$(basename "$profile" .yaml)" "$profile"
   done
   check "$board" kit-lights "$here/esphome/profiles/kitchen.yaml" "$here/esphome/packages/light_tiles.yaml"
+  check "$board" kid-lamps "$here/esphome/profiles/kid.yaml" "$here/esphome/packages/lamp_pills.yaml"
 done
+check "$here/esphome/boards/esp32_2432s028.yaml" kid-all \
+  "$here/esphome/profiles/kid.yaml" "$here/esphome/packages/lamp_pills.yaml" "$here/esphome/packages/garden.yaml"
+check "$here/esphome/boards/jc2432w328.yaml" kid-garden "$here/esphome/profiles/kid.yaml" "$here/esphome/packages/garden.yaml"
 check "$here/esphome/boards/guition_jc3248w535.yaml" kit-all \
   "$here/esphome/profiles/kitchen.yaml" "$here/esphome/packages/timers.yaml" "$here/esphome/packages/light_tiles.yaml"
 exit $fail

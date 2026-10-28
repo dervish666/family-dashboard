@@ -54,9 +54,13 @@ FILES = {
     "hak": ROOT / "homeassistant" / "panels-kitchen.example.yaml",
     "timers": ROOT / "esphome" / "packages" / "timers.yaml",
     "tiles": ROOT / "esphome" / "packages" / "light_tiles.yaml",
+    "hold": ROOT / "esphome" / "packages" / "light_hold.yaml",
+    "lamps": ROOT / "esphome" / "packages" / "lamp_pills.yaml",
+    "garden": ROOT / "esphome" / "packages" / "garden.yaml",
     "ex_kitchen": EXAMPLES / "kitchen.yaml",
     "ex_kitchen_local": EXAMPLES / "kitchen.local.yaml",
     "ex_kid_a": EXAMPLES / "kid-a.yaml",
+    "ex_kid_a_local": EXAMPLES / "kid-a.local.yaml",
     "board_cyd": ROOT / "esphome" / "boards" / "esp32_2432s028.yaml",
     "board_jc2432": ROOT / "esphome" / "boards" / "jc2432w328.yaml",
     "board_guition": ROOT / "esphome" / "boards" / "guition_jc3248w535.yaml",
@@ -80,7 +84,13 @@ def ha_env(states=None):
     env.filters["slugify"] = ha_slugify
     vals = states or {}
     env.tests["is_state"] = lambda eid, want: vals.get(eid, "unknown") == want
+    env.tests["match"] = lambda value, pattern: re.match(pattern, str(value)) is not None
     return env
+
+
+def ha_attrs(attrs: dict):
+    """Home Assistant's state_attr over a {entity_id: {attribute: value}} table."""
+    return lambda eid, name: (attrs.get(eid) or {}).get(name)
 
 
 def parse_result(rendered: str):
@@ -296,6 +306,82 @@ LIGHT_CASES = [
     ("", "toggle", [], (True, None, [])),
     ("kitchen", "turn_on", [], (True, None, None)),
     ("kitchen", "", [], (True, None, None)),
+    ("kitchen", "on", ["light.kitchen"], (False, "on", ["light.kitchen"])),
+    ("hall", "off", ["light.hall"], (False, "off", ["light.hall"])),
+]
+
+# The lamps a light page may adjust, as Home Assistant describes them.
+LAMPS = {
+    # A warm-white lamp carries an hs_color Home Assistant works out from its
+    # kelvin; the line must not pass that off as a colour.
+    "light.kitchen": ("on", {"supported_color_modes": ["color_temp"], "color_mode": "color_temp", "brightness": 184,
+                             "color_temp_kelvin": 2700, "min_color_temp_kelvin": 2000, "max_color_temp_kelvin": 6535,
+                             "hs_color": [27.0, 35.0]}),
+    "light.living_room": ("on", {"supported_color_modes": ["color_temp", "hs"], "color_mode": "hs", "brightness": 255,
+                                 "color_temp_kelvin": None, "min_color_temp_kelvin": 2000,
+                                 "max_color_temp_kelvin": 6535, "hs_color": [210.0, 80.0]}),
+    # Off, with a stale brightness attribute: the line must not repeat it.
+    "light.hall": ("off", {"supported_color_modes": ["brightness"], "brightness": 51}),
+    "light.landing": ("unavailable", {}),
+    "light.kid_a_globe": ("on", {"supported_color_modes": ["brightness"], "brightness": 102}),
+    "light.kid_a_main": ("on", {"supported_color_modes": ["onoff"]}),
+}
+LAMP_STATES = {e: st for e, (st, _) in LAMPS.items()}
+LAMP_ATTRS = {e: a for e, (_, a) in LAMPS.items()}
+
+# What sensor.panel_lights must say for those lamps, line by line.
+LINES_WANT = [
+    "kitchen on 72 2700 2000 6535 bt - -",
+    "living_room on 100 - 2000 6535 btc 210 80",
+    "hall off - - - - b - -",
+    "landing unavailable - - - - - - -",
+    "kid_a_globe on 40 - - - b - -",
+    "kid_a_main on - - - - - - -",
+]
+
+# (target, brightness_pct, kelvin, hue, sat) -> (refused, light, data for light.turn_on)
+SET_CASES = [
+    ("kitchen", "72", "", "", "", (False, "light.kitchen", {"brightness_pct": 72})),
+    ("kitchen", "150", "", "", "", (False, "light.kitchen", {"brightness_pct": 100})),
+    ("kitchen", "0", "", "", "", (False, "light.kitchen", {"brightness_pct": 1})),
+    ("kitchen", "", "1500", "", "", (False, "light.kitchen", {"color_temp_kelvin": 2000})),
+    ("kitchen", "", "9000", "", "", (False, "light.kitchen", {"color_temp_kelvin": 6535})),
+    ("kitchen", "50", "3000", "", "", (False, "light.kitchen", {"brightness_pct": 50, "color_temp_kelvin": 3000})),
+    ("kitchen", "", "", "120", "50", (True, "light.kitchen", {})),          # no colour on this lamp
+    ("living_room", "", "", "400", "150", (False, "light.living_room", {"hs_color": [360, 100]})),
+    ("living_room", "", "", "120", "", (True, "light.living_room", {})),     # hue without sat
+    ("living_room", "", "2500", "120", "50", (False, "light.living_room", {"color_temp_kelvin": 2500, "hs_color": [120, 50]})),
+    ("hall", "", "3000", "", "", (True, "light.hall", {})),                  # brightness only
+    ("hall", "25", "", "", "", (False, "light.hall", {"brightness_pct": 25})),
+    ("kid_a_main", "25", "", "", "", (True, "light.kid_a_main", {})),         # on/off only
+    ("kitchen", "abc", "", "", "", (True, "light.kitchen", {})),
+    ("kitchen", "-5", "", "", "", (True, "light.kitchen", {})),
+    ("light.kitchen", "50", "", "", "", (True, "", None)),
+    ("attic", "50", "", "", "", (True, "", None)),
+    ("", "50", "", "", "", (True, "", None)),
+]
+
+SUMMARY = "\n".join(LINES_WANT) + "\n"
+# (summary, target) -> (on, bri, kelvin, kmin, kmax, caps, hue, sat)
+PARSE_CASES = [
+    (SUMMARY, "kitchen", (1, 72, 2700, 2000, 6535, "bt", -1, -1)),
+    (SUMMARY, "living_room", (1, 100, -1, 2000, 6535, "btc", 210, 80)),
+    (SUMMARY, "hall", (0, -1, -1, -1, -1, "b", -1, -1)),
+    (SUMMARY, "landing", (-1, -1, -1, -1, -1, "", -1, -1)),
+    (SUMMARY, "kid_a_main", (1, -1, -1, -1, -1, "", -1, -1)),
+    (SUMMARY, "attic", (-1, -1, -1, -1, -1, "", -1, -1)),
+    (SUMMARY, "", (-1, -1, -1, -1, -1, "", -1, -1)),
+    ("", "kitchen", (-1, -1, -1, -1, -1, "", -1, -1)),
+    ("unavailable", "kitchen", (-1, -1, -1, -1, -1, "", -1, -1)),
+    ("kitchen on", "kitchen", (1, -1, -1, -1, -1, "", -1, -1)),
+    ("kitchen off 50 2700 2000 6535 bt - -", "kitchen", (0, 50, 2700, 2000, 6535, "bt", -1, -1)),
+    ("kitchen on 250 1000 2000 6535 bt 400 101", "kitchen", (1, 100, 2000, 2000, 6535, "bt", 360, 100)),
+    ("kitchen on 50 - 6535 2000 bt - -", "kitchen", (1, 50, -1, -1, -1, "b", -1, -1)),
+    ("kitchen on 50 - - - xtb - -", "kitchen", (1, 50, -1, -1, -1, "b", -1, -1)),
+    ("kitchen on 50 - 2000 6535 tc 30 100", "kitchen", (1, 50, -1, 2000, 6535, "tc", 30, 100)),
+    ("  kitchen   on  50 - - - b - -  ", "kitchen", (1, 50, -1, -1, -1, "b", -1, -1)),
+    ("kitchenette on 50 - - - b - -\nkitchen off - - - - b - -", "kitchen", (0, -1, -1, -1, -1, "b", -1, -1)),
+    ("kitchen 12 50 - - - b - -", "kitchen", (-1, 50, -1, -1, -1, "b", -1, -1)),
 ]
 
 # timer name the panel sent -> what the house hears
@@ -457,6 +543,7 @@ def check_panel_v2(r: Report, srcs: dict, cxx: str | None):
     tstep = cpp_block(srcs["timers"], "timer-step")
     tfmt = cpp_block(srcs["timers"], "timer-format")
     tile = cpp_block(srcs["tiles"], "tile-state")
+    parse = cpp_block(srcs["hold"], "light-summary-parse")
     m = lambda hm: int(hm[:2]) * 60 + int(hm[3:])  # noqa: E731
     calls = []
     calls += [f'clockfmt({h}, {mi}, {str(tw).lower()});' for h, mi, tw, _, _ in CLOCK_CASES]
@@ -471,10 +558,15 @@ def check_panel_v2(r: Report, srcs: dict, cxx: str | None):
     calls += [f'timerfmt({s}u);' for s, _, _ in TIMER_FMT_CASES]
     calls.append('sep();')
     calls += [f'tilestate({cstr(x)});' for x, _ in TILE_CASES]
+    calls.append('sep();')
+    calls += [f'parse({cstr(sm)}, {cstr(tg)});' for sm, tg, _ in PARSE_CASES]
     body = "\n  ".join(calls)
     src = f"""
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 static void sep() {{ printf("\\x1d"); }}
@@ -511,6 +603,12 @@ static void tilestate(const std::string &x) {{
 {tile}
   printf("%d\\x1e", on);
 }}
+static void parse(const std::string &summary, const std::string &target) {{
+  int on, bri, kelvin, kmin, kmax, hue, sat;
+  std::string caps;
+{parse}
+  printf("%d %d %d %d %d %s %d %d\\x1e", on, bri, kelvin, kmin, kmax, caps.empty() ? "-" : caps.c_str(), hue, sat);
+}}
 int main() {{
   {body}
   return 0;
@@ -520,10 +618,10 @@ int main() {{
     if out is None:
         return
     parts = [p.split("\x1e")[:-1] for p in out.split("\x1d")]
-    if len(parts) != 6:
-        r.check(False, f"panel v2 C++: expected six result groups, got {len(parts)}")
+    if len(parts) != 7:
+        r.check(False, f"panel v2 C++: expected seven result groups, got {len(parts)}")
         return
-    pc, pn, pl, ps, pf, pt = parts
+    pc, pn, pl, ps, pf, pt, pp = parts
     for (h, mi, tw, clock, suffix), got in zip(CLOCK_CASES, pc):
         r.check(got == f"{clock}\x1f{suffix}", f"clock {h:02d}:{mi:02d} {'12h' if tw else '24h'}: got {got!r}, want {clock!r} {suffix!r}")
     for (n, s, e, k, want), got in zip(NIGHT_CASES, pn):
@@ -537,9 +635,13 @@ int main() {{
         r.check(got == f"{full}\x1f{brief}", f"timer {s} s: got {got!r}, want {full!r} {brief!r}")
     for (x, want), got in zip(TILE_CASES, pt):
         r.check(got == str(want), f"tile state {x!r}: got {got}, want {want}")
+    for (sm, tg, want), got in zip(PARSE_CASES, pp):
+        w = " ".join(str(v) if v != "" else "-" for v in want)
+        r.check(got == w, f"summary parse {tg!r} in {sm[:40]!r}: got {got!r}, want {w!r}")
     for name, n, table in (("clock", len(pc), CLOCK_CASES), ("night", len(pn), NIGHT_CASES),
                            ("lines", len(pl), LINES_CASES), ("timer step", len(ps), TIMER_STEP_CASES),
-                           ("timer format", len(pf), TIMER_FMT_CASES), ("tile", len(pt), TILE_CASES)):
+                           ("timer format", len(pf), TIMER_FMT_CASES), ("tile", len(pt), TILE_CASES),
+                           ("summary parse", len(pp), PARSE_CASES)):
         r.check(n == len(table), f"panel v2 C++ {name}: {n} results for {len(table)} cases")
 
 
@@ -562,6 +664,41 @@ def check_kitchen_ha(r: Report, hak: dict):
                     f"light {wanted!r}/{how!r} with {on}: turn {ctx['turn']!r} {ctx['entities']}, want {turn!r} {ents}")
         elif ents is not None:
             r.check(ctx["entities"] == ents, f"light {wanted!r}: an unknown target resolved to {ctx['entities']}, want none")
+    # The light page: the allowlist, the clamps, and only light.turn_on.
+    lset = autos["family_panel_light_set"]
+    refusals = [a["if"] for a in lset["actions"] if isinstance(a, dict) and "if" in a
+                and any(isinstance(x, dict) and "stop" in x for x in a.get("then", []))]
+    r.check(len(refusals) >= 2, "family_panel_light_set: expected two refusing checks (target, nothing to set)")
+    calls = [a for a in lset["actions"] if isinstance(a, dict) and "action" in a and not str(a["action"]).startswith("system_log")]
+    r.check(len(calls) == 1 and calls[0]["action"] == "light.turn_on" and calls[0].get("target", {}).get("entity_id") == "{{ light }}"
+            and calls[0].get("data") == "{{ data }}",
+            "family_panel_light_set: the one action must be light.turn_on on {{ light }} with {{ data }}")
+    r.check(lset.get("mode") == "queued" and int(lset.get("max", 0)) <= 10
+            and any(isinstance(a, dict) and "delay" in a for a in lset["actions"]),
+            "family_panel_light_set: queued with a small max and a delay, so a slider burst is paced")
+    for wanted, b, k, h, sat, (refused, light, data) in SET_CASES:
+        env = ha_env(LAMP_STATES)
+        ctx = render_vars(env, lset["variables"], {"state_attr": ha_attrs(LAMP_ATTRS), "trigger": {"event": {"data": {
+            "target": wanted, "brightness_pct": b, "kelvin": k, "hue": h, "sat": sat}}}})
+        got = any(render_bool(env, c, ctx) for c in refusals)
+        r.check(got == refused, f"set {wanted!r} b={b!r} k={k!r} h={h!r} s={sat!r}: refused={got}, want {refused}")
+        r.check(ctx["light"] == light, f"set {wanted!r}: light {ctx['light']!r}, want {light!r}")
+        if data is not None:
+            r.check(ctx["data"] == data, f"set {wanted!r} b={b!r} k={k!r} h={h!r} s={sat!r}: data {ctx['data']!r}, want {data!r}")
+    # The summary sensor the page reads, over the same lamps.
+    sensors = [x for block in hak.get("template", []) for x in block.get("sensor", []) if x.get("name") == "Panel lights"]
+    r.check(len(sensors) == 1, "panels-kitchen: no 'Panel lights' template sensor")
+    if sensors:
+        sensor = sensors[0]
+        r.check(sensor.get("variables", {}).get("light_hold") == lset["variables"]["light_hold"],
+                "panel_lights: its light_hold differs from family_panel_light_set's")
+        env = ha_env(LAMP_STATES)
+        ctx = {"light_hold": lset["variables"]["light_hold"], "states": FakeStates(LAMP_STATES), "state_attr": ha_attrs(LAMP_ATTRS)}
+        lines = env.from_string(sensor["attributes"]["lines"]).render(**ctx).strip().split("\n")
+        lines = [ln.strip() for ln in lines if ln.strip()]
+        r.check(lines == LINES_WANT, f"panel_lights lines:\n    {lines}\n  want\n    {LINES_WANT}")
+        state = env.from_string(sensor["state"]).render(**ctx).strip()
+        r.check(state == "4", f"panel_lights state {state!r}, want '4' (lamps on)")
     done = autos["family_panel_timer_done"]
     for name, want in TIMER_MSG_CASES:
         ctx = render_vars(ha_env(), done["variables"], {"trigger": {"event": {"data": {"timer": name}}}})
@@ -626,30 +763,70 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
 
     events = {a["triggers"][0].get("event_type") for a in ha["automation"] + hak["automation"]}
     fired = set()
-    for key in ("kid", "kitchen", "timers", "tiles"):
+    for key in ("kid", "kitchen", "timers", "tiles", "hold", "lamps"):
         fired |= set(re.findall(r"event: (esphome\.[a-z_]+)", srcs[key]))
     for e in sorted(fired):
         r.check(e in events, f"a panel fires {e} but no automation listens for it")
-    r.check({"esphome.family_panel_light", "esphome.family_panel_timer_done"} <= fired,
-            "the timers and light tiles should fire their events")
+    r.check({"esphome.family_panel_light", "esphome.family_panel_timer_done", "esphome.family_panel_light_set"} <= fired,
+            "the timers, light tiles and light page should fire their events")
 
     hautos = {a["id"]: a for a in hak["automation"]}
     targets = set(hautos["family_panel_light"]["variables"]["light_targets"])
+    holds = set(hautos["family_panel_light_set"]["variables"]["light_hold"])
+    r.check(holds <= targets, f"light_hold has targets that light_targets lacks: {sorted(holds - targets)} (the page's switch needs both)")
     timer_names = hautos["family_panel_timer_done"]["variables"]["timer_names"]
     for label, text in (("light_tiles.yaml", srcs["tiles"]), ("timers.yaml", srcs["timers"]),
-                        ("kitchen.yaml", srcs["ex_kitchen"]), ("kitchen.local.yaml", srcs["ex_kitchen_local"])):
+                        ("kitchen.yaml", srcs["ex_kitchen"]), ("kitchen.local.yaml", srcs["ex_kitchen_local"]),
+                        ("lamp_pills.yaml", srcs["lamps"]), ("kid-a.yaml", srcs["ex_kid_a"]), ("kid-a.local.yaml", srcs["ex_kid_a_local"])):
         s = esphome_subs(text)
         for i in range(1, 9):
             t, n = s.get(f"tile_{i}_target"), s.get(f"tile_{i}_name")
             if t is not None and n != "":
                 r.check(t in targets, f"{label}: tile_{i}_target {t!r} is not in light_targets {sorted(targets)}")
+                if s.get(f"tile_{i}_hold", "auto") != "off":
+                    r.check(t in holds, f"{label}: tile_{i}_target {t!r} holds for a light page but is not in light_hold {sorted(holds)}")
             if n is not None:
                 r.check('"' not in n and "\\" not in n, f"{label}: tile_{i}_name {n!r} has a quote or backslash")
+            r.check(s.get(f"tile_{i}_hold", "auto") in ("auto", "off"), f"{label}: tile_{i}_hold must be auto or off")
+        for i in (1, 2):
+            t, n = s.get(f"lamp_{i}_target"), s.get(f"lamp_{i}_name")
+            if t is not None and n != "":
+                r.check(t in targets, f"{label}: lamp_{i}_target {t!r} is not in light_targets {sorted(targets)}")
+                if s.get(f"lamp_{i}_hold", "auto") != "off":
+                    r.check(t in holds, f"{label}: lamp_{i}_target {t!r} is not in light_hold {sorted(holds)}")
+            if n is not None:
+                r.check('"' not in n and "\\" not in n, f"{label}: lamp_{i}_name {n!r} has a quote or backslash")
         for i in range(1, 4):
             n = s.get(f"timer_{i}_name")
             if n is not None:
                 r.check(n in timer_names, f"{label}: timer_{i}_name {n!r} is not in timer_names {timer_names}")
                 r.check('"' not in n and "\\" not in n, f"{label}: timer_{i}_name {n!r} has a quote or backslash")
+    # The tiles and the pills toggle on a short click only: on_click would
+    # also fire at the end of the hold that opened the light page.
+    for label, key, n in (("light_tiles.yaml", "tiles", 8), ("lamp_pills.yaml", "lamps", 2)):
+        r.check(srcs[key].count("on_short_click:") == n and srcs[key].count("on_long_press:") == n
+                and srcs[key].count("on_click:") == (1 if key == "tiles" else 0),  # All off clicks
+                f"{label}: every tile or pill needs on_short_click (toggle) and on_long_press (hold), not on_click")
+    for key in ("tiles", "lamps"):
+        r.check("hold: !include light_hold.yaml" in srcs[key], f"{FILES[key].name}: must include light_hold.yaml")
+    r.check(esphome_subs(srcs["hold"]).get("lights_entity") in made_sensors(ha, hak),
+            "light_hold.yaml: lights_entity is not a sensor the packages make")
+    # The kid profile shows nothing for no letter: the envelope starts hidden
+    # and no "No letters" text exists to show.
+    r.check("No letters" not in srcs["kid"] and "Letters unavailable" not in srcs["kid"],
+            "kid.yaml: the profile must not draw 'No letters' or 'Letters unavailable'")
+    r.check(re.search(r"id: letter_button\n(?:.*\n){1,12}?\s+hidden: true", srcs["kid"]) is not None,
+            "kid.yaml: the envelope button must start hidden")
+    g = esphome_subs(srcs["garden"])
+    r.check(g.get("theme") == "garden", "garden.yaml: theme defaults to garden")
+    r.check(all(f"fly_{c}_{k}" in srcs["garden"] for c in ("pink", "lilac", "peach", "blue") for k in range(3))
+            and "firefly.png" in srcs["garden"], "garden.yaml: twelve butterfly frames and a firefly")
+    for f in sorted((ROOT / "esphome" / "art").glob("*.png")):
+        if f.name.startswith("preview"):
+            continue
+        r.check(f.name in srcs["garden"] or f.name in ("bg_day.png", "bg_night.png"), f"art/{f.name} is not used by garden.yaml")
+    for name in ("bg_day.png", "bg_night.png", "firefly.png"):
+        r.check((ROOT / "esphome" / "art" / name).is_file(), f"esphome/art/{name} is missing")
     for f in sorted(EXAMPLES.glob("*.yaml")):
         if f.name == "secrets.yaml":
             continue
@@ -663,8 +840,25 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
         r.check(s.get("night_mode", "off") in ("dim", "off"), f"{f.name}: night_mode must be dim or off")
         r.check(str(s.get("rotation", "0")) in ("0", "90", "180", "270"), f"{f.name}: rotation must be 0, 90, 180 or 270")
     a = esphome_subs(srcs["ex_kid_a"])
-    r.check(a.get("clock_format") == "12h" and a.get("night_mode") == "dim" and a.get("cyd_model") == "ESP32-2432S028",
-            "kid-a.yaml: Kid A's panel is the ILI9341 CYD with a 12-hour clock and a dim night")
+    r.check(a.get("clock_format") == "12h" and a.get("night_mode") == "dim" and "cyd_model" not in a and "rotation" not in a,
+            "kid-a.yaml: Kid A's panel is the board file's default CYD (2-USB ST7789, rotation 90) with a 12-hour clock and a dim night")
+    for key in ("ex_kid_a", "ex_kid_a_local"):
+        r.check("packages/lamp_pills.yaml" in srcs[key] and "packages/garden.yaml" in srcs[key],
+                f"{FILES[key].name}: pulls the lamp pills and the garden")
+    # The CYD board file's defaults are what works on the real 2-USB ST7789
+    # board (checked 2026-10-28): the model, the touch calibration and the
+    # mirrored x axis, no colour inversion.
+    bs = esphome_subs(srcs["board_cyd"])
+    r.check(bs.get("cyd_model") == "ESP32-2432S028-7789" and bs.get("rotation") == "90", "esp32_2432s028.yaml: default model ST7789 at rotation 90")
+    r.check((bs.get("touch_x_min"), bs.get("touch_x_max"), bs.get("touch_y_min"), bs.get("touch_y_max")) == ("240", "3800", "200", "3700"),
+            "esp32_2432s028.yaml: touch calibration x 240..3800, y 200..3700")
+    r.check(str(bs.get("touch_mirror_x")).lower() == "true", "esp32_2432s028.yaml: touch_mirror_x defaults to true")
+    board = load_ha(srcs["board_cyd"])
+    touch = (board.get("touchscreen") or [{}])[0]
+    r.check((touch.get("transform") or {}).get("mirror_x") == "${touch_mirror_x}" and (touch.get("transform") or {}).get("swap_xy") is False,
+            "esp32_2432s028.yaml: the touchscreen transform must mirror x from touch_mirror_x and not swap the axes")
+    disp = (board.get("display") or [{}])[0]
+    r.check(disp.get("invert_colors") is False, "esp32_2432s028.yaml: invert_colors false by default")
     b = esphome_subs(srcs["base"])
     r.check(b.get("clock_format") == "24h" and b.get("night_mode") == "off",
             "base.yaml: the defaults must keep v1 behaviour (24h, screen off at night)")
@@ -957,6 +1151,48 @@ SABOTAGES = [
     ("Test alarm button does nothing", "timers", "    on_press:\n      - script.execute: timer_test_toggle\n", ""),
     ("board rtttl gain back to 60%", "board_guition", "speaker_gain: 85%", "speaker_gain: 60%"),
     ("2-minute cap lifted", "timers", 'timer_ring_seconds: "120"', 'timer_ring_seconds: "600"'),
+    # The light page: the panel's parser, the automation's clamps, the sensor.
+    ("parser lets brightness past 100", "hold", "bri = num(f[2], 100);", "bri = num(f[2], 1000);"),
+    ("parser keeps an upside-down kelvin range", "hold", "if (kmin < 0 || kmax < 0 || kmin >= kmax) kmin = kmax = -1;", ""),
+    ("parser keeps unknown capability letters", "hold", "if ((c == 'b' || c == 't' || c == 'c') && caps.find(c) == std::string::npos) caps += c;", "caps += c;"),
+    ("parser matches a target by prefix", "hold", 'if (f.size() >= 2 && f[0] == target) {', 'if (f.size() >= 2 && f[0].compare(0, target.size(), target) == 0) {'),
+    ("parser reads an odd state as on", "hold", 'on = f[1] == "on" ? 1 : f[1] == "off" ? 0 : -1;', 'on = f[1] == "off" ? 0 : 1;'),
+    ("light page drops the switch's on", "hak", "{% if how in ['off', 'on'] %}{{ how }}", "{% if how == 'off' %}off"),
+    ("light set takes an entity id as the target", "hak", "light: \"{{ light_hold[wanted] if wanted in light_hold else '' }}\"",
+     "light: \"{{ light_hold[wanted] if wanted in light_hold else wanted }}\""),
+    ("light set stops clamping brightness", "hak", "bri: \"{{ [1, [100, raw_bri | int(-1)] | min] | max if raw_bri is match('^\\\\d+$') else -1 }}\"",
+     "bri: \"{{ raw_bri | int(-1) if raw_bri is match('^\\\\d+$') else -1 }}\""),
+    ("light set clamps kelvin to a fixed range", "hak", "kelvin: \"{{ [kmin, [kmax, raw_kelvin | int(-1)] | min] | max",
+     "kelvin: \"{{ [2000, [6500, raw_kelvin | int(-1)] | min] | max"),
+    ("light set sends colour to a lamp without it", "hak", "{% if can_colour and hue | int >= 0 and sat | int >= 0 %}", "{% if hue | int >= 0 and sat | int >= 0 %}"),
+    ("light set sends warmth to a lamp without it", "hak", "{% if can_temp and kelvin | int >= 0 %}", "{% if kelvin | int >= 0 %}"),
+    ("light set calls turn_on with the raw event data", "hak", '        data: "{{ data }}"\n', '        data: "{{ trigger.event.data }}"\n'),
+    ("light set loses its pacing delay", "hak", "      - delay:\n          milliseconds: 150\n", ""),
+    ("light set unbounded queue", "hak", "    mode: queued\n    max: 6\n    max_exceeded: warning\n    triggers:\n      - trigger: event\n        event_type: esphome.family_panel_light_set",
+     "    mode: queued\n    max: 60\n    max_exceeded: warning\n    triggers:\n      - trigger: event\n        event_type: esphome.family_panel_light_set"),
+    ("panel_lights reports brightness while off", "hak", "((b | float * 100 / 255) | round(0) | int) if st == 'on' and b is number else '-'",
+     "((b | float * 100 / 255) | round(0) | int) if b is number else '-'"),
+    ("panel_lights passes a warm-white lamp's worked-out hue off as colour", "hak",
+     "{% set hs = state_attr(light, 'hs_color') if state_attr(light, 'color_mode') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] else none %}",
+     "{% set hs = state_attr(light, 'hs_color') %}"),
+    ("panel_lights reads a mirrored lamp list", "hak", "        variables:\n          light_hold: *panel_light_hold\n",
+     "        variables:\n          light_hold: { kitchen: light.kitchen }\n"),
+    ("tile toggles on click, so a hold toggles too", "tiles", "on_short_click:\n                    - script.execute: { id: light_send, target: \"${tile_1_target}\"",
+     "on_click:\n                    - script.execute: { id: light_send, target: \"${tile_1_target}\""),
+    ("pill loses its hold", "lamps", "                  on_long_press:\n                    - script.execute: { id: lamp_hold, slot: 1 }\n", ""),
+    ("tile target held but not in light_hold", "ex_kitchen", "tile_4_target: landing", "tile_4_target: downstairs"),
+    ("kid profile says No letters again", "kid", 'ESP_LOGW("letters", "The letter helper is unavailable; the envelope stays hidden");',
+     'lv_label_set_text(id(date_label), "No letters");'),
+    ("envelope shown with no letter", "kid", "                  radius: 12\n                  hidden: true\n                  on_click:\n                    - script.execute: open_letter",
+     "                  radius: 12\n                  on_click:\n                    - script.execute: open_letter"),
+    ("garden theme off by default", "garden", "  theme: garden\n", "  theme: plain\n"),
+    # The CYD board: back to the ILI9341 model, the old touch numbers, no mirror.
+    ("CYD back to the ILI9341 model", "board_cyd", "  cyd_model: ESP32-2432S028-7789\n", "  cyd_model: ESP32-2432S028\n"),
+    ("CYD touch mirror off", "board_cyd", '  touch_mirror_x: "true"\n', '  touch_mirror_x: "false"\n'),
+    ("CYD touch back to the old calibration", "board_cyd", '  touch_x_min: "240"\n', '  touch_x_min: "280"\n'),
+    ("CYD transform ignores touch_mirror_x", "board_cyd", "      mirror_x: ${touch_mirror_x}\n", "      mirror_x: false\n"),
+    ("CYD colours inverted by default", "board_cyd", "    invert_colors: false\n", "    invert_colors: true\n"),
+    ("kid-a example back on the ILI9341", "ex_kid_a", "  clock_format: \"12h\"\n", "  clock_format: \"12h\"\n  cyd_model: ESP32-2432S028\n"),
 ]
 
 

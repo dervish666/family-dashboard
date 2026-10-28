@@ -1,5 +1,7 @@
-# Fake Home Assistant for a kid render: no letter, a letter, the letter open,
-# and an announcement. See fake_kitchen.yaml.
+# Fake Home Assistant for a kid render: the garden by day with no letter and
+# with one waiting, the letter open, an announcement, the light page for each
+# lamp (the globe takes brightness only; the big light warmth and colour too),
+# then the garden at night. See fake_kitchen.yaml.
 
 esphome:
   on_boot:
@@ -15,7 +17,10 @@ script:
           id(update_clock).execute();
           id(letter_raw).publish_state("");
           id(announcement_raw).publish_state("");
-      - delay: 400ms
+          id(lamp_1_src).publish_state("on");
+          id(lamp_2_src).publish_state("off");
+          id(lights_text).publish_state("kid_a_globe on 40 - - - b - -\nkid_a_main off - - 2000 6535 btc - -");
+      - delay: 1200ms
       - snapshot.take: { filename: "kid-home.bmp" }
       - lambda: |-
           id(letter_raw).publish_state("Parent 1|Well done in your spelling test! Tea is at six, and Grandma is coming on Saturday. Love you lots.");
@@ -27,5 +32,28 @@ script:
       - script.execute: open_letter
       - delay: 300ms
       - snapshot.take: { filename: "kid-letter-open.bmp" }
+      - script.execute: go_home
+      - lambda: |-
+          id(letter_raw).publish_state("");
+          id(announcement_raw).publish_state("");
+      - script.execute: { id: light_hold_open, target: kid_a_globe, name: "Globe" }
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-light-brightness.bmp" }
+      - lambda: |-
+          id(lamp_2_src).publish_state("on");
+          id(lights_text).publish_state("kid_a_globe on 40 - - - b - -\nkid_a_main on 85 - 2000 6535 btc 300 70");
+      - script.execute: { id: light_hold_open, target: kid_a_main, name: "Big light" }
+      - delay: 300ms
+      - snapshot.take: { filename: "kid-light-colour.bmp" }
+      - script.execute: go_home
+      - lambda: |-
+          // Night: the garden asleep, the clock in pale ink, the fireflies out.
+          id(is_night) = true;
+          id(theme_apply).execute();
+      - delay: 1500ms
+      - snapshot.take: { filename: "kid-night.bmp" }
+      - lambda: |-
+          id(is_night) = false;
+          id(theme_apply).execute();
       - delay: 200ms
       - lambda: exit(0);

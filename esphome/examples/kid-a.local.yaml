@@ -6,8 +6,9 @@ substitutions:
   friendly_name: Kid A panel
   child: kid_a
   api_key: !secret panel_kid_a_api_key
-  cyd_model: ESP32-2432S028
-  rotation: "270"
+  hold_row_height: "40"
+  hold_row_gap: "4"
+  garden_art: ../art
   clock_format: "12h"
   night_mode: dim
   night_start: "19:30"
@@ -17,3 +18,5 @@ packages:
   base: !include ../packages/base.yaml
   board: !include ../boards/esp32_2432s028.yaml
   profile: !include ../profiles/kid.yaml
+  lamps: !include ../packages/lamp_pills.yaml
+  garden: !include ../packages/garden.yaml
