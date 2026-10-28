@@ -8,6 +8,9 @@ code out of the repo and runs it:
     recipient check and formatting, the read automation's parsing) and in
     homeassistant/panels-kitchen.example.yaml (the light allowlist, the timer
     alert's wording), rendered the way Home Assistant renders variables;
+  * the night glow's real PWM duty on every board and example: the level
+    raised to the backlight light's gamma_correct (ESPHome's default 2.8
+    when a board leaves it out), held above a floor;
   * the C++ between the BEGIN/END markers in the ESPHome files (the letter
     and announcement parsers, the clock format, the night window, the
     kitchen's card lines, the timer phases and their display, the light tile
@@ -54,7 +57,12 @@ FILES = {
     "ex_kitchen": EXAMPLES / "kitchen.yaml",
     "ex_kitchen_local": EXAMPLES / "kitchen.local.yaml",
     "ex_kid_a": EXAMPLES / "kid-a.yaml",
+    "board_cyd": ROOT / "esphome" / "boards" / "esp32_2432s028.yaml",
+    "board_jc2432": ROOT / "esphome" / "boards" / "jc2432w328.yaml",
+    "board_guition": ROOT / "esphome" / "boards" / "guition_jc3248w535.yaml",
 }
+BOARDS = {"esp32_2432s028.yaml": "board_cyd", "jc2432w328.yaml": "board_jc2432",
+          "guition_jc3248w535.yaml": "board_guition"}
 
 
 # ── Home Assistant's template behaviour, as far as these templates need it ──
@@ -662,6 +670,57 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
             "base.yaml: the defaults must keep v1 behaviour (24h, screen off at night)")
 
 
+# The dimmest backlight duty known to glow on these boards: the old Arduino
+# firmware's night level, 4/255, on the Cheap Yellow Display.
+GLOW_FLOOR = 4 / 255
+ESPHOME_DEFAULT_GAMMA = 2.8
+
+
+def level(v) -> float:
+    """An ESPHome percentage ("4%", 0.04) as a fraction."""
+    t = str(v).strip()
+    return float(t[:-1]) / 100 if t.endswith("%") else float(t)
+
+
+def resolve(v, subs: dict):
+    m = re.fullmatch(r"\$\{?(\w+)\}?", str(v).strip())
+    return subs.get(m.group(1), v) if m else v
+
+
+def backlight_gamma(board_src: str, subs: dict) -> float:
+    lights = [x for x in (load_ha(board_src).get("light") or []) if x.get("id") == "backlight"]
+    if len(lights) != 1:
+        raise SystemExit("board file: no single light with id backlight")
+    return float(resolve(lights[0].get("gamma_correct", ESPHOME_DEFAULT_GAMMA), subs))
+
+
+def glow_duty(srcs: dict, board_key: str, device_subs: dict | None = None) -> tuple[float, float, float]:
+    subs = {**esphome_subs(srcs["base"]), **esphome_subs(srcs[board_key]), **(device_subs or {})}
+    lv = level(subs["night_glow_brightness"])
+    g = backlight_gamma(srcs[board_key], subs)
+    return lv, g, lv ** g
+
+
+def check_backlight(r: Report, srcs: dict):
+    # Every board with the base defaults, then every example with its own settings.
+    for f, key in BOARDS.items():
+        lv, g, duty = glow_duty(srcs, key)
+        r.check(duty >= GLOW_FLOOR, f"{f}: the default night glow {lv:.1%} at gamma {g:g} is "
+                f"{duty:.4%} duty, below the {GLOW_FLOOR:.2%} floor that still glows")
+    for f in sorted(EXAMPLES.glob("*.yaml")):
+        if f.name == "secrets.yaml":
+            continue
+        text = srcs.get({"kitchen.yaml": "ex_kitchen", "kitchen.local.yaml": "ex_kitchen_local",
+                         "kid-a.yaml": "ex_kid_a"}.get(f.name, ""), f.read_text())
+        board = re.search(r"boards/([\w.]+\.yaml)", text)
+        r.check(board is not None and board.group(1) in BOARDS, f"{f.name}: no known board file")
+        if board is None or board.group(1) not in BOARDS:
+            continue
+        lv, g, duty = glow_duty(srcs, BOARDS[board.group(1)], esphome_subs(text))
+        r.check(duty >= GLOW_FLOOR, f"{f.name}: its night glow {lv:.1%} at gamma {g:g} is "
+                f"{duty:.4%} duty, below the {GLOW_FLOOR:.2%} floor that still glows")
+
+
 def run(srcs: dict, quiet=False) -> Report:
     r = Report()
     ha = load_ha(srcs["ha"])
@@ -673,6 +732,7 @@ def run(srcs: dict, quiet=False) -> Report:
     check_kitchen_ha(r, hak)
     check_mirrors(r, ha)
     check_consistency(r, ha, hak, srcs)
+    check_backlight(r, srcs)
     if not quiet:
         for f in r.fails:
             print("FAIL", f)
@@ -738,6 +798,10 @@ SABOTAGES = [
     ("strip loses its lines attribute", "hak", "          lines: \"{{ strip_lines | join('\\n') }}\"", "          rows: \"{{ strip_lines | join('\\n') }}\""),
     ("Kid A back on a 24-hour clock", "ex_kid_a", 'clock_format: "12h"', 'clock_format: "24h"'),
     ("base default night turned dim", "base", '  night_mode: "off"', '  night_mode: "dim"'),
+    # The backlight curve: back to ESPHome's 2.8, one board dropping it, a darker default.
+    ("backlight back on ESPHome's gamma 2.8", "base", 'backlight_gamma: "1.0"', 'backlight_gamma: "2.8"'),
+    ("a board's backlight loses its gamma_correct", "board_jc2432", "    gamma_correct: ${backlight_gamma}\n", ""),
+    ("default glow below what lights", "base", "night_glow_brightness: 4%", "night_glow_brightness: 1%"),
 ]
 
 
