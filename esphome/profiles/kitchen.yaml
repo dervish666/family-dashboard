@@ -121,15 +121,13 @@ script:
           text_sensor::TextSensor *st[] = {id(today_state), id(lunch_state), id(due_state), id(strip_state), id(rain_text)};
           lv_obj_t *labels[] = {id(today_label), id(lunch_label), id(due_label), id(strip_label), id(rain_label)};
           if (target < 0 || target > 4) return;
-          std::string raw;
-          const std::string &s0 = st[target]->state;
-          if (st[target]->has_state() && (s0 == "unavailable" || s0 == "unknown")) raw = "unavailable";
-          else if (attr[target]->has_state()) raw = attr[target]->state;
-          else return;  // nothing heard yet: the card keeps "Waiting for Home Assistant"
+          bool state_heard = st[target]->has_state(), lines_heard = attr[target]->has_state();
+          std::string state = st[target]->state, raw = attr[target]->state;
           std::string what = NAMES[target];
           lv_obj_t *label = labels[target];
           int max_lines = target == 4 ? 2 : ${today_max_lines};
           std::string shown;
+          bool wait = false;
           // BEGIN panel-lines (tests/panels/check.py compiles this block)
           {
             auto trim = [](std::string v) {
@@ -138,10 +136,15 @@ script:
               size_t b = v.find_last_not_of(" \t\r\n");
               return v.substr(a, b - a + 1);
             };
+            // An unavailable sensor loses its attributes, and Home Assistant
+            // sends nothing for a missing attribute, so the old lines would
+            // stay. The state is what says the sensor has gone.
+            if (state_heard && (state == "unavailable" || state == "unknown")) raw = "unavailable";
+            else if (!lines_heard) wait = true;  // keeps "Waiting for Home Assistant"
             std::string s = trim(raw);
-            // "None" is what Home Assistant sends for an attribute that is not
-            // there, which is how an unavailable template sensor arrives.
-            if (s.empty() || s == "None" || s == "unknown" || s == "unavailable") {
+            // An attribute holding None arrives as the text "None".
+            if (wait) {
+            } else if (s.empty() || s == "None" || s == "unknown" || s == "unavailable") {
               shown = what + " unavailable";
             } else {
               std::vector<std::string> lines;
@@ -160,6 +163,7 @@ script:
             }
           }
           // END panel-lines
+          if (wait) return;
           if (shown != lv_label_get_text(label)) lv_label_set_text(label, shown.c_str());
 
   - id: ask_preset
