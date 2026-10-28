@@ -3,16 +3,21 @@
 Small ESP32 touchscreens for around the house, built with ESPHome. A panel in a child's room
 shows a clock, the family announcement, and letters sent to that child from a phone, another
 panel or an automation. The child taps the envelope, reads it, taps **Done**, and the letter is
-gone from every screen. A kitchen panel shows the family's day and can send a few preset
-announcements.
+gone from every screen. A kitchen panel shows the family's day over four pages: Home (clock,
+announcement, bins, printer and rain, four preset announcements), Today (calendar, lunch and
+kit, what is due), Timers (three timers with a chime, a "Timer done" card and a spoken alert on
+the house speakers) and Lights (room tiles and All off).
 
 None of this is needed for the card. The panels and the card share Home Assistant helpers and
 nothing else.
 
 - [Pick a board](#pick-a-board)
 - [Pick a profile](#pick-a-profile)
+- [Options](#options)
 - [Set up Home Assistant](#set-up-home-assistant)
-- [Flash a panel](#flash-a-panel)
+- [Build and flash from a Mac](#build-and-flash-from-a-mac)
+- [Back up a board first](#back-up-a-board-first)
+- [Recovery](#recovery)
 - [Add another panel](#add-another-panel)
 - [How a letter travels](#how-a-letter-travels)
 - [Privacy and safety](#privacy-and-safety)
@@ -20,11 +25,11 @@ nothing else.
 
 ## Pick a board
 
-| Board | Screen | Touch | Chip | Board file |
-|---|---|---|---|---|
-| Guition JC3248W535 | 3.5" 320x480 IPS | capacitive | ESP32-S3, 16 MB flash, 8 MB PSRAM | `guition_jc3248w535` |
-| Guition JC2432W328C | 2.8" 320x240 IPS | capacitive | ESP32, 4 MB flash | `jc2432w328` |
-| ESP32-2432S028R ("Cheap Yellow Display") | 2.8" 320x240 TFT | resistive | ESP32, 4 MB flash | `esp32_2432s028` |
+| Board | Screen | Touch | Chip | Speaker | Board file |
+|---|---|---|---|---|---|
+| Guition JC3248W535 | 3.5" 320x480 IPS | capacitive | ESP32-S3, 16 MB flash, 8 MB PSRAM | I2S socket | `guition_jc3248w535` |
+| Guition JC2432W328C | 2.8" 320x240 IPS | capacitive | ESP32, 4 MB flash | none used | `jc2432w328` |
+| ESP32-2432S028R ("Cheap Yellow Display") | 2.8" 320x240 TFT | resistive | ESP32, 4 MB flash | none used | `esp32_2432s028` |
 
 All three are cheap boards sold by many shops, and prices move with the seller, the case and
 the postage, so this guide quotes none: check a few current listings.
@@ -34,46 +39,115 @@ portrait: the panel has no hardware rotation, and it only draws reliably when LV
 whole frame (the board file sets `full_refresh`). Software rotation works (`rotation: "90"`, swap
 `panel_width` and `panel_height`) at some cost in speed. USB-C, with a LiPo socket.
 
+Every change on this screen, one digit included, sends the whole frame: 320 x 480 pixels at
+16 bits, 307,200 bytes over quad SPI. So the panel only touches a label when its text changes,
+the clock changes once a minute, and the timers count seconds only while the Timers page is
+on the screen (on other pages a chip shows whole minutes).
+
+The speaker socket is driven over I2S: bit clock GPIO42, word select GPIO2, data GPIO41, no
+master clock, no enable pin. ESPHome's own JC3248W535 preset covers the display only; these
+pins are the ones Guition's factory firmware sets up, and yoRadio's JC3248W535 pin file has the
+same three. Nobody names the amplifier chip, so whether it wants `speaker_channel: mono` or
+`stereo`, and what `speaker_gain` sounds right, only the board can tell you.
+
 **JC2432W328C.** The cheap board to buy if you are buying new. Same size as the Cheap Yellow
 Display with an IPS screen and capacitive touch that needs no calibration. The listing must say
 **C**; the JC2432W328R is resistive.
 
 **ESP32-2432S028R.** The cheapest, and fine for a child's room once calibrated. It ships with
-three display chips on the same pins. The board file defaults to the ST7789V version, the one
-with both a USB-C and a micro-USB socket (`cyd_model: ESP32-2432S028-7789`). For the
-micro-USB-only ILI9341 version set `cyd_model: ESP32-2432S028`; for the ILI9342,
-`ESP32-2432S028-9342`. A white, inverted or mirrored screen means the wrong model.
+three display chips on the same pins. The board file defaults to the ST7789V version
+(`cyd_model: ESP32-2432S028-7789`). For the ILI9341 version set `cyd_model: ESP32-2432S028`
+(as `examples/kid-a.yaml` does); for the ILI9342, `ESP32-2432S028-9342`. The USB sockets do not
+tell the versions apart reliably: boards with a USB-C socket ship with either chip. A white,
+mirrored or photo-negative screen means the wrong model. If the model is right and only the
+colours come out inverted, add this to the device file (`examples/kid-a.yaml` has it commented
+out):
 
-Power on the two-socket CYD: it browns out on a weak USB-C lead or a laptop port once Wi-Fi and
-the backlight are on, and reboots in a loop. Use a 5 V 1 A (or better) wall supply and a short
-cable, and try the micro-USB socket if USB-C keeps resetting.
+```yaml
+display:
+  - id: !extend panel_display
+    invert_colors: true
+```
+
+Power on the CYD: it browns out on a weak lead or a laptop port once Wi-Fi and the backlight
+are on, and reboots in a loop. Use a 5 V 1 A (or better) wall supply and a short cable.
 
 Resistive touch needs calibrating per board. If a tap lands in the wrong place, set
 `logger: level: DEBUG` for one build, tap each corner, read `x_raw` and `y_raw` from the log,
 and set `touch_x_min`, `touch_x_max`, `touch_y_min` and `touch_y_max` in the device file.
+
+**Mounted upside down?** Each board file has a `rotation` (90 for the two landscape boards, 0 for
+the JC3248W535). Add 180: a CYD on its head is `rotation: "270"`. LVGL turns the touch with the
+picture.
 
 ## Pick a profile
 
 | Profile | For | Shows | Needs in Home Assistant |
 |---|---|---|---|
 | `kid` | one child's room | clock, announcement, that child's letters | `input_text.letter_<child>` |
-| `kitchen` | the shared family view | clock, announcement, today, lunch and kit, due soon, four preset buttons | `sensor.panel_today`, `sensor.panel_lunch_and_kit`, `sensor.panel_due` |
+| `kitchen` | the shared family view | Home: clock, announcement, the strip, four presets. Today: calendar, lunch and kit, due | `sensor.panel_today`, `sensor.panel_lunch_and_kit`, `sensor.panel_due`, `sensor.panel_strip`, `sensor.panel_rain` |
 | `generic` | a hallway, a spare room | clock, announcement, one line of text from any sensor | any text sensor (`info_entity`) |
 
-Every profile shows `input_text.family_announcement` read-only, the same helper the card's
-announcement banner reads (`announcement_entity` changes it). Every panel goes dark between
-`night_start` and `night_end` (21:00 to 07:00 by default); a tap at night lights it dimly for
-`idle_timeout`. By day it dims to `idle_brightness` after `idle_timeout` untouched. A new letter
-brightens a kid panel by day and leaves it dark at night.
+The kitchen takes two more packages, each its own page with its own page button:
 
-A panel that cannot reach Home Assistant says `offline` under the date, and anything it has
-never heard reads "Waiting for Home Assistant", so a stale or missing value never passes for an
-empty day.
+| Package | Adds | Needs |
+|---|---|---|
+| `packages/timers.yaml` | three timers, the chime, the "Timer done" card, `esphome.family_panel_timer_done` | a board with a speaker: the JC3248W535 |
+| `packages/light_tiles.yaml` | four room tiles (amber when on) and All off, by `esphome.family_panel_light` | any board |
+
+The pages change with the buttons along the bottom: Home, Today, Timers, Lights. There is no
+swipe; a capacitive panel by the cooker reads too many wet fingers as gestures.
+
+Every profile shows `input_text.family_announcement` read-only, the same helper the card's
+announcement banner reads (`announcement_entity` changes it). A panel that cannot reach Home
+Assistant says `offline` under the date, and anything it has never heard reads "Waiting for
+Home Assistant", so a stale or missing value never passes for an empty day. A kitchen card whose
+sensor goes unavailable says "Calendar unavailable" (or "Due times", "The strip" and so on)
+rather than keeping the old lines.
+
+**Timers.** `+1`, `+5` and `+10` add minutes: to the set time while a timer is stopped, to the
+time left while it runs. **Go** starts it, **Stop** stops it, and a tap on a stopped timer's time
+clears it. When one ends the panel lights up, shows a full-width "Timer done" card with the
+timer's name and **Dismiss**, plays the chime every `timer_chime_every` seconds until Dismiss or
+`timer_ring_seconds` (two minutes) after the end, and fires the event once so Home Assistant can
+say it out loud. End times are kept in flash: after a reboot, a timer still running carries on;
+one that ended in the last two minutes rings; one that ended longer ago shows its card quietly,
+with no chime and nothing said; after six hours it is forgotten.
+
+**Light tiles.** Each tile follows one entity (a light, a light group, a switch, or a template
+`binary_sensor` that is on while any light in the room is on) and sends a target name, never an
+entity id. Home Assistant switches only what its `light_targets` list says that name means. An
+empty `tile_N_name` hides a tile.
+
+## Options
+
+Set any of these under `substitutions:` in the device file.
+
+| Option | Default | What it does |
+|---|---|---|
+| `clock_format` | `"24h"` | `"12h"` shows 7:05 with am or pm after the date |
+| `night_start`, `night_end` | `"21:00"`, `"07:00"` | the night window; the same time twice switches night off |
+| `night_mode` | `"off"` | `"off"`: screen off, drawing paused. `"dim"`: a low glow at `night_glow_brightness` with the clock still going |
+| `night_glow_brightness` | `4%` | the dim glow; how low a backlight can go and still glow differs board to board |
+| `night_keep_awake_entity` | `input_boolean.family_panel_keep_awake` | while this reads `on`, night waits and the panel stays as bright as by day. Point it at the kitchen light, say. The default helper does not exist until you make one; a missing entity never keeps a panel awake |
+| `night_brightness` | `10%` | a tap at night lights the screen this bright for `idle_timeout` |
+| `day_brightness`, `idle_brightness`, `idle_timeout` | `80%`, `35%`, `90s` | by day the screen dims to `idle_brightness` after `idle_timeout` untouched |
+| `announcement_entity` | `input_text.family_announcement` | the helper every panel shows; set it if your announce script writes somewhere else |
+| `preset_1` .. `preset_4` | four phrases | the kitchen's preset announcements; must match `broadcast_presets` |
+| `timer_1_name` .. `timer_3_name` | `"Timer 1"` .. | must be in `timer_names` for Home Assistant to say the name |
+| `timer_chime` | a four-note RTTTL tune | any RTTTL string |
+| `tile_N_name`, `tile_N_target`, `tile_N_entity` | four example rooms | the tile's label, its key in `light_targets`, and what it follows |
+| `speaker_channel`, `speaker_gain` | `mono`, `60%` | JC3248W535 only |
+
+A new letter brightens a kid panel by day; at night it leaves the screen as it is (dark, or
+the glow). No double quotes in names, presets or tile labels: they land in C++ strings.
 
 ## Set up Home Assistant
 
-The letters, the preset check and the kitchen's three sensors are one package:
-[`homeassistant/panels.example.yaml`](../homeassistant/panels.example.yaml).
+Two packages: [`homeassistant/panels.example.yaml`](../homeassistant/panels.example.yaml) (the
+letters, the preset check, the today, lunch and kit, and due sensors) for every install, and
+[`homeassistant/panels-kitchen.example.yaml`](../homeassistant/panels-kitchen.example.yaml) (light
+tiles, timer alerts, the strip and rain) for the v2 kitchen.
 
 1. In `configuration.yaml`:
 
@@ -82,64 +156,125 @@ The letters, the preset check and the kitchen's three sensors are one package:
      packages: !include_dir_named packages
    ```
 
-2. Copy `panels.example.yaml` to `/config/packages/family_panels.yaml`.
+2. Copy `panels.example.yaml` to `/config/packages/family_panels.yaml`, and for the kitchen
+   `panels-kitchen.example.yaml` to `/config/packages/family_panels_kitchen.yaml`.
 3. Change Kid A, Kid B and Kid C to your children (the slugs `kid_a`... are in the helper names,
-   the `recipients` list and each panel's `child:`), and point `sensor.panel_lunch_and_kit` at
-   your lunch sensors.
-4. The kitchen presets need `script.family_announce` from
-   [`scripts.example.yaml`](../homeassistant/scripts.example.yaml) and
-   `input_text.family_announcement` from `configuration.example.yaml`.
-5. Restart Home Assistant.
+   the `recipients` list and each panel's `child:`), and point `kids` under
+   `sensor.panel_lunch_and_kit` at your lunch and timetable sensors.
+4. In the kitchen package: your rooms in `light_targets`, your timer names in `timer_names`, and
+   how to speak (`announce_satellites`, `tts_entity` and `tts_players`, or the `rest_command`
+   with `family_panel_say_url` in `secrets.yaml`; delete the `rest_command` and set
+   `say_command: ''` if you have no speech service of your own).
+5. The kitchen presets need an announce script that takes `message`, `sender` and `minutes`:
+   `script.family_announce` from [`scripts.example.yaml`](../homeassistant/scripts.example.yaml)
+   by default. Using your own? Set `announce_script` in `family_panel_broadcast`, and
+   `announcement_entity` on every panel if it writes to a different helper.
+6. Restart Home Assistant.
 
 To send a letter, run `script.family_send_panel_letter` with `to` (a slug like `kid_a` or a
-name like `Kid A`), `sender` and `text`. From a phone, that is a script tile, the Home Assistant
-app's shortcuts, or an automation. [docs/07-room-panels.md](../docs/07-room-panels.md) has the
-full contract.
+name like `Kid A`), `sender` and `text`. [docs/07-room-panels.md](../docs/07-room-panels.md) has
+the full contract, the sensors and the allowlists.
 
-## Flash a panel
+## Build and flash from a Mac
 
-You need ESPHome 2026.10 or later: the ESPHome Device Builder app in Home Assistant, or
-`pip install esphome` in a virtual environment on any computer.
+The firmware is built on your computer, not on the panel. These steps use the ESPHome command
+line on a Mac; the ESPHome Device Builder (in Home Assistant, or `esphome dashboard` on the
+Mac) does the same with buttons.
 
-1. **Secrets.** In your ESPHome folder's `secrets.yaml`:
+**Install ESPHome** (2026.10 or later) in its own virtual environment:
 
-   ```yaml
-   wifi_ssid: "your network"
-   wifi_password: "your password"
-   panel_kid_a_api_key: "paste a key here"
-   ```
+```sh
+python3 -m venv ~/esphome-venv
+~/esphome-venv/bin/pip install esphome
+~/esphome-venv/bin/esphome version
+```
 
-   One key per panel. Make one with `openssl rand -base64 32`, or copy the one the Device
-   Builder generates for a new device. It encrypts the API and OTA updates both.
-2. **The device file.** Copy [`examples/kid-a.yaml`](examples/kid-a.yaml) (or
-   [`kitchen.yaml`](examples/kitchen.yaml)) into your ESPHome folder and set `name`,
-   `friendly_name`, `child` and `api_key`. Pick the board file in the `board:` line. Pin `@main`
-   to a release tag once yours works, so an update to this repo never changes a panel you did
-   not rebuild.
-3. **First flash over USB.** Plug the board into the computer running ESPHome with a data
-   cable and run `esphome run kid-a.yaml` (or **Install**, then **Plug into this computer**, in
-   the Device Builder). The two ESP32 boards usually have a CH340 USB serial chip; the JC3248W535
-   uses the S3's own USB. If the port does not appear, hold **BOOT**, tap **RST**, release **BOOT**, and
-   try again.
-4. **Adopt it.** Home Assistant finds the panel under Settings, Devices and services, ESPHome.
-   Paste the same API key when it asks. Leave **Allow the device to perform Home Assistant
-   actions** off; no profile needs it.
-5. **Later builds go over Wi-Fi.** `esphome run kid-a.yaml` offers the panel's address once it
-   is online.
+`brew install esphome` or `pipx install esphome` work too. Make a folder for your panels, say
+`~/esphome`, and work in it.
+
+**Secrets.** In that folder's `secrets.yaml`:
+
+```yaml
+wifi_ssid: "your network"
+wifi_password: "your password"
+panel_kid_a_api_key: "paste a key here"
+panel_kitchen_api_key: "paste another key here"
+```
+
+One key per panel: `openssl rand -base64 32` makes one. It encrypts the API and OTA updates
+both. Keep `secrets.yaml` out of any repo.
+
+**The device file.** Copy [`examples/kid-a.yaml`](examples/kid-a.yaml) or
+[`examples/kitchen.yaml`](examples/kitchen.yaml) into the folder and set `name`,
+`friendly_name`, `child` (kid panels), `api_key` and the options above. The packages come from
+GitHub; pin `@main` to a release tag once yours works, so a change to this repo never changes a
+panel you did not rebuild. `esphome config kitchen.yaml` checks the file without building.
+
+**First flash, over USB.**
+
+1. Back up the board first if it runs firmware you might want again: see
+   [Back up a board first](#back-up-a-board-first).
+2. Plug the board into the Mac with a data cable (a charge-only cable shows no port).
+3. Find the port: `ls /dev/cu.*`. The JC3248W535 uses the S3's own USB and appears as
+   `/dev/cu.usbmodem...`; the two ESP32 boards have a CH340 serial chip and appear as
+   `/dev/cu.usbserial-...` (macOS 11 and later has the CH340 driver built in). If you are unsure
+   which is new, list before and after plugging in.
+4. Close anything that has the port open (a serial monitor, another flasher).
+5. `~/esphome-venv/bin/esphome run kitchen.yaml --device /dev/cu.usbmodemNNNN`. The first build
+   downloads the toolchain and takes a while; later ones are quicker.
+6. If it cannot connect, hold **BOOT**, tap **RST**, let go of **BOOT**, and run it again.
+
+**Adopt it.** Home Assistant finds the panel under Settings, Devices and services, ESPHome.
+Paste the same API key when it asks. Leave **Allow the device to perform Home Assistant
+actions** off; no profile or package needs it.
+
+**Later builds go over Wi-Fi.** `esphome run kitchen.yaml` offers the panel's address
+(`panel-kitchen.local`) once it is online; `--device panel-kitchen.local` skips the question. If
+mDNS does not resolve, use the IP address from your router or from Home Assistant. A Mac that
+asks whether Python may find devices on the local network needs **Allow**, or OTA uploads
+time out. `esphome logs kitchen.yaml` shows the panel's log over Wi-Fi.
 
 The panel has no fallback hotspot and no web page. If your Wi-Fi changes, edit `secrets.yaml`
 and flash it over USB again.
+
+## Back up a board first
+
+A board you are moving to ESPHome from other firmware can be read back whole first, so you can
+put it back exactly as it was. Use esptool (it comes with ESPHome: `~/esphome-venv/bin/esptool`,
+or `pipx install esptool`). With the board on USB and nothing else holding the port:
+
+```sh
+# JC3248W535, 16 MB
+esptool --chip esp32s3 --port /dev/cu.usbmodemNNNN read-flash 0 0x1000000 kitchen-flash.bin
+# ESP32 boards (CYD, JC2432W328C), 4 MB
+esptool --chip esp32 --port /dev/cu.usbserial-NNN read-flash 0 0x400000 kid-a-flash.bin
+```
+
+The file should be exactly 16,777,216 or 4,194,304 bytes. esptool before v5 spells it
+`read_flash`. The image holds everything on the board, Wi-Fi passwords and any tokens the old
+firmware stored included, so keep it where you keep secrets, not in a repo. Back up the old
+firmware's source too, if you have it.
+
+## Recovery
+
+- **Back to the old firmware:** `esptool --chip esp32s3 --port /dev/cu.usbmodemNNNN write-flash 0 kitchen-flash.bin`
+  (or `--chip esp32` and the 4 MB image).
+- **A panel that boot-loops or will not join Wi-Fi:** flash it over USB again with
+  `esphome run`. If that will not connect, hold **BOOT**, tap **RST**, let go of **BOOT**.
+- **Start clean:** `esptool --port /dev/cu.usbmodemNNNN erase-flash`, then `esphome run` over
+  USB. This forgets the saved timer end times too.
+- **A panel that is up but silent in Home Assistant:** check the API key matches, and
+  `esphome logs <file>` for "offline" or API errors.
 
 ## Add another panel
 
 Copy a device file, give it a new `name`, a new `api_key` secret and, for a kid panel, the next
 `child:`. For a new child, add `input_text.letter_<slug>` and `input_datetime.letter_<slug>_sent`
-to the package and the slug to `recipients`, then restart Home Assistant. Anything in
-`packages/base.yaml` or the board file can be overridden in the device file's `substitutions:`
-(`night_start`, `day_brightness`, `cyd_model`, the kitchen's `preset_1` to `preset_4`).
+to the package and the slug to `recipients`, then restart Home Assistant.
 
-The kitchen presets are checked by Home Assistant against `broadcast_presets` in the package.
-Change both, word for word, or the button logs a warning and announces nothing.
+The kitchen presets are checked by Home Assistant against `broadcast_presets`, timer names
+against `timer_names`, tile targets against `light_targets`. Change both sides, word for word,
+or the panel's request is refused and the log says why.
 
 ## How a letter travels
 
@@ -170,20 +305,45 @@ letters older than `expire_days` (3) go at 03:30.
   compile time, by the computer that builds the firmware.
 - Plain text only. The panel draws text with its own font; there is no markup to inject.
 - The logger runs at INFO, so letter text does not stream to anyone watching the logs.
+- The panels never call Home Assistant actions. They fire `esphome.*` events, which Home
+  Assistant accepts from any adopted device, and each automation treats the event's data as a
+  request: presets, timer names and light targets are checked against lists in Home Assistant.
+  A light tile sends a name like `kitchen`, never an entity id; a name that is not on the list
+  switches nothing.
 - Home Assistant has no per-entity permissions: every Home Assistant user can run the script or
   type into a helper. Give accounts only to people you would let write to a child's room, and
-  send letters through the script, which checks the recipient and the format. Panels cannot send
-  letters; the kitchen panel can only send its four presets, and only ones Home Assistant has on
-  its list.
+  send letters through the script, which checks the recipient and the format.
 
 ## What has been tested
 
-- `esphome config` passes for every board and profile pair (`tests/panels/matrix.sh`), and
-  `esphome compile` builds the kid profile on the Cheap Yellow Display and the JC2432W328C and
-  the kitchen profile on the JC3248W535 (ESPHome 2026.10.0).
-- The letter parsing on the panel (compiled C++) and in Home Assistant (the Jinja) agree on one
-  table of cases (`tests/panels/check.py`), and the package's script and automations run in a
-  throwaway Home Assistant container (`tests/panels/ha_live.py`).
-- Not tested on hardware from this repo: the screens, touch mapping and calibration, rotation,
-  backlight levels, the night schedule on a real clock, and how the layouts look on glass. Treat
-  the first flash of each board as the test.
+From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable container:
+
+- `esphome config` passes for every board and profile pair, and for the kitchen with the light
+  tiles on every board and with timers and tiles on the JC3248W535 (`tests/panels/matrix.sh`).
+- `esphome compile` builds `kid-a.local.yaml` (CYD, ILI9341), `kid-b.local.yaml` (JC2432W328C)
+  and `kitchen.local.yaml` (JC3248W535 with timers and tiles), and `kitchen.yaml` and
+  `kid-a.yaml` pulling the packages from GitHub at the commit under test.
+- `tests/panels/check.py` compiles the panel's own C++ (letter and announcement parsing, the
+  12- and 24-hour clock, the night window with keep-awake, the kitchen card lines, the timer
+  phases and their display, the light tile state) and renders the packages' own Jinja (letters,
+  the light allowlist, the timer alert's wording), holds them to tables of cases, and checks
+  the examples against the allowlists. `--sabotage` breaks each piece on purpose and proves a
+  check fails.
+- `tests/panels/ha_live.py` runs both packages in a throwaway Home Assistant: letters, presets,
+  light tiles switching template lights (and refusing entity ids, unknown targets and other
+  actions), timer alerts posted to a stand-in speech service, the strip, rain from the sensor
+  and from a forecast, and the long-day lines attribute.
+
+Only the board can prove the rest. Treat the first flash of each board as the test of:
+
+- the screen, touch mapping and calibration, rotation (a flipped CYD at 270 included) and
+  whether an ILI9341 board needs `invert_colors`;
+- the JC3248W535 speaker: that the pins drive the amp, mono or stereo, how loud `speaker_gain`
+  is, and that the RTTTL chime sounds like a chime;
+- how low `night_glow_brightness` can go and still glow, and the backlight levels in a dark room;
+- that a timer's end time survives a power cut (written to flash up to 10 seconds after a
+  change) and the done card's behaviour across a reboot;
+- how long a full-frame redraw takes on the JC3248W535, so how the Timers page's once-a-second
+  update and button taps feel;
+- the night schedule on a real clock, the keep-awake entity switching it, and how the layouts
+  look on glass.

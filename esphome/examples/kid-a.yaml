@@ -26,6 +26,11 @@ substitutions:
   night_end: "07:00"
   # night_glow_brightness: 4%      # the glow; how low it can go depends on the backlight
 
+# Right model but the colours look like a photo negative? Uncomment:
+# display:
+#   - id: !extend panel_display
+#     invert_colors: true
+
 packages:
   base: github://dervish666/family-dashboard/esphome/packages/base.yaml@main
   board: github://dervish666/family-dashboard/esphome/boards/esp32_2432s028.yaml@main
