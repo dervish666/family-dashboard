@@ -78,7 +78,10 @@ and set `touch_x_min`, `touch_x_max`, `touch_y_min` and `touch_y_max` in the dev
 
 **Mounted upside down?** Each board file has a `rotation` (90 for the two landscape boards, 0 for
 the JC3248W535). Add 180: a CYD on its head is `rotation: "270"`. LVGL turns the touch with the
-picture.
+picture: ESPHome's LVGL touch reader maps each point through the same rotation (at 180 degrees,
+x becomes width - 1 - x and y becomes height - 1 - y), after the calibration. So the `touch_*`
+calibration values stay as they are when you flip a board; they describe the raw sensor, not
+the way up.
 
 ## Pick a profile
 
@@ -139,6 +142,7 @@ Set any of these under `substitutions:` in the device file.
 | `night_brightness` | `10%` | a tap at night lights the screen this bright for `idle_timeout` |
 | `day_brightness`, `idle_brightness`, `idle_timeout` | `80%`, `35%`, `90s` | by day the screen dims to `idle_brightness` after `idle_timeout` untouched |
 | `announcement_entity` | `input_text.family_announcement` | the helper every panel shows; set it if your announce script writes somewhere else |
+| `wifi_power_save` | `none` | Wi-Fi power save: `none`, `light` or `high`. ESPHome's ESP32 default is `light`, where the radio dozes between beacons; on a kitchen panel that meant pings of 90 to 350 ms and a dozen short API drops in a day. Panels run off mains, so `none` costs nothing. `light` only for a panel on a battery |
 | `preset_1` .. `preset_4` | four phrases | the kitchen's preset announcements; must match `broadcast_presets` |
 | `timer_1_name` .. `timer_3_name` | `"Timer 1"` .. | must be in `timer_names` for Home Assistant to say the name |
 | `timer_chime` | a four-note RTTTL tune | any RTTTL string |

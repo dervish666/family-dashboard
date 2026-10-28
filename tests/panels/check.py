@@ -721,6 +721,34 @@ def check_backlight(r: Report, srcs: dict):
                 f"{duty:.4%} duty, below the {GLOW_FLOOR:.2%} floor that still glows")
 
 
+def check_wifi(r: Report, srcs: dict):
+    """Mains-powered panels keep the radio awake: base.yaml turns Wi-Fi power
+    save off by default, and nothing a panel is built from turns it back on."""
+    base = load_ha(srcs["base"])
+    subs = base.get("substitutions", {})
+    r.check(str(subs.get("wifi_power_save")).lower() == "none",
+            f"base.yaml: wifi_power_save defaults to {subs.get('wifi_power_save')!r}, want none")
+    mode = (base.get("wifi") or {}).get("power_save_mode")
+    r.check(mode == "${wifi_power_save}", f"base.yaml: wifi power_save_mode is {mode!r}, want ${{wifi_power_save}}")
+    # Everything else a panel is made of: no wifi block of its own, and no
+    # override of the default.
+    by_path = {p.resolve(): k for k, p in FILES.items()}
+    parts = sorted((ROOT / "esphome").glob("boards/*.yaml")) + sorted((ROOT / "esphome").glob("profiles/*.yaml")) \
+        + sorted((ROOT / "esphome").glob("packages/*.yaml")) + sorted(EXAMPLES.glob("*.yaml"))
+    for f in parts:
+        if f.name in ("base.yaml", "secrets.yaml"):
+            continue
+        key = by_path.get(f.resolve())
+        text = srcs[key] if key else f.read_text(encoding="utf-8")
+        data = load_ha(text) or {}
+        r.check("wifi" not in data, f"{f.relative_to(ROOT)}: has its own wifi block; power save belongs to base.yaml")
+        ps = (data.get("substitutions") or {}).get("wifi_power_save")
+        r.check(ps is None or str(ps).lower() == "none", f"{f.relative_to(ROOT)}: sets wifi_power_save {ps!r}")
+        if f.parent == EXAMPLES:
+            r.check(re.search(r"^\s+base:\s.*packages/base\.yaml", text, re.M) is not None,
+                    f"{f.name}: does not pull packages/base.yaml, so it misses the Wi-Fi settings")
+
+
 def run(srcs: dict, quiet=False) -> Report:
     r = Report()
     ha = load_ha(srcs["ha"])
@@ -733,6 +761,7 @@ def run(srcs: dict, quiet=False) -> Report:
     check_mirrors(r, ha)
     check_consistency(r, ha, hak, srcs)
     check_backlight(r, srcs)
+    check_wifi(r, srcs)
     if not quiet:
         for f in r.fails:
             print("FAIL", f)
@@ -802,6 +831,12 @@ SABOTAGES = [
     ("backlight back on ESPHome's gamma 2.8", "base", 'backlight_gamma: "1.0"', 'backlight_gamma: "2.8"'),
     ("a board's backlight loses its gamma_correct", "board_jc2432", "    gamma_correct: ${backlight_gamma}\n", ""),
     ("default glow below what lights", "base", "night_glow_brightness: 4%", "night_glow_brightness: 1%"),
+    # Wi-Fi power save: back to ESPHome's light, the key dropped, a board turning it on again.
+    ("Wi-Fi power save back to light", "base", "  wifi_power_save: none", "  wifi_power_save: light"),
+    ("base stops passing wifi_power_save", "base", "  power_save_mode: ${wifi_power_save}\n", ""),
+    ("a board sets its own Wi-Fi power save", "board_cyd", "esp32:\n",
+     "wifi:\n  power_save_mode: light\n\nesp32:\n"),
+    ("an example dozes its radio", "ex_kid_a", "substitutions:\n", "substitutions:\n  wifi_power_save: high\n"),
 ]
 
 
