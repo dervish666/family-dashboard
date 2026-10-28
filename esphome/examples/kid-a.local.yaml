@@ -6,8 +6,6 @@ substitutions:
   friendly_name: Kid A panel
   child: kid_a
   api_key: !secret panel_kid_a_api_key
-  hold_row_height: "40"
-  hold_row_gap: "4"
   garden_art: ../art
   clock_format: "12h"
   night_mode: dim

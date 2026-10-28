@@ -11,8 +11,6 @@ substitutions:
   font_body: "18"
   font_big: "24"
   font_clock: "52"
-  hold_row_height: "40"
-  hold_row_gap: "4"
   garden_art: ../../../esphome/art
 
 packages:

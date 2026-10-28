@@ -34,9 +34,6 @@ substitutions:
   lamp_2_name: "Big light"
   lamp_2_target: kid_a_main
   lamp_2_entity: light.kid_a_main
-  # The light page on a 320x240 screen: five rows of 40 fit without scrolling.
-  hold_row_height: "40"
-  hold_row_gap: "4"
 
   # theme: plain                   # the cream page instead of the garden
   garden_art: https://raw.githubusercontent.com/dervish666/family-dashboard/main/esphome/art

@@ -163,13 +163,18 @@ Four tiles fit under the strip card; tiles 5 to 8 are hidden until named, and wi
 Home page scrolls. An empty `tile_N_name` hides a tile.
 
 **The light page.** Hold a tile or a lamp pill for about half a second (LVGL's long press, 400
-ms) and the page opens: the room's name, an On/Off switch, **Back**, and a row per thing the
-lamp can do. Brightness, 1 to 100%. Warmth, across the lamp's own kelvin range as Home
-Assistant reports it. Colour and Vivid, the hue and how strong it is, with a swatch of the
-result. Rows the lamp cannot do are not drawn: a plain bulb gets the switch and a note, a
-dimmable one the brightness row, a warm-white one warmth too, a colour one the lot. A slider
-sends on release, and two releases within 150 ms go as one event. Twenty seconds untouched,
-or Back, goes home. `tile_N_hold: off` or `lamp_N_hold: off` makes that tile tap-only.
+ms) and the page opens: the room's name, an On/Off switch, **Back**, and a block per thing the
+lamp can do, each a label and its value over a full-width slider whose track is a scale of
+what it sets. Brightness, 1 to 100%, dark to amber. Warmth, across the lamp's own kelvin
+range as Home Assistant reports it, candle to daylight. Colour and Vivid, the hue circle and
+grey to the chosen colour, with the knobs painted that colour and the hue named ("Sky 210°").
+Blocks the lamp cannot do are not drawn: a plain bulb gets the switch and a note, a dimmable
+one the brightness block, a warm-white one warmth too, a colour one the lot. On a 320x240
+screen a lamp with all four goes under two tabs, **Light** and **Colour**; a taller screen
+stacks them. A value the lamp cannot say (the lamp is off, or a colour lamp has no kelvin)
+dims its slider and shows an en dash. A slider sends on release, and two releases within
+150 ms go as one event. Twenty seconds untouched, or Back, goes home. `tile_N_hold: off` or
+`lamp_N_hold: off` makes that tile tap-only.
 
 The page learns what a lamp can do from one sensor, `sensor.panel_lights` in
 `panels-kitchen.example.yaml`, whose `lines` attribute has a line per target: the state,
@@ -235,7 +240,6 @@ Set any of these under `substitutions:` in the device file.
 | `lamp_N_name`, `lamp_N_target`, `lamp_N_entity`, `lamp_N_hold` | Globe and Big light, N 1 or 2 | a kid panel's lamp pills: the label, its key in `light_targets` and `light_hold`, what it follows, and `auto` or `off` for the hold |
 | `lamp_height` | `"58"` | the pill row's height |
 | `lights_entity` | `sensor.panel_lights` | the summary sensor the light page and the tiles read |
-| `hold_row_height`, `hold_row_gap` | `"44"`, `"8"` | a row on the light page and the gap between rows; `"40"` and `"4"` fit five rows on a 320x240 screen |
 | `theme` | `garden` | with `packages/garden.yaml`: `garden` draws the art, `plain` the cream page |
 | `garden_art` | the repo's `esphome/art` on GitHub at `main` | where the garden's PNGs come from; pin it with the packages, or point it at a local checkout |
 | `touch_mirror_x` | `"true"` | ESP32-2432S028R only: mirror the touch x axis. True on the 2-USB ST7789 board; flip it if taps land on the far side |

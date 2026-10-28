@@ -5,6 +5,18 @@
 # colour and how vivid). Back, or 20 seconds untouched, goes home. Those two packages
 # include this one; a device file never lists it itself.
 #
+# Each control is one block: the label and the current value on a small line,
+# the slider full width beneath it on a 10 px track that is a scale of what
+# it sets (dark to amber, warm to cool, the hues, grey to the chosen colour)
+# with a 22 px knob and a click area 8 px past the track (its bg_opa is set:
+# LVGL's default theme draws a slider track at 20%). A lamp with all
+# four controls gets two tabs, Light and Colour, on a screen under 300 px
+# tall (the 320x240 boards); taller screens stack all four. One or two
+# controls sit centred in the space under the name. A value the lamp cannot
+# say ("--", or a lamp that is off) dims its slider rather than parking the
+# knob at the left edge. An unknown value reads as an en dash: the hyphen in
+# the 14 px font draws with a stray bar on the host render.
+#
 # What the panel knows about each lamp comes from one Home Assistant sensor,
 # sensor.panel_lights (homeassistant/panels-kitchen.example.yaml), whose
 # `lines` attribute has one line per target:
@@ -30,13 +42,11 @@
 #
 # Substitutions a device file may set:
 #   lights_entity     the summary sensor (sensor.panel_lights)
-#   hold_row_height   a row on the page, 44 by default; 40 fits five rows on
-#   hold_row_gap      a 320x240 screen with hold_row_gap 4
+# (hold_row_height and hold_row_gap from 1.10 are accepted and ignored: the
+# blocks size themselves now.)
 
 substitutions:
   lights_entity: sensor.panel_lights
-  hold_row_height: "44"
-  hold_row_gap: "8"
 
 globals:
   - id: hold_target
@@ -83,6 +93,10 @@ globals:
   - id: pend_sat
     type: int
     initial_value: "-1"
+  # Which tab shows when the lamp has all four controls: 0 Light, 1 Colour.
+  - id: hold_tab
+    type: int
+    initial_value: "0"
 
 text_sensor:
   - platform: homeassistant
@@ -99,9 +113,12 @@ esphome:
     priority: -100
     then:
       - lambda: |-
-          // A finger needs more than a thin track: 8 px either side.
+          // A finger needs more than a thin track: 8 px past the 10 px track and
+          // the 22 px knob makes a 26 px touch height. The switch is 32 px tall;
+          // 6 px more makes it the same 44 px as Back.
           lv_obj_t *s[] = {id(hold_bri), id(hold_warm), id(hold_hue), id(hold_sat)};
           for (auto *o : s) lv_obj_set_ext_click_area(o, 8);
+          lv_obj_set_ext_click_area(id(hold_switch), 6);
 
 script:
   # Runs whenever the summary changes. The tiles and the pills extend it to
@@ -180,6 +197,7 @@ script:
           id(hold_target) = target;
           id(hold_name) = name;
           id(pend_bri) = id(pend_kelvin) = id(pend_hue) = id(pend_sat) = -1;
+          id(hold_tab) = 0;
           lv_label_set_text(id(hold_title), name.c_str());
       - script.execute: light_page_refresh
       - lvgl.page.show: light_page
@@ -188,8 +206,95 @@ script:
     then:
       - lvgl.page.show: main_page
 
+  # Words for a hue: the nearest of twelve names, with the degree, so the
+  # label says "Orange 30°" rather than leaving the colour to the knob.
+  - id: light_hue_text
+    parameters:
+      hue: int
+    then:
+      - lambda: |-
+          std::string text;
+          // BEGIN hue-name (tests/panels/check.py compiles this block)
+          {
+            static const char *const names[] = {"Red", "Orange", "Yellow", "Lime", "Green", "Mint",
+                                                "Cyan", "Sky", "Blue", "Violet", "Magenta", "Pink"};
+            if (hue < 0) {
+              text = "–";
+            } else {
+              int h = hue % 360;
+              char buf[24];
+              snprintf(buf, sizeof buf, "%s %d°", names[((h + 15) % 360) / 30], h);
+              text = buf;
+            }
+          }
+          // END hue-name
+          lv_label_set_text(id(hold_hue_val), text.c_str());
+
+  # Paints the chosen colour where it shows: the two colour knobs and the far
+  # end of the vivid track. Runs on every change of either colour slider.
+  - id: light_colour_paint
+    then:
+      - lambda: |-
+          int h = lv_slider_get_value(id(hold_hue)), s = lv_slider_get_value(id(hold_sat));
+          lv_color_t col = lv_color_hsv_to_rgb(h, s, 100);
+          lv_color_t full = lv_color_hsv_to_rgb(h, 100, 100);
+          lv_obj_set_style_bg_color(id(hold_hue), full, LV_PART_KNOB);
+          lv_obj_set_style_bg_color(id(hold_sat), col, LV_PART_KNOB);
+          lv_obj_set_style_bg_grad_color(id(hold_sat), full, LV_PART_MAIN);
+          char buf[12];
+          snprintf(buf, sizeof buf, "%d%%", s);
+          lv_label_set_text(id(hold_sat_val), buf);
+      - script.execute: { id: light_hue_text, hue: !lambda return lv_slider_get_value(id(hold_hue)); }
+
+  # Which blocks show. Four controls on a short screen go under two tabs;
+  # anything else stacks, and one or two blocks sit centred below the name.
+  - id: light_page_layout
+    then:
+      - lambda: |-
+          const std::string &caps = id(li_caps);
+          bool b = caps.find('b') != std::string::npos, t = caps.find('t') != std::string::npos;
+          bool c = caps.find('c') != std::string::npos;
+          lv_obj_t *page = id(light_page)->obj;
+          lv_obj_update_layout(page);
+          int room = lv_obj_get_content_height(page);
+          bool tabs = b && t && c && room < 300;
+          auto show = [](lv_obj_t *o, bool yes) {
+            if (yes) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+          };
+          show(id(hold_tabs), tabs);
+          if (tabs) {
+            bool colour = id(hold_tab) == 1;
+            if (colour) lv_obj_add_state(id(hold_tab_colour), LV_STATE_CHECKED); else lv_obj_remove_state(id(hold_tab_colour), LV_STATE_CHECKED);
+            if (!colour) lv_obj_add_state(id(hold_tab_light), LV_STATE_CHECKED); else lv_obj_remove_state(id(hold_tab_light), LV_STATE_CHECKED);
+            show(id(hold_bri_row), !colour);
+            show(id(hold_warm_row), !colour);
+            show(id(hold_hue_row), colour);
+            show(id(hold_sat_row), colour);
+          } else {
+            show(id(hold_bri_row), b);
+            show(id(hold_warm_row), t);
+            show(id(hold_hue_row), c);
+            show(id(hold_sat_row), c);
+          }
+          // Spread one or two blocks: the first takes half the spare height,
+          // up to 64 px, so a lone brightness slider is not jammed under the name.
+          lv_obj_t *rows[] = {id(hold_bri_row), id(hold_warm_row), id(hold_hue_row), id(hold_sat_row)};
+          int shown = 0, used = 44 + (tabs ? 36 + 8 : 0);
+          lv_obj_t *first = nullptr;
+          for (auto *r : rows) {
+            if (lv_obj_has_flag(r, LV_OBJ_FLAG_HIDDEN)) continue;
+            if (!first) first = r;
+            shown++;
+            used += 8 + 46;
+          }
+          int spare = room - used;
+          int top = (!tabs && shown > 0 && shown <= 2 && spare > 0) ? spare / 2 : 0;
+          if (top > 64) top = 64;
+          for (auto *r : rows) lv_obj_set_style_margin_top(r, r == first ? top : 0, LV_PART_MAIN);
+
   # Puts the target's current values on the page, leaving a slider alone while
-  # a finger is on it. Rows the lamp cannot do are hidden, not greyed.
+  # a finger is on it. Rows the lamp cannot do are hidden, not greyed; a value
+  # the lamp cannot say dims its slider (LV_STATE_USER_1).
   - id: light_page_refresh
     then:
       - lambda: |-
@@ -200,9 +305,12 @@ script:
           const std::string &caps = id(li_caps);
           bool has_line = id(lights_text).has_state() && id(lights_text).state.find(id(hold_target) + " ") != std::string::npos;
           auto show = [](lv_obj_t *o, bool yes) {
-            if (yes) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+            if (yes) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
           };
           auto busy = [](lv_obj_t *o) { return lv_obj_has_state(o, LV_STATE_PRESSED); };
+          auto dim = [](lv_obj_t *o, bool yes) {
+            if (yes) lv_obj_add_state(o, LV_STATE_USER_1); else lv_obj_remove_state(o, LV_STATE_USER_1);
+          };
           char buf[24];
           // The switch follows the lamp; grey while Home Assistant cannot say.
           if (on == 1) lv_obj_add_state(id(hold_switch), LV_STATE_CHECKED);
@@ -211,36 +319,44 @@ script:
           else lv_obj_remove_state(id(hold_switch), LV_STATE_DISABLED);
           bool b = caps.find('b') != std::string::npos, t = caps.find('t') != std::string::npos;
           bool c = caps.find('c') != std::string::npos;
-          show(id(hold_bri_row), b);
-          show(id(hold_warm_row), t);
-          show(id(hold_hue_row), c);
-          show(id(hold_sat_row), c);
+          id(light_page_layout).execute();
           if (b) {
-            if (!busy(id(hold_bri))) lv_slider_set_value(id(hold_bri), bri > 0 ? bri : 1, LV_ANIM_OFF);
-            if (bri >= 0) snprintf(buf, sizeof buf, "%d%%", bri); else snprintf(buf, sizeof buf, "%s", on == 0 ? "off" : "--");
+            if (!busy(id(hold_bri))) lv_slider_set_value(id(hold_bri), bri > 0 ? bri : 50, LV_ANIM_OFF);
+            if (bri >= 0) snprintf(buf, sizeof buf, "%d%%", bri); else snprintf(buf, sizeof buf, "%s", on == 0 ? "off" : "–");
             lv_label_set_text(id(hold_bri_val), buf);
+            dim(id(hold_bri), bri < 0);
           }
           if (t) {
             lv_slider_set_range(id(hold_warm), kmin, kmax);
             int k = kelvin >= 0 ? kelvin : (kmin + kmax) / 2;
             if (!busy(id(hold_warm))) lv_slider_set_value(id(hold_warm), k, LV_ANIM_OFF);
-            if (kelvin >= 0) snprintf(buf, sizeof buf, "%d K", kelvin); else snprintf(buf, sizeof buf, "--");
+            if (kelvin >= 0) snprintf(buf, sizeof buf, "%dK", kelvin); else snprintf(buf, sizeof buf, "–");
             lv_label_set_text(id(hold_warm_val), buf);
+            dim(id(hold_warm), kelvin < 0);
           }
           if (c) {
             int h = hue >= 0 ? hue : 30, s = sat >= 0 ? sat : 100;
             if (!busy(id(hold_hue))) lv_slider_set_value(id(hold_hue), h, LV_ANIM_OFF);
             if (!busy(id(hold_sat))) lv_slider_set_value(id(hold_sat), s, LV_ANIM_OFF);
-            lv_color_t col = lv_color_hsv_to_rgb(h, s, 100);
-            lv_obj_set_style_bg_color(id(hold_swatch), col, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(id(hold_hue), col, LV_PART_KNOB);
-            lv_obj_set_style_bg_color(id(hold_sat), col, LV_PART_KNOB);
+            id(light_colour_paint).execute();
+            if (hue < 0) lv_label_set_text(id(hold_hue_val), "–");
+            if (sat < 0) lv_label_set_text(id(hold_sat_val), "–");
+            dim(id(hold_hue), hue < 0);
+            dim(id(hold_sat), sat < 0);
           }
           const char *note = !has_line ? "Home Assistant has no details for this light"
                            : on < 0 ? "Unavailable"
                            : caps.empty() ? "This light only switches on and off" : "";
           lv_label_set_text(id(hold_note), note);
           show(id(hold_note), note[0] != 0);
+
+  # A tab was tapped.
+  - id: light_hold_tab
+    parameters:
+      tab: int
+    then:
+      - lambda: id(hold_tab) = tab;
+      - script.execute: light_page_layout
 
   # The switch: on or off, by name, through the same allowlisted automation
   # as a tap on the tile.
@@ -307,27 +423,77 @@ lvgl:
             then:
               - script.execute: light_hold_close
 
+  gradients:
+    # The warmth track: a candle at the lamp's lowest kelvin, daylight at its highest.
+    - id: hold_warm_grad
+      direction: HOR
+      stops:
+        - { color: 0xFF9A2E, position: 0% }
+        - { color: 0xFFEAC2, position: 45% }
+        - { color: 0x9FC4FF, position: 100% }
+    # The colour track: the hue circle, red to red.
+    - id: hold_hue_grad
+      direction: HOR
+      stops:
+        - { color: 0xFF2020, position: 0% }
+        - { color: 0xFFE000, position: 17% }
+        - { color: 0x20E020, position: 33% }
+        - { color: 0x20E0E0, position: 50% }
+        - { color: 0x2040FF, position: 67% }
+        - { color: 0xFF20FF, position: 83% }
+        - { color: 0xFF2020, position: 100% }
+
   style_definitions:
     - id: hold_label_style
-      text_font: font_body
+      text_font: font_small
       text_color: 0x7A7366
-    # The knob stays inside the track: its centre runs over the padded part.
+    - id: hold_value_style
+      text_font: font_small
+      text_color: 0x3B342C
+    # A block: the label line, then the slider.
+    - id: hold_row_style
+      bg_opa: TRANSP
+      pad_all: 0
+      pad_row: 8
+      border_width: 0
+    # A 14 px Nunito line box is 19 px: the line is 20, and no scrollbars,
+    # or LVGL draws one at the right edge beside the value.
+    - id: hold_line_style
+      bg_opa: TRANSP
+      pad_all: 0
+      border_width: 0
+    # The 10 px track; the knob's centre runs over the part inside the padding
+    # so it never hangs past the ends. Dimmed when the lamp cannot say the value.
     - id: hold_slider_style
-      bg_color: 0xEDE6D8
-      radius: 14
+      bg_opa: COVER
+      radius: 5
       pad_top: 0
       pad_bottom: 0
-      pad_left: 16
-      pad_right: 16
-    - id: hold_slider_ind_style
-      bg_color: 0xF4B250
-      radius: 14
-    - id: hold_slider_knob_style
+      pad_left: 11
+      pad_right: 11
+    - id: hold_slider_dim_style
+      bg_opa: 35%
+    - id: hold_knob_style
       bg_color: 0xFFFFFF
-      border_color: 0xE0932A
-      border_width: 2
-      radius: 22
+      border_color: 0x3B342C
+      border_width: 3
+      radius: 11
       pad_all: 6
+    - id: hold_knob_dim_style
+      bg_color: 0xEDE6D8
+      border_color: 0xC8C2B6
+    - id: hold_tab_style
+      bg_color: 0xFFFFFF
+      text_color: 0x7A7366
+      text_font: font_body
+      border_width: 2
+      border_color: 0xE8DCC4
+      radius: 10
+      shadow_width: 0
+    - id: hold_tab_on_style
+      bg_color: 0xF4B250
+      border_color: 0xF4B250
+      text_color: 0x3B342C
 
   pages:
     - id: light_page
@@ -337,17 +503,17 @@ lvgl:
       layout:
         type: flex
         flex_flow: column
-        pad_row: ${hold_row_gap}
+        pad_row: 8
       widgets:
-        # The name, the switch, Back.
+        # The name, the switch, Back: three targets 44 px tall with 8 px between.
         - obj:
             width: 100%
-            height: ${hold_row_height}
-            bg_opa: TRANSP
+            height: 44
+            styles: hold_line_style
+            scrollbar_mode: "OFF"
             layout:
               type: flex
               flex_flow: row
-              flex_align_main: space_between
               flex_align_cross: center
               pad_column: 8
             widgets:
@@ -355,147 +521,229 @@ lvgl:
                   id: hold_title
                   text: ""
                   text_font: font_big
-                  width: 148
-                  height: ${hold_row_height}
+                  flex_grow: 1
+                  height: 34
                   long_mode: dot
               - switch:
                   id: hold_switch
                   width: 64
                   height: 32
-                  bg_color: 0xEDE6D8
+                  bg_color: 0xD9D0C0
                   border_width: 0
                   checked:
-                    bg_color: 0xE8DCC4
+                    bg_color: 0xD9D0C0
                   indicator:
-                    bg_color: 0xEDE6D8
+                    bg_color: 0xD9D0C0
                     checked:
                       bg_color: 0xF4B250
                   knob:
                     bg_color: 0xFFFFFF
-                    border_color: 0xE0932A
-                    border_width: 2
+                    border_color: 0x3B342C
+                    border_width: 3
                     pad_all: 2
                   on_click:
                     - script.execute: light_hold_switch
               - button:
                   width: 72
-                  height: ${hold_row_height}
+                  height: 44
                   bg_color: 0xFFFFFF
-                  text_color: 0x7A7366
+                  text_color: 0x3B342C
                   border_width: 2
-                  border_color: 0xE8DCC4
+                  border_color: 0xD9D0C0
                   radius: 12
+                  shadow_width: 0
                   on_click:
                     - script.execute: light_hold_close
                   widgets:
                     - label: { text: "Back", align: CENTER }
+        # Light | Colour, only when the lamp has all four controls and the
+        # screen is too short for them (light_page_layout decides).
+        - obj:
+            id: hold_tabs
+            width: 100%
+            height: 36
+            styles: hold_line_style
+            scrollbar_mode: "OFF"
+            hidden: true
+            layout:
+              type: flex
+              flex_flow: row
+              pad_column: 8
+            widgets:
+              - button:
+                  id: hold_tab_light
+                  flex_grow: 1
+                  height: 36
+                  styles: hold_tab_style
+                  checked: { styles: hold_tab_on_style }
+                  on_click:
+                    - script.execute: { id: light_hold_tab, tab: 0 }
+                  widgets:
+                    - label: { text: "Light", align: CENTER }
+              - button:
+                  id: hold_tab_colour
+                  flex_grow: 1
+                  height: 36
+                  styles: hold_tab_style
+                  checked: { styles: hold_tab_on_style }
+                  on_click:
+                    - script.execute: { id: light_hold_tab, tab: 1 }
+                  widgets:
+                    - label: { text: "Colour", align: CENTER }
         - obj:
             id: hold_bri_row
             width: 100%
-            height: ${hold_row_height}
-            bg_opa: TRANSP
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              pad_column: 8
+            height: 46
+            styles: hold_row_style
+            scrollbar_mode: "OFF"
+            layout: { type: flex, flex_flow: column }
             widgets:
-              - label: { text: "Bright", styles: hold_label_style, width: 76, long_mode: clip }
+              - obj:
+                  width: 100%
+                  height: 20
+                  styles: hold_line_style
+                  scrollbar_mode: "OFF"
+                  layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
+                  widgets:
+                    - label: { text: "Bright", styles: hold_label_style }
+                    - label: { id: hold_bri_val, text: "", styles: hold_value_style }
               - slider:
                   id: hold_bri
-                  flex_grow: 1
-                  height: 28
+                  width: 100%
+                  height: 10
                   min_value: 1
                   max_value: 100
                   styles: hold_slider_style
-                  indicator: { styles: hold_slider_ind_style }
-                  knob: { styles: hold_slider_knob_style }
+                  bg_color: 0x3B342C
+                  bg_grad_color: 0xF4B250
+                  bg_grad_dir: HOR
+                  user_1: { styles: hold_slider_dim_style }
+                  indicator: { bg_opa: TRANSP }
+                  knob:
+                    styles: hold_knob_style
+                    user_1: { styles: hold_knob_dim_style }
+                  on_value:
+                    - lambda: |-
+                        char buf[12];
+                        snprintf(buf, sizeof buf, "%d%%", (int) lv_slider_get_value(id(hold_bri)));
+                        lv_label_set_text(id(hold_bri_val), buf);
                   on_release:
                     - lambda: id(pend_bri) = lv_slider_get_value(id(hold_bri));
                     - script.execute: light_send_pending
-              - label: { id: hold_bri_val, text: "", width: 56, text_align: RIGHT }
         - obj:
             id: hold_warm_row
             width: 100%
-            height: ${hold_row_height}
-            bg_opa: TRANSP
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              pad_column: 8
+            height: 46
+            styles: hold_row_style
+            scrollbar_mode: "OFF"
+            layout: { type: flex, flex_flow: column }
             widgets:
-              - label: { text: "Warmth", styles: hold_label_style, width: 76, long_mode: clip }
+              - obj:
+                  width: 100%
+                  height: 20
+                  styles: hold_line_style
+                  scrollbar_mode: "OFF"
+                  layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
+                  widgets:
+                    - label: { text: "Warmth", styles: hold_label_style }
+                    - label: { id: hold_warm_val, text: "", styles: hold_value_style }
               - slider:
                   id: hold_warm
-                  flex_grow: 1
-                  height: 28
+                  width: 100%
+                  height: 10
                   min_value: 2000
                   max_value: 6500
                   styles: hold_slider_style
-                  indicator: { styles: hold_slider_ind_style, bg_color: 0xFFD28A }
-                  knob: { styles: hold_slider_knob_style }
+                  bg_grad: hold_warm_grad
+                  user_1: { styles: hold_slider_dim_style }
+                  indicator: { bg_opa: TRANSP }
+                  knob:
+                    styles: hold_knob_style
+                    user_1: { styles: hold_knob_dim_style }
+                  on_value:
+                    - lambda: |-
+                        char buf[12];
+                        snprintf(buf, sizeof buf, "%dK", (int) lv_slider_get_value(id(hold_warm)));
+                        lv_label_set_text(id(hold_warm_val), buf);
                   on_release:
                     - lambda: id(pend_kelvin) = lv_slider_get_value(id(hold_warm));
                     - script.execute: light_send_pending
-              - label: { id: hold_warm_val, text: "", width: 56, text_align: RIGHT }
         - obj:
             id: hold_hue_row
             width: 100%
-            height: ${hold_row_height}
-            bg_opa: TRANSP
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              pad_column: 8
+            height: 46
+            styles: hold_row_style
+            scrollbar_mode: "OFF"
+            layout: { type: flex, flex_flow: column }
             widgets:
-              - label: { text: "Colour", styles: hold_label_style, width: 76, long_mode: clip }
+              - obj:
+                  width: 100%
+                  height: 20
+                  styles: hold_line_style
+                  scrollbar_mode: "OFF"
+                  layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
+                  widgets:
+                    - label: { text: "Colour", styles: hold_label_style }
+                    - label: { id: hold_hue_val, text: "", styles: hold_value_style }
               - slider:
                   id: hold_hue
-                  flex_grow: 1
-                  height: 28
+                  width: 100%
+                  height: 10
                   min_value: 0
                   max_value: 360
                   styles: hold_slider_style
-                  bg_color: 0xE8DCC4
-                  indicator: { styles: hold_slider_ind_style, bg_opa: TRANSP }
-                  knob: { styles: hold_slider_knob_style }
+                  bg_grad: hold_hue_grad
+                  user_1: { styles: hold_slider_dim_style }
+                  indicator: { bg_opa: TRANSP }
+                  knob:
+                    styles: hold_knob_style
+                    border_color: 0xFFFFFF
+                    outline_width: 1
+                    outline_color: 0x3B342C
+                    user_1: { styles: hold_knob_dim_style }
+                  on_value:
+                    - script.execute: light_colour_paint
                   on_release:
                     - script.execute: light_hold_colour_pending
-              - obj:
-                  id: hold_swatch
-                  width: 32
-                  height: 32
-                  radius: 16
-                  bg_color: 0xF4B250
-                  border_width: 2
-                  border_color: 0xE8DCC4
-                  clickable: false
         - obj:
             id: hold_sat_row
             width: 100%
-            height: ${hold_row_height}
-            bg_opa: TRANSP
-            layout:
-              type: flex
-              flex_flow: row
-              flex_align_cross: center
-              pad_column: 8
+            height: 46
+            styles: hold_row_style
+            scrollbar_mode: "OFF"
+            layout: { type: flex, flex_flow: column }
             widgets:
-              - label: { text: "Vivid", styles: hold_label_style, width: 76, long_mode: clip }
+              - obj:
+                  width: 100%
+                  height: 20
+                  styles: hold_line_style
+                  scrollbar_mode: "OFF"
+                  layout: { type: flex, flex_flow: row, flex_align_main: space_between, flex_align_cross: center }
+                  widgets:
+                    - label: { text: "Vivid", styles: hold_label_style }
+                    - label: { id: hold_sat_val, text: "", styles: hold_value_style }
               - slider:
                   id: hold_sat
-                  flex_grow: 1
-                  height: 28
+                  width: 100%
+                  height: 10
                   min_value: 0
                   max_value: 100
                   styles: hold_slider_style
-                  indicator: { styles: hold_slider_ind_style, bg_color: 0xE8DCC4 }
-                  knob: { styles: hold_slider_knob_style }
+                  bg_color: 0xBDB5A8
+                  bg_grad_color: 0xF4B250
+                  bg_grad_dir: HOR
+                  user_1: { styles: hold_slider_dim_style }
+                  indicator: { bg_opa: TRANSP }
+                  knob:
+                    styles: hold_knob_style
+                    border_color: 0xFFFFFF
+                    outline_width: 1
+                    outline_color: 0x3B342C
+                    user_1: { styles: hold_knob_dim_style }
+                  on_value:
+                    - script.execute: light_colour_paint
                   on_release:
                     - script.execute: light_hold_colour_pending
-              - label: { text: "", width: 32 }
         - label:
             id: hold_note
             width: 100%
