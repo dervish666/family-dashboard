@@ -1,13 +1,20 @@
 # Kitchen profile: the shared family view, in pages.
 #
-#   Home    the clock, the family announcement, the strip (bins, printer,
-#           rain) and four preset announcements anyone in the kitchen can send
-#   Today   the day's calendar, lunch and kit, and what is due soon
+#   Home      the clock and date, the family announcement, the strip (bins,
+#             printer, rain) and, with packages/light_tiles.yaml, the room
+#             tiles and All off. The panel boots to it and goes back to it
+#             after idle_timeout.
+#   Today     the day's calendar, lunch and kit, and what is due soon
+#   Announce  four preset announcements anyone in the kitchen can send
 #
-# packages/timers.yaml adds a Timers page and packages/light_tiles.yaml a
-# Lights page; examples/kitchen.yaml uses all three. A row of page buttons
-# along the bottom moves between them. There is no swipe: a swipe on a
-# capacitive panel by the cooker reads too many splashes as gestures.
+# packages/timers.yaml adds a Timers page. A row of page buttons along the
+# bottom moves between them, Home, Today, Timers, Announce, with the page on
+# the screen marked. There is no swipe: a swipe on a capacitive panel by the
+# cooker reads too many splashes as gestures.
+#
+# Laid out for the JC3248W535's 320x480 portrait screen on an 8 px grid: 8 px
+# margins, 8 px gutters, two columns of 148 px. tests/panels/host/render.sh
+# draws every page on a development machine to check it.
 #
 # Home Assistant does the formatting. The sensors come from
 # homeassistant/panels.example.yaml (today, lunch and kit, due) and
@@ -31,6 +38,8 @@ substitutions:
   rain_entity: sensor.panel_rain
   # The most lines one card shows before "+N more".
   today_max_lines: "12"
+  # The Home page clock, smaller than a kid panel's so the tiles get the room.
+  font_header: "44"
   preset_1: "Dinner's ready"
   preset_2: "Shoes on, we're leaving"
   preset_3: "Come downstairs please"
@@ -40,6 +49,13 @@ globals:
   - id: pending_preset
     type: std::string
     initial_value: '""'
+
+font:
+  - file: "gfonts://Nunito@800"
+    id: font_header
+    size: ${font_header}
+    bpp: 4
+    glyphs: "0123456789:"
 
 text_sensor:
   # Each card reads its sensor twice: the `lines` attribute for the text, and
@@ -166,6 +182,25 @@ script:
           if (wait) return;
           if (shown != lv_label_get_text(label)) lv_label_set_text(label, shown.c_str());
 
+  # Marks the page button for the page that just loaded, by slot (0 Home, 1
+  # Today, 2 Timers, 3 Announce): every 44 px button in the top layer loses
+  # its checked state except the one at that slot's x. The buttons come from
+  # more than one package, so this walks the layer instead of naming them,
+  # and the timer chip (36 px, top right) never matches.
+  - id: nav_mark
+    parameters:
+      slot: int
+    then:
+      - lambda: |-
+          lv_obj_t *top = lv_layer_top();
+          uint32_t n = lv_obj_get_child_cnt(top);
+          for (uint32_t i = 0; i < n; i++) {
+            lv_obj_t *c = lv_obj_get_child(top, i);
+            if (!lv_obj_check_type(c, &lv_button_class) || lv_obj_get_height(c) != 44) continue;
+            if (lv_obj_get_x(c) == 4 + 80 * slot) lv_obj_add_state(c, LV_STATE_CHECKED);
+            else lv_obj_remove_state(c, LV_STATE_CHECKED);
+          }
+
   - id: ask_preset
     parameters:
       message: std::string
@@ -193,28 +228,52 @@ script:
                 text: "Not connected to Home Assistant.\nNothing was sent."
 
 lvgl:
+  on_idle:
+    # Back to Home, and drop an unanswered confirm, once nobody is touching
+    # the panel. The backlight step is in packages/base.yaml.
+    - timeout: ${idle_timeout}
+      then:
+        - lvgl.widget.hide: confirm_box
+        - lvgl.page.show: main_page
+
   style_definitions:
+    # A page button: quiet until its page is showing, then a warm pill.
     - id: nav_style
       bg_color: 0xFFFFFF
-      text_color: 0x3F7A50
-      radius: 0
+      text_color: 0x7A7366
+      text_font: font_small
+      radius: 12
       border_width: 0
       shadow_width: 0
-      pad_all: 4
-    - id: card_title_style
-      text_font: font_small
-      text_color: 0x3F7A50
+      pad_all: 0
+    - id: nav_checked_style
+      bg_color: 0xFCE7B2
+      text_color: 0x3A2606
+    - id: page_title_style
+      text_font: font_big
+      text_color: 0x2E2A24
+    # A preset: a big green button with the words centred.
+    - id: preset_style
+      bg_color: 0x3F7A50
+      text_color: 0xFFFFFF
+      radius: 16
+      pad_all: 10
 
   pages:
+    # Home. A flex column: the header row, the announcement when there is
+    # one, the strip card, then whatever packages/light_tiles.yaml appends
+    # (the tiles and All off). pad_bottom keeps it above the page buttons.
     - id: main_page
       bg_color: 0xFFF8EC
       pad_all: 8
-      # Room for the page buttons, and for the timer chip above them.
-      pad_bottom: 108
+      pad_bottom: 64
+      scrollbar_mode: "OFF"
       layout:
         type: flex
         flex_flow: column
         pad_row: 8
+      on_load:
+        - script.execute: { id: nav_mark, slot: 0 }
       widgets:
         - obj:
             width: 100%
@@ -229,7 +288,7 @@ lvgl:
               - label:
                   id: clock_label
                   text: "--:--"
-                  text_font: font_clock
+                  text_font: font_header
               - obj:
                   width: SIZE_CONTENT
                   height: SIZE_CONTENT
@@ -242,6 +301,7 @@ lvgl:
                     - label:
                         id: date_label
                         text: ""
+                        text_color: 0x7A7366
                     - label:
                         id: offline_label
                         text: "offline"
@@ -259,17 +319,22 @@ lvgl:
                   id: announce_label
                   width: 100%
                   text: ""
-                  text_font: font_big
+                  text_font: font_body
                   long_mode: wrap
-        # The strip: bins, the printer, and rain, one short line each.
+        # The strip: bins, the printer, and rain, one short line each. A tap
+        # opens Today.
         - obj:
             width: 100%
             height: SIZE_CONTENT
             styles: card_style
+            pad_all: 10
+            clickable: true
+            on_click:
+              - lvgl.page.show: today_page
             layout:
               type: flex
               flex_flow: column
-              pad_row: 4
+              pad_row: 2
             widgets:
               - label:
                   id: strip_label
@@ -283,10 +348,92 @@ lvgl:
                   text_font: font_small
                   text_color: 0x3F6F8F
                   long_mode: wrap
+
+    - id: today_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      pad_bottom: 64
+      scrollbar_mode: "OFF"
+      layout:
+        type: flex
+        flex_flow: column
+        pad_row: 8
+      on_load:
+        - script.execute: { id: nav_mark, slot: 1 }
+      widgets:
+        - label:
+            text: "Today"
+            styles: page_title_style
+            height: 36
         - obj:
             width: 100%
-            flex_grow: 1
-            bg_opa: TRANSP
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 6
+            widgets:
+              - label: { text: "Calendar", styles: section_style }
+              - label:
+                  id: today_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  text_line_space: 4
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 6
+            widgets:
+              - label: { text: "Lunch and kit", styles: section_style }
+              - label:
+                  id: lunch_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  text_line_space: 4
+                  long_mode: wrap
+        - obj:
+            width: 100%
+            height: SIZE_CONTENT
+            styles: card_style
+            layout:
+              type: flex
+              flex_flow: column
+              pad_row: 6
+            widgets:
+              - label: { text: "Due", styles: section_style }
+              - label:
+                  id: due_label
+                  width: 100%
+                  text: "Waiting for Home Assistant"
+                  text_line_space: 4
+                  long_mode: wrap
+
+    # Announce: the four presets, two by two.
+    - id: announce_page
+      bg_color: 0xFFF8EC
+      pad_all: 8
+      pad_bottom: 64
+      scrollbar_mode: "OFF"
+      layout:
+        type: flex
+        flex_flow: column
+        pad_row: 8
+      on_load:
+        - script.execute: { id: nav_mark, slot: 3 }
+      widgets:
+        - label:
+            text: "Announce"
+            styles: page_title_style
+            height: 36
+        - label:
+            text: "Says it on every panel and speaker"
+            styles: section_style
         - obj:
             width: 100%
             height: SIZE_CONTENT
@@ -294,106 +441,48 @@ lvgl:
             layout:
               type: flex
               flex_flow: row_wrap
-              flex_align_main: space_between
-              pad_row: 6
+              pad_row: 8
+              pad_column: 8
             widgets:
               - button:
-                  width: 49%
-                  height: SIZE_CONTENT
-                  pad_all: 8
+                  width: 148
+                  height: 120
+                  styles: preset_style
                   on_click:
                     - script.execute: { id: ask_preset, message: "${preset_1}" }
                   widgets:
-                    - label: { text: "${preset_1}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+                    - label: { text: "${preset_1}", width: 100%, long_mode: wrap, text_align: CENTER, align: CENTER }
               - button:
-                  width: 49%
-                  height: SIZE_CONTENT
-                  pad_all: 8
+                  width: 148
+                  height: 120
+                  styles: preset_style
                   on_click:
                     - script.execute: { id: ask_preset, message: "${preset_2}" }
                   widgets:
-                    - label: { text: "${preset_2}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+                    - label: { text: "${preset_2}", width: 100%, long_mode: wrap, text_align: CENTER, align: CENTER }
               - button:
-                  width: 49%
-                  height: SIZE_CONTENT
-                  pad_all: 8
+                  width: 148
+                  height: 120
+                  styles: preset_style
                   on_click:
                     - script.execute: { id: ask_preset, message: "${preset_3}" }
                   widgets:
-                    - label: { text: "${preset_3}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
+                    - label: { text: "${preset_3}", width: 100%, long_mode: wrap, text_align: CENTER, align: CENTER }
               - button:
-                  width: 49%
-                  height: SIZE_CONTENT
-                  pad_all: 8
+                  width: 148
+                  height: 120
+                  styles: preset_style
                   on_click:
                     - script.execute: { id: ask_preset, message: "${preset_4}" }
                   widgets:
-                    - label: { text: "${preset_4}", text_font: font_small, width: 100%, long_mode: wrap, text_align: CENTER }
-
-    - id: today_page
-      bg_color: 0xFFF8EC
-      pad_all: 8
-      pad_bottom: 64
-      layout:
-        type: flex
-        flex_flow: column
-        pad_row: 8
-      widgets:
-        - label:
-            text: "Today"
-            text_font: font_big
-        - obj:
-            width: 100%
-            height: SIZE_CONTENT
-            styles: card_style
-            layout:
-              type: flex
-              flex_flow: column
-              pad_row: 2
-            widgets:
-              - label: { text: "Calendar", styles: card_title_style }
-              - label:
-                  id: today_label
-                  width: 100%
-                  text: "Waiting for Home Assistant"
-                  long_mode: wrap
-        - obj:
-            width: 100%
-            height: SIZE_CONTENT
-            styles: card_style
-            layout:
-              type: flex
-              flex_flow: column
-              pad_row: 2
-            widgets:
-              - label: { text: "Lunch and kit", styles: card_title_style }
-              - label:
-                  id: lunch_label
-                  width: 100%
-                  text: "Waiting for Home Assistant"
-                  long_mode: wrap
-        - obj:
-            width: 100%
-            height: SIZE_CONTENT
-            styles: card_style
-            layout:
-              type: flex
-              flex_flow: column
-              pad_row: 2
-            widgets:
-              - label: { text: "Due", styles: card_title_style }
-              - label:
-                  id: due_label
-                  width: 100%
-                  text: "Waiting for Home Assistant"
-                  long_mode: wrap
+                    - label: { text: "${preset_4}", width: 100%, long_mode: wrap, text_align: CENTER, align: CENTER }
 
   top_layer:
     widgets:
-      # The page buttons. Four slots of a quarter each: Home and Today here,
-      # Timers (packages/timers.yaml) and Lights (packages/light_tiles.yaml)
-      # bring their own, so a kitchen without them has an empty slot, not a
-      # button to nowhere.
+      # The page buttons: a 56 px bar with four 72x44 pills, one per quarter.
+      # Home, Today and Announce are here; Timers (packages/timers.yaml)
+      # brings its own for the third slot, so a kitchen without timers has an
+      # empty slot, not a button to nowhere.
       - obj:
           align: BOTTOM_MID
           width: 100%
@@ -405,25 +494,47 @@ lvgl:
           clickable: false
           scrollable: false
       - button:
+          id: nav_home
           align: BOTTOM_LEFT
-          x: 0
-          width: 25%
-          height: 54
+          x: 4
+          y: -6
+          width: 72
+          height: 44
           styles: nav_style
+          checked:
+            styles: nav_checked_style
           on_click:
             - lvgl.page.show: main_page
           widgets:
             - label: { text: "Home", align: CENTER }
       - button:
+          id: nav_today
           align: BOTTOM_LEFT
-          x: 25%
-          width: 25%
-          height: 54
+          x: 84
+          y: -6
+          width: 72
+          height: 44
           styles: nav_style
+          checked:
+            styles: nav_checked_style
           on_click:
             - lvgl.page.show: today_page
           widgets:
             - label: { text: "Today", align: CENTER }
+      - button:
+          id: nav_announce
+          align: BOTTOM_LEFT
+          x: 244
+          y: -6
+          width: 72
+          height: 44
+          styles: nav_style
+          checked:
+            styles: nav_checked_style
+          on_click:
+            - lvgl.page.show: announce_page
+          widgets:
+            - label: { text: "Announce", align: CENTER }
 
       # The confirm step, above whatever page is showing. A stray elbow on a
       # preset button asks first instead of shouting at the whole house.
@@ -431,9 +542,10 @@ lvgl:
           id: confirm_box
           hidden: true
           align: CENTER
-          width: 90%
+          width: 288
           height: SIZE_CONTENT
           styles: card_style
+          pad_all: 16
           border_color: 0x3F7A50
           border_width: 3
           shadow_width: 24
@@ -442,7 +554,7 @@ lvgl:
             type: flex
             flex_flow: column
             flex_align_cross: center
-            pad_row: 10
+            pad_row: 16
           widgets:
             - label:
                 id: confirm_label
@@ -460,18 +572,16 @@ lvgl:
                   flex_align_main: space_between
                 widgets:
                   - button:
-                      width: 47%
-                      height: SIZE_CONTENT
-                      pad_all: 10
+                      width: 124
+                      height: 48
                       bg_color: 0xB9B4AA
                       on_click:
                         - lvgl.widget.hide: confirm_box
                       widgets:
                         - label: { text: "Cancel", align: CENTER }
                   - button:
-                      width: 47%
-                      height: SIZE_CONTENT
-                      pad_all: 10
+                      width: 124
+                      height: 48
                       on_click:
                         - script.execute: send_preset
                       widgets:
