@@ -129,6 +129,7 @@ Set any of these under `substitutions:` in the device file.
 | `night_start`, `night_end` | `"21:00"`, `"07:00"` | the night window; the same time twice switches night off |
 | `night_mode` | `"off"` | `"off"`: screen off, drawing paused. `"dim"`: a low glow at `night_glow_brightness` with the clock still going |
 | `night_glow_brightness` | `4%` | the dim glow; how low a backlight can go and still glow differs board to board |
+| `backlight_gamma` | `"1.0"` | the backlight's `gamma_correct`. At 1.0 every brightness here is plain PWM duty: 4% is 4% of the full backlight. ESPHome's light default, 2.8, made the 4% glow about 0.01% duty, which is dark; check.py fails any board or example whose glow lands under 4/255 duty |
 | `night_keep_awake_entity` | `input_boolean.family_panel_keep_awake` | while this reads `on`, night waits and the panel stays as bright as by day. Point it at the kitchen light, say. The default helper does not exist until you make one; a missing entity never keeps a panel awake |
 | `night_brightness` | `10%` | a tap at night lights the screen this bright for `idle_timeout` |
 | `day_brightness`, `idle_brightness`, `idle_timeout` | `80%`, `35%`, `90s` | by day the screen dims to `idle_brightness` after `idle_timeout` untouched |
@@ -327,7 +328,8 @@ From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable conta
   12- and 24-hour clock, the night window with keep-awake, the kitchen card lines, the timer
   phases and their display, the light tile state) and renders the packages' own Jinja (letters,
   the light allowlist, the timer alert's wording), holds them to tables of cases, and checks
-  the examples against the allowlists. `--sabotage` breaks each piece on purpose and proves a
+  the examples against the allowlists. It also works out the night glow's real duty on every
+  board and example, the level raised to the backlight's `gamma_correct`. `--sabotage` breaks each piece on purpose and proves a
   check fails.
 - `tests/panels/ha_live.py` runs both packages in a throwaway Home Assistant: letters, presets,
   light tiles switching template lights (and refusing entity ids, unknown targets and other
@@ -340,7 +342,8 @@ Only the board can prove the rest. Treat the first flash of each board as the te
   whether an ILI9341 board needs `invert_colors`;
 - the JC3248W535 speaker: that the pins drive the amp, mono or stereo, how loud `speaker_gain`
   is, and that the RTTTL chime sounds like a chime;
-- how low `night_glow_brightness` can go and still glow, and the backlight levels in a dark room;
+- how low `night_glow_brightness` can go and still glow (the old Arduino firmware's 4/255,
+  1.6%, glowed on a CYD), and the backlight levels in a dark room;
 - that a timer's end time survives a power cut (written to flash up to 10 seconds after a
   change) and the done card's behaviour across a reboot;
 - how long a full-frame redraw takes on the JC3248W535, so how the Timers page's once-a-second
