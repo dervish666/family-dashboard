@@ -251,6 +251,10 @@ the glow). No double quotes in names, presets or tile labels: they land in C++ s
 
 ## Set up Home Assistant
 
+The packages need Home Assistant 2024.12 or later; the card on its own needs 2024.11. Music
+Assistant and `assist_satellite.announce` are optional: leave `announce_satellites` empty and
+skip the music scripts if you do not have them.
+
 Two packages: [`homeassistant/panels.example.yaml`](../homeassistant/panels.example.yaml) (the
 letters, the preset check, the today, lunch and kit, and due sensors) for every install, and
 [`homeassistant/panels-kitchen.example.yaml`](../homeassistant/panels-kitchen.example.yaml) (light
@@ -425,7 +429,8 @@ letters older than `expire_days` (3) go at 03:30.
 
 ## What has been tested
 
-From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable container:
+From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable container (and
+2024.12.0, the oldest the packages support, for `ha_live.py`):
 
 - `esphome config` passes for every board and profile pair, and for the kitchen with the light
   tiles on every board and with timers and tiles on the JC3248W535 (`tests/panels/matrix.sh`).
@@ -450,7 +455,8 @@ From this repo, with ESPHome 2026.10.0 and Home Assistant's current stable conta
   light tiles switching template lights (and refusing entity ids, unknown targets and other
   actions), the light page setting brightness, warmth and colour on template lights with every
   value clamped and the `panel_lights` lines read back, a burst paced and capped, timer alerts posted to a stand-in speech service, the strip, rain from the sensor
-  and from a forecast, and the long-day lines attribute.
+  and from a forecast, and the long-day lines attribute. It does not call Music Assistant or
+  `assist_satellite.announce`.
 
 Only the board can prove the rest. Treat the first flash of each board as the test of:
 

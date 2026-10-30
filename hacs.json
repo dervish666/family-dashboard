@@ -2,5 +2,5 @@
   "name": "Family Dashboard",
   "filename": "family-dashboard.js",
   "render_readme": true,
-  "homeassistant": "2026.9.0"
+  "homeassistant": "2024.11.0"
 }

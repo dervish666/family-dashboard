@@ -21,6 +21,9 @@ Every screenshot is the built-in demo cast. No real household data is in this re
 
 ## Install with HACS
 
+The card needs Home Assistant 2024.11 or later. The optional
+[room panels](#room-panels-optional) need 2024.12 or later.
+
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dervish666&repository=family-dashboard&category=plugin)
 
 From Home Assistant 2026.11, HACS becomes Settings > Marketplace; the button works for both.
@@ -588,6 +591,9 @@ kitchen panel shows today, lunch and kit, what is due, and four preset announcem
   `script.family_send_panel_letter` from any phone, panel or automation, all in
   [`homeassistant/panels.example.yaml`](homeassistant/panels.example.yaml).
 - Panels use the encrypted native API only: no web server, no cloud, no "allow actions".
+- The Home Assistant packages need Home Assistant 2024.12 or later. Music Assistant and
+  `assist_satellite.announce` are optional: the music scripts and spoken timer alerts use them
+  if you have them, and nothing else does.
 
 The wall card reads the same helpers. Give each child `letter: input_text.letter_kid_a` in the
 card's `people` (or fill in **Own letter helper** in the editor) and their letters reach them on

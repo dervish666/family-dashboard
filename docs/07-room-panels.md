@@ -8,6 +8,9 @@ today, lunch and kit, due) and
 [`homeassistant/panels-kitchen.example.yaml`](../homeassistant/panels-kitchen.example.yaml) (light
 tiles, timer alerts, the strip, rain).
 
+Both packages need Home Assistant 2024.12 or later (the card alone needs 2024.11). Music
+Assistant and `assist_satellite.announce` are optional.
+
 ## Letters
 
 **The helper.** One `input_text` per child, `input_text.letter_<slug>`, `max: 255`, no
@@ -239,8 +242,10 @@ python3 tests/panels/check.py               # the contracts, on the shipped Jinj
 python3 tests/panels/check.py --sabotage    # proves each check can fail
 sh tests/panels/matrix.sh                   # esphome config, every board x profile, and the kitchen add-ons
 python3 tests/panels/ha_live.py             # both packages in a throwaway Home Assistant (docker)
+HA_IMAGE=ghcr.io/home-assistant/home-assistant:2024.12.0 python3 tests/panels/ha_live.py   # the oldest supported
 ```
 
-CI runs all four in [`.github/workflows/esphome.yml`](../.github/workflows/esphome.yml), plus
+CI runs all four in [`.github/workflows/esphome.yml`](../.github/workflows/esphome.yml) (the
+live one on the stable release and on 2024.12.0), plus
 `esphome compile` of five examples: the three local ones, and `kitchen.yaml` and `kid-a.yaml`
 built from the GitHub packages at the commit under test.
