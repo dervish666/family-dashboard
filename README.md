@@ -21,6 +21,11 @@ Every screenshot is the built-in demo cast. No real household data is in this re
 
 ## Install with HACS
 
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dervish666&repository=family-dashboard&category=plugin)
+
+From Home Assistant 2026.11, HACS becomes Settings > Marketplace; the button works for both.
+Until the repository is in the default HACS catalog, add it as a custom repository (steps below).
+
 1. HACS, then the three-dot menu, then **Custom repositories**. Add
    `https://github.com/dervish666/family-dashboard` with type **Dashboard**.
 2. Find **Family Dashboard** in HACS and download it. HACS registers the resource

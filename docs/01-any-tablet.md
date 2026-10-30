@@ -14,7 +14,7 @@ tablet with a current browser can run it.
 
 ## 1. Install the frontend pieces
 
-Install **card-mod**, **Mushroom** and **Family Dashboard** (the Meadow card) from HACS. Copy `homeassistant/www/` to `config/www/`
+Install **card-mod**, **Mushroom** and **Family Dashboard** (the Meadow card) from HACS (as a custom repository for now, see the README). Copy `homeassistant/www/` to `config/www/`
 and `homeassistant/themes/wall-panel.yaml` to `config/themes/`. Make sure your
 `configuration.yaml` loads themes from that folder:
 
