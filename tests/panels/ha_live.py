@@ -11,7 +11,14 @@ service the timer alert posts to, so the test sees the words that would be
 spoken. Nothing here touches a real Home Assistant.
 
   python3 tests/panels/ha_live.py            needs docker; pulls the image once
-  HA_IMAGE=ghcr.io/home-assistant/home-assistant:2026.10 python3 tests/panels/ha_live.py
+  HA_IMAGE=ghcr.io/home-assistant/home-assistant:2024.12.0 python3 tests/panels/ha_live.py
+
+The fake lamps and forecast come from tests/panels/ha/fakes.modern.yaml, or
+fakes.legacy.yaml when the image is older than 2026.1 (older releases want
+`light: - platform: template`; 2026.10 no longer reads that at all).
+The script asks the image for its version; HA_FAKES=legacy or HA_FAKES=modern
+overrides that. The room panel packages need Home Assistant 2024.12 or later.
+HA_LOG=/some/file keeps Home Assistant's whole log there for reading after.
 
 Stdlib only. Exit status 1 on any failed step.
 """
@@ -175,12 +182,41 @@ def send(token, to, sender, text):
     return call(token, "script", "family_send_panel_letter", {"to": to, "sender": sender, "text": text})
 
 
+def image_version() -> tuple[int, int] | None:
+    """The Home Assistant version inside IMAGE, as (year, month)."""
+    # -w / keeps the template component's select.py off the import path.
+    r = subprocess.run(["docker", "run", "--rm", "-w", "/", "--entrypoint", "python3", IMAGE, "-c",
+                        "from homeassistant.const import __version__ as v; print(v)"],
+                       capture_output=True, text=True)
+    try:
+        year, month = r.stdout.strip().split(".")[:2]
+        return int(year), int(month)
+    except ValueError:
+        return None
+
+
+def fakes_style() -> str:
+    forced = os.environ.get("HA_FAKES", "").strip().lower()
+    if forced in ("legacy", "modern"):
+        return forced
+    if forced:
+        raise SystemExit(f"HA_FAKES={forced!r}: use legacy or modern")
+    v = image_version()
+    if v is None:
+        raise SystemExit(f"could not read the Home Assistant version in {IMAGE}; set HA_FAKES=legacy or modern")
+    print(f"Home Assistant {v[0]}.{v[1]} in {IMAGE}")
+    return "legacy" if v < (2026, 1) else "modern"
+
+
 def main() -> int:
     if not shutil.which("docker"):
         print("docker not found: the live Home Assistant check did not run")
         return 1
+    style = fakes_style()
+    print(f"fake lamps and forecast: tests/panels/ha/fakes.{style}.yaml")
     cfg = Path(tempfile.mkdtemp(prefix="ha-panels-"))
     shutil.copy(ROOT / "tests/panels/ha/configuration.yaml", cfg / "configuration.yaml")
+    shutil.copy(ROOT / f"tests/panels/ha/fakes.{style}.yaml", cfg / "fakes.yaml")
     shutil.copy(ROOT / "homeassistant/panels.example.yaml", cfg / "panels.example.yaml")
     shutil.copy(ROOT / "homeassistant/panels-kitchen.example.yaml", cfg / "panels-kitchen.example.yaml")
     shutil.copy(ROOT / "homeassistant/scripts.example.yaml", cfg / "scripts.example.yaml")
@@ -293,8 +329,11 @@ def main() -> int:
               "a preset is announced through script.family_announce")
 
         print("kitchen sensors:")
-        wait_for(token, "sensor.panel_due", lambda s: s not in ("unknown", "unavailable"))
-        wait_for(token, "sensor.panel_lunch_and_kit", lambda s: s not in ("unknown", "unavailable"))
+        # These run at start-up and then on the minute. On 2024.11 and 2024.12
+        # the start-up run can beat the fake sources' attributes and say
+        # "unavailable" until the next minute, so wait out that first minute.
+        wait_for(token, "sensor.panel_due", lambda s: "unavailable" not in s and s != "unknown")
+        wait_for(token, "sensor.panel_lunch_and_kit", lambda s: "unavailable" not in s and s != "unknown")
         today = wait_for(token, "sensor.panel_today", lambda s: s not in ("unknown", "unavailable")) or ""
         print("    panel_today:", today.replace("\n", " / "))
         today_all = attr(token, "sensor.panel_today", "lines") or ""
@@ -456,6 +495,12 @@ def main() -> int:
         settle()
         check(light("light.hall") == "off" and log_has(token, "A panel sent nothing light.hall can do"),
               "brightness sent to an on/off lamp changes nothing")
+        # Before 2026.10 a light's supported_color_modes rendered into an
+        # automation variable as the text "[<ColorMode.ONOFF: 'onoff'>]",
+        # whose characters passed for a brightness mode; the list must arrive
+        # as a list, so the refusal names the one mode.
+        check(log_has(token, "it does onoff). Nothing was changed."),
+              "the light page reads the hall's colour modes as a list ['onoff'], not as text")
         fire(token, "esphome.family_panel_light_set", {"target": "kitchen", "brightness_pct": "abc"})
         settle()
         check(num("input_number.kitchen_level") == 128, "a brightness that is not a number is ignored")
@@ -497,6 +542,9 @@ def main() -> int:
 
         s, logs = http("GET", "/api/error_log", token=token)
         text = logs if isinstance(logs, str) else ""
+        if os.environ.get("HA_LOG"):
+            Path(os.environ["HA_LOG"]).write_text(text, encoding="utf-8")
+            print("    the whole log is in", os.environ["HA_LOG"])
         bad = [l for l in text.splitlines() if ("ERROR" in l or "TemplateError" in l or "Error rendering" in l)
                and "family_send_panel_letter" not in l and "Unknown recipient" not in l
                and "Empty letter" not in l and "Maximum number of runs exceeded" not in l]

@@ -12,6 +12,8 @@ homeassistant:
   packages:
     panels: !include panels.example.yaml
     panels_kitchen: !include panels-kitchen.example.yaml
+    # The lamps and the forecast; ha_live.py picks the file for the version.
+    fakes: !include fakes.yaml
 
 http:
 api:
@@ -96,104 +98,6 @@ input_boolean:
     initial: false
 
 template:
-  - light:
-      # A warm-white lamp: brightness and colour temperature, 2000 to 6666 K.
-      - name: Kitchen
-        unique_id: test_light_kitchen
-        state: "{{ is_state('input_boolean.lamp_kitchen', 'on') }}"
-        level: "{{ states('input_number.kitchen_level') | int }}"
-        temperature: "{{ states('input_number.kitchen_mireds') | int }}"
-        min_mireds: 150
-        max_mireds: 500
-        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.lamp_kitchen } }
-        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.lamp_kitchen } }
-        set_level:
-          - action: input_number.set_value
-            target: { entity_id: input_number.kitchen_level }
-            data: { value: "{{ brightness }}" }
-          - action: input_boolean.turn_on
-            target: { entity_id: input_boolean.lamp_kitchen }
-        # Home Assistant hands a brightness sent with a colour to the colour
-        # action, not to set_level, so each one sets the level too.
-        set_temperature:
-          - action: input_number.set_value
-            target: { entity_id: input_number.kitchen_mireds }
-            data: { value: "{{ color_temp }}" }
-          - if: "{{ brightness is defined }}"
-            then:
-              - action: input_number.set_value
-                target: { entity_id: input_number.kitchen_level }
-                data: { value: "{{ brightness }}" }
-          - action: input_boolean.turn_on
-            target: { entity_id: input_boolean.lamp_kitchen }
-      # A colour lamp: brightness, colour temperature and hue/saturation.
-      - name: Living room
-        unique_id: test_light_living_room
-        state: "{{ is_state('input_boolean.lamp_living_room', 'on') }}"
-        level: "{{ states('input_number.living_room_level') | int }}"
-        temperature: "{{ states('input_number.living_room_mireds') | int }}"
-        min_mireds: 150
-        max_mireds: 500
-        hs: "{{ (states('input_number.living_room_hue') | float, states('input_number.living_room_sat') | float) }}"
-        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.lamp_living_room } }
-        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.lamp_living_room } }
-        set_level:
-          - action: input_number.set_value
-            target: { entity_id: input_number.living_room_level }
-            data: { value: "{{ brightness }}" }
-          - action: input_boolean.turn_on
-            target: { entity_id: input_boolean.lamp_living_room }
-        # Home Assistant hands a brightness sent with a colour to the colour
-        # action, not to set_level, so each one sets the level too.
-        set_temperature:
-          - action: input_number.set_value
-            target: { entity_id: input_number.living_room_mireds }
-            data: { value: "{{ color_temp }}" }
-          - if: "{{ brightness is defined }}"
-            then:
-              - action: input_number.set_value
-                target: { entity_id: input_number.living_room_level }
-                data: { value: "{{ brightness }}" }
-          - action: input_boolean.turn_on
-            target: { entity_id: input_boolean.lamp_living_room }
-        set_hs:
-          - action: input_number.set_value
-            target: { entity_id: input_number.living_room_hue }
-            data: { value: "{{ h }}" }
-          - action: input_number.set_value
-            target: { entity_id: input_number.living_room_sat }
-            data: { value: "{{ s }}" }
-          - if: "{{ brightness is defined }}"
-            then:
-              - action: input_number.set_value
-                target: { entity_id: input_number.living_room_level }
-                data: { value: "{{ brightness }}" }
-          - action: input_boolean.turn_on
-            target: { entity_id: input_boolean.lamp_living_room }
-      - name: Hall
-        unique_id: test_light_hall
-        state: "{{ is_state('input_boolean.lamp_hall', 'on') }}"
-        turn_on: { action: input_boolean.turn_on, target: { entity_id: input_boolean.lamp_hall } }
-        turn_off: { action: input_boolean.turn_off, target: { entity_id: input_boolean.lamp_hall } }
-
-  - weather:
-      - name: Forecast home
-        unique_id: test_forecast_home
-        condition_template: "cloudy"
-        temperature_template: "12"
-        humidity_template: "80"
-        forecast_hourly_template: >-
-          {% set wet = states('input_text.test_wet_hour') | int(-1) %}
-          {% set base = now().replace(minute=0, second=0, microsecond=0) %}
-          {% set ns = namespace(f=[]) %}
-          {% for i in range(0, 14) %}
-            {% set ns.f = ns.f + [{'datetime': (base + timedelta(hours=i)).isoformat(),
-                                   'condition': 'rainy' if i == wet else 'cloudy',
-                                   'precipitation_probability': 80 if i == wet else 10,
-                                   'temperature': 12}] %}
-          {% endfor %}
-          {{ ns.f }}
-
   - sensor:
       - name: Family Today
         unique_id: test_family_today

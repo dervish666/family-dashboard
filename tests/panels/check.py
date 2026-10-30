@@ -30,6 +30,7 @@ C++17 compiler on PATH as c++.
 from __future__ import annotations
 
 import ast
+import enum
 import json
 import os
 import re
@@ -85,7 +86,18 @@ def ha_env(states=None):
     vals = states or {}
     env.tests["is_state"] = lambda eid, want: vals.get(eid, "unknown") == want
     env.tests["match"] = lambda value, pattern: re.match(pattern, str(value)) is not None
+    env.filters["to_json"] = lambda value, **kw: json.dumps(value, ensure_ascii=False)
     return env
+
+
+class ColorMode(str, enum.Enum):
+    """How Home Assistant before 2026.10 hands a template a light's
+    supported_color_modes: enum members, which a list renders by repr, as
+    "[<ColorMode.ONOFF: 'onoff'>]"."""
+    ONOFF = "onoff"
+    BRIGHTNESS = "brightness"
+    COLOR_TEMP = "color_temp"
+    HS = "hs"
 
 
 def ha_attrs(attrs: dict):
@@ -328,6 +340,9 @@ LAMPS = {
 }
 LAMP_STATES = {e: st for e, (st, _) in LAMPS.items()}
 LAMP_ATTRS = {e: a for e, (_, a) in LAMPS.items()}
+# The same lamps as Home Assistant before 2026.10 describes them.
+OLD_LAMP_ATTRS = {e: dict(a, supported_color_modes=[ColorMode(m) for m in a["supported_color_modes"]])
+                  if "supported_color_modes" in a else a for e, a in LAMP_ATTRS.items()}
 
 # What sensor.panel_lights must say for those lamps, line by line.
 LINES_WANT = [
@@ -704,15 +719,19 @@ def check_kitchen_ha(r: Report, hak: dict):
     r.check(lset.get("mode") == "queued" and int(lset.get("max", 0)) <= 10
             and any(isinstance(a, dict) and "delay" in a for a in lset["actions"]),
             "family_panel_light_set: queued with a small max and a delay, so a slider burst is paced")
-    for wanted, b, k, h, sat, (refused, light, data) in SET_CASES:
-        env = ha_env(LAMP_STATES)
-        ctx = render_vars(env, lset["variables"], {"state_attr": ha_attrs(LAMP_ATTRS), "trigger": {"event": {"data": {
-            "target": wanted, "brightness_pct": b, "kelvin": k, "hue": h, "sat": sat}}}})
-        got = any(render_bool(env, c, ctx) for c in refusals)
-        r.check(got == refused, f"set {wanted!r} b={b!r} k={k!r} h={h!r} s={sat!r}: refused={got}, want {refused}")
-        r.check(ctx["light"] == light, f"set {wanted!r}: light {ctx['light']!r}, want {light!r}")
-        if data is not None:
-            r.check(ctx["data"] == data, f"set {wanted!r} b={b!r} k={k!r} h={h!r} s={sat!r}: data {ctx['data']!r}, want {data!r}")
+    for attrs, ha in ((LAMP_ATTRS, ""), (OLD_LAMP_ATTRS, " (HA before 2026.10)")):
+        for wanted, b, k, h, sat, (refused, light, data) in SET_CASES:
+            env = ha_env(LAMP_STATES)
+            ctx = render_vars(env, lset["variables"], {"state_attr": ha_attrs(attrs), "trigger": {"event": {"data": {
+                "target": wanted, "brightness_pct": b, "kelvin": k, "hue": h, "sat": sat}}}})
+            got = any(render_bool(env, c, ctx) for c in refusals)
+            r.check(got == refused, f"set {wanted!r} b={b!r} k={k!r} h={h!r} s={sat!r}{ha}: refused={got}, want {refused}")
+            r.check(ctx["light"] == light, f"set {wanted!r}{ha}: light {ctx['light']!r}, want {light!r}")
+            if data is not None:
+                r.check(ctx["data"] == data, f"set {wanted!r} b={b!r} k={k!r} h={h!r} s={sat!r}{ha}: data {ctx['data']!r}, want {data!r}")
+            if light:
+                r.check(isinstance(ctx["modes"], list), f"set {wanted!r}{ha}: modes arrived as {type(ctx['modes']).__name__} "
+                        f"{str(ctx['modes'])[:50]!r}, want a list")
     # The summary sensor the page reads, over the same lamps.
     sensors = [x for block in hak.get("template", []) for x in block.get("sensor", []) if x.get("name") == "Panel lights"]
     r.check(len(sensors) == 1, "panels-kitchen: no 'Panel lights' template sensor")
@@ -1239,6 +1258,9 @@ SABOTAGES = [
     ("light set sends colour to a lamp without it", "hak", "{% if can_colour and hue | int >= 0 and sat | int >= 0 %}", "{% if hue | int >= 0 and sat | int >= 0 %}"),
     ("light set sends warmth to a lamp without it", "hak", "{% if can_temp and kelvin | int >= 0 %}", "{% if kelvin | int >= 0 %}"),
     ("light set calls turn_on with the raw event data", "hak", '        data: "{{ data }}"\n', '        data: "{{ trigger.event.data }}"\n'),
+    ("light set modes without to_json (text on HA before 2026.10)", "hak",
+     "modes: \"{{ ((state_attr(light, 'supported_color_modes') or []) if light else []) | to_json }}\"",
+     "modes: \"{{ state_attr(light, 'supported_color_modes') or [] if light else [] }}\""),
     ("light set loses its pacing delay", "hak", "      - delay:\n          milliseconds: 150\n", ""),
     ("light set unbounded queue", "hak", "    mode: queued\n    max: 6\n    max_exceeded: warning\n    triggers:\n      - trigger: event\n        event_type: esphome.family_panel_light_set",
      "    mode: queued\n    max: 60\n    max_exceeded: warning\n    triggers:\n      - trigger: event\n        event_type: esphome.family_panel_light_set"),

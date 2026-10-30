@@ -127,11 +127,18 @@ jobs:
           "$RUNNER_TEMP/esphome/bin/esphome" compile "$f"
 
   home-assistant:
-    name: Automations in a throwaway Home Assistant
+    name: Automations in a throwaway Home Assistant ${{ matrix.ha }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The newest release, and the oldest the room panel packages support.
+        ha: ["stable", "2024.12.0"]
     steps:
       - uses: actions/checkout@v4
       - name: Letters, presets, lights, timer alerts and panel sensors against the real thing
+        env:
+          HA_IMAGE: ghcr.io/home-assistant/home-assistant:${{ matrix.ha }}
         run: python3 tests/panels/ha_live.py
