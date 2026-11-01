@@ -1,4 +1,4 @@
-import { weekRange, calendarPath, parseCalendarEvents } from "../calendar.js";
+import { weekRange, calendarPath, parseCalendarEvents, calendarHealth } from "../calendar.js";
 import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat, prng } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
@@ -2270,14 +2270,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   // Trips from the family calendar, a year ahead. The REST calendar endpoint gives
   // all-day events as {date} and timed ones as {dateTime}; either way the day is the
-  // first ten characters. A failure leaves the trips out and says so in the console.
+  // first ten characters. load() catches a failure: the last good list stays, and the
+  // status line says it is unavailable and how old the list is.
   function holidays(tok) {
     if (!SENSORS.trips) return Promise.resolve([]);
     var td = ymd(now()), end = (+td.slice(0, 4) + 1) + td.slice(4);
     return tok.callApi("GET", "calendars/" + SENSORS.trips + "?start=" + td + "T00:00:00&end=" + end + "T00:00:00")
       .then(function (evs) { return evs.filter(function (e) { return /\bholidays?\b/i.test(e.summary || ""); }).map(function (e) {
-        return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); })
-      .catch(function (e) { console.warn("meadow: holidays", e); return null; });
+        return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); });
   }
   // The week, two ways. Calendar mode (a calendar on any person): ask Home Assistant's
   // calendar API for each one, so no template sensor is needed. v1.0.0 mode: read the
@@ -2304,7 +2304,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null, extraErr = null;
+    var schoolErr = null, extraErr = null, holErr = null;
     hassToken().then(function (tok) {
       // the school sensors are optional: a missing one blanks its part of the School card, nothing else
       function opt(id) { if (!id) return Promise.resolve(null);
@@ -2319,13 +2319,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
       return Promise.all([readWeek(tok), extra,
         school, opt(SENSORS.kit), null,                  // null: the slot v1.1.0 used for sensors.lunch
-        opt(SENSORS.sun), opt(SENSORS.weather), holidays(tok)]); })
+        opt(SENSORS.sun), opt(SENSORS.weather),
+        holidays(tok).catch(function (e) { console.warn("meadow: holidays", e); holErr = (e && (e.message || e.body && e.body.message)) || String(e); return null; })]); })
       .then(function (s) {
         var wk = s[0];
         DATA = { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, extra: s[1] ? s[1].attributes || null : null, extraErr: extraErr, error: null, gotAt: new Date(),
           school: { states: s[2], kit: s[3] && s[3].attributes, err: schoolErr },
           sun: s[5] && s[5].attributes, weather: s[6] ? { state: s[6].state, attributes: s[6].attributes } : null,
-          holidays: s[7] || (DATA.holidays || []) };                                // a failed fetch keeps the last good list
+          holidays: s[7] || (DATA.holidays || []),                                  // a failed fetch keeps the last good list
+          holidaysErr: holErr, holidaysAt: s[7] ? new Date() : DATA.holidaysAt || null };
         refreshTags();
       })
       .catch(function (e) { console.error("meadow: load failed", e); DATA.error = e.message || String(e); });
@@ -2905,7 +2907,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var CRY = !ANN_CONF ? null : CONFIG.crier || { on: true, sound: false, clear: false, late: 1 };
   if (CRY && !CRY.on) CRY = null;
   var CRIER = null, CSEEN = {}, CWANT = null, CSPR = {}, CROLLER = null, CBELL = null, CAUDIO = null, CRAND = prng(20261026);
-  var REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  // prefers-reduced-motion, followed live: no crier walk, no badge wobble, and frame() repaints
+  // the scene only every REDUCED_PAINT ms while the world and the data carry on underneath.
+  var REDUCE_MQ = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null, REDUCED = false;
+  function readReduced() { REDUCED = !!(REDUCE_MQ && REDUCE_MQ.matches); lastPaint = -Infinity; }
+  readReduced();
+  if (REDUCE_MQ) { if (REDUCE_MQ.addEventListener) REDUCE_MQ.addEventListener("change", readReduced); else if (REDUCE_MQ.addListener) REDUCE_MQ.addListener(readReduced); }
   // The scene's crier: { path: [door, ..., spot], face, look: { col, hat }, say, style, top }.
   // A scene without one gets a walk from its home landmark.
   function crierGeom() {
@@ -3125,6 +3132,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
     else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
     else if (LETTER.bad.length) st = "Letters unavailable: " + LETTER.bad.map(function (b) { return b.who; }).join(", ");
+    else if (DATA.holidaysErr) st = "Holidays unavailable (" + DATA.holidaysErr + ")" + (DATA.holidaysAt ? ". Showing the list from " + dayLabel(ymd(DATA.holidaysAt)).toLowerCase() + " " + pad2(DATA.holidaysAt.getHours()) + ":" + pad2(DATA.holidaysAt.getMinutes()) : "");
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
@@ -3204,11 +3212,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var p = t.person, name = p.name, td = ymd(now()), html = "";
     var mine = DATA.events.filter(function (e) { return e.who === name; });
     var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
+    var calHealth = calendarHealth(DATA, name);
     settleLetter();
     if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); }     // the postie's letter, read once
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
-      : '<div class="empty">' + ((DATA.calFailed || []).some(function (f) { return f.who === name; }) ? "Calendar unavailable, so this card can't say what's on."
+      : '<div class="empty">' + (calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
         : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
     if (later.length) {
       html += "<h2>This week</h2>";
@@ -3237,6 +3246,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
     var calBad = (DATA.calFailed || []).filter(function (f) { return f.who === name; });
     sch.foot.forEach(function (f) { foot.push('<span class="bad">' + esc(f) + "</span>"); });
+    if (DATA.error) foot.push('<span class="bad">Can\'t load the week (' + esc(DATA.error) + ")" + (DATA.weekAt ? ", so this is the last week that loaded." : ".") + "</span>");
     if (calBad.length) foot.push('<span class="bad">Calendar unavailable: ' + calBad.map(function (f) { return esc(f.id); }).join(", ") + ". This week may be missing events.</span>");
     if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
     if (dueS.foot) foot.push('<span class="bad">' + esc(dueS.foot) + "</span>");
@@ -3246,7 +3256,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;
     $("who").textContent = name;
-    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calBad.length ? "Calendar unavailable" : "Free today";
+    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");
     // portrait: the same creature, redrawn large rather than scaled up blurry
@@ -3587,8 +3597,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var bx0 = cv.getBoundingClientRect(), x = e.clientX - bx0.left, y = e.clientY - bx0.top, best = null, bd = 1e9, i, t;
     // The crier's scroll covers the scene while it is up: a tap on it takes it down
     if (CRIER && crierHit(x, y)) { annTap(CRIER.ann.key); return; }
-    for (i = 0; i < fam.length; i++) { t = fam[i]; var b = t.tagBox, sc = depth(t.y);
-      var d = Math.sqrt(Math.pow(x - t.x, 2) + Math.pow(y - (t.y + (t.dy || 0) - t.r * sc * 0.9 - hopOf(t)), 2));
+    for (i = 0; i < fam.length; i++) { t = fam[i]; var b = t.tagBox, at = REDUCED && t.seen ? t.seen : seenAt(t), sc = depth(at[1]);
+      var d = Math.sqrt(Math.pow(x - at[0], 2) + Math.pow(y - (at[2] - t.r * sc * 0.9), 2));
       if (b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10) d = 0;
       if (d < t.r * sc * 1.8 && d < bd) { bd = d; best = t; } }
     if (best) { best.jump = 0.6; best.happy = 1; puff("heart", best.x, best.y - best.r * 2.2, 3, best.person.col);
@@ -3606,6 +3616,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         t.jump = 0.6; t.happy = 1.2; t.flee = 0; puff("heart", t.x, t.y - t.r * 2, 1, "#FF7FA0"); return; } }
   });
 
+  function seenAt(t) { return [t.x, t.y, t.y + (t.dy || 0) - hopOf(t)]; }       // x, ground y, body y
   function tapHotspot(id, x, y) {
     var h = (SCENE.hotspots || {})[id];
     if (!h || h.robot || (id !== "school" && !VIEW[id])) return false;
@@ -3631,15 +3642,18 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (W < 640) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack
     HZ = Math.round(H * 0.27); TOP = HZ + 44;
     bakeBackground();
+    lastPaint = -Infinity;                                // a resize clears the canvas: paint it now
   }
-  var last = 0, lastHud = 0, clock0 = performance.now(), FPSN = 0, FPSMS = 0, FPS0 = 0, FPST = "";
+  var last = 0, lastHud = 0, clock0 = performance.now(), FPSN = 0, FPSMS = 0, FPS0 = 0, FPST = "", lastPaint = -Infinity, REDUCED_PAINT = 10000;
   function frame(ms) {
     requestAnimationFrame(frame);
     if (ms - last < 31) return;                           // 30 fps is plenty for a wall, and kinder to it
     var dt = Math.max(0, Math.min(0.1, (ms - last) / 1000)); last = ms;
     nightness = sleepCurve(now(), PARTY ? 21.5 : 20.5); DARK = darkness(now());
     var t0 = FPS ? performance.now() : 0;
-    update(dt); draw((ms - clock0) / 1000);
+    update(dt);
+    if (!REDUCED || ms - lastPaint >= REDUCED_PAINT) { lastPaint = ms; draw((ms - clock0) / 1000);
+      if (REDUCED) fam.forEach(function (t) { t.seen = seenAt(t); }); }        // taps aim at the picture, not the world moving under it
     if (FPS) { FPSN++; FPSMS += performance.now() - t0; if (ms - FPS0 >= 2000) { FPST = (FPSN * 1000 / (ms - FPS0)).toFixed(1) + " fps \u00b7 " + (FPSMS / FPSN).toFixed(1) + " ms"; FPSN = 0; FPSMS = 0; FPS0 = ms; }
       ctx.font = "600 16px Fredoka"; ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillStyle = "#000"; ctx.fillRect(W - 170, H - 26, 170, 26); ctx.fillStyle = "#FFF"; ctx.fillText(FPST, W - 8, H - 4); }
     if (ms - lastHud > 1000) { lastHud = ms; hud(); }
@@ -3674,6 +3688,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     resize: function () { if (STOPPED || !STARTED) return; if (WRAP.clientWidth === W && WRAP.clientHeight === H) return;
       size(); if (VIL) VILLAGE = makeVillage(); else makeDrops(); makeWeatherSprites();
       if (SCENE.ambient) SCENE.ambient.setup(SV); },
-    stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF); }
+    stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF);
+      if (REDUCE_MQ) { if (REDUCE_MQ.removeEventListener) REDUCE_MQ.removeEventListener("change", readReduced); else if (REDUCE_MQ.removeListener) REDUCE_MQ.removeListener(readReduced); } }
   };
 }

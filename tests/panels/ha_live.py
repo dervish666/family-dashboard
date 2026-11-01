@@ -279,6 +279,10 @@ def main() -> int:
         settle()
         check(state(token, "input_text.letter_kid_a") == "Parent 1|Tea's at six",
               "a Done for an older letter keeps the newer one")
+        fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": ""})
+        settle()
+        check(state(token, "input_text.letter_kid_a") == "Parent 1|Tea's at six" and log_has(token, "the read carried no sent time"),
+              "a Done with no sent time keeps the letter, and the log says why")
         fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": sent})
         settle()
         check(state(token, "input_text.letter_kid_a") == "", "Done empties letter_kid_a")

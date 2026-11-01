@@ -466,6 +466,38 @@ def check_send_script(r: Report, ha: dict):
     r.check(any(render_bool(env, c, ctx) for c in reject_ifs), "send to kid_a with no helper: not refused")
 
 
+# A panel's Done against what the sent helper holds: (event data, helper state
+# or None for no helper, cleared?). A read that cannot be matched keeps the letter.
+SENT_NOW = "2026-11-01 10:00:00"
+READ_GUARD_CASES = [
+    ({"child": "kid_a", "sent": SENT_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": "2026-10-31 09:00:00"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": ""}, SENT_NOW, False),
+    ({"child": "kid_a"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": "unavailable"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": "unknown"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": ""}, None, True),
+    ({"child": "kid_a", "sent": SENT_NOW}, None, True),
+]
+
+
+def check_read_guard(r: Report, ha: dict):
+    env = ha_env()
+    read = {a["id"]: a for a in ha["automation"]}["family_panel_letter_read"]
+    guards = [a["if"] for a in read["actions"] if isinstance(a, dict) and "if" in a and any(
+        isinstance(s, dict) and s.get("stop") == "Letter kept" for s in a.get("then", []))]
+    r.check(len(guards) == 1, "letter read: expected one guard that stops with 'Letter kept'")
+    if len(guards) != 1:
+        return
+    for data, held, cleared in READ_GUARD_CASES:
+        st = {"input_text.letter_kid_a": "Parent 1|Tea's at six"}
+        if held is not None:
+            st["input_datetime.letter_kid_a_sent"] = held
+        ctx = render_vars(env, read["variables"], {"trigger": {"event": {"data": data}}, "states": FakeStates(st)})
+        kept = render_bool(env, guards[0], ctx)
+        r.check(kept != cleared, f"letter read {data} with sent helper {held!r}: cleared={not kept}, want {cleared}")
+
+
 def jinja_parse(env, auto_vars: dict, value: str, slug: str, recipients: dict):
     """Run the read automation's own parsing over a helper value."""
     step = None
@@ -1136,6 +1168,7 @@ def run(srcs: dict, quiet=False) -> Report:
     hak = load_ha(srcs["hak"])
     cxx = shutil.which("c++")
     check_send_script(r, ha)
+    check_read_guard(r, ha)
     check_parsers(r, ha, srcs["kid"], srcs["base"], cxx)
     check_panel_v2(r, srcs, cxx)
     check_kitchen_ha(r, hak)
@@ -1161,6 +1194,9 @@ SABOTAGES = [
     ("panel treats 'unavailable' as a letter", "kid", 'if (s == "unavailable") {\n              kind = 3;',
      'if (false) {\n              kind = 3;'),
     ("panel reads a never-set helper as a letter", "kid", 'if (s == "unknown") s = "";', ""),
+    ("a Done with no sent time clears the letter", "ha",
+     "{{ states(sent_helper) not in ['unknown', 'unavailable']\n",
+     "{{ seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
     ("script checks the helper's state, not that it exists", "ha",
      "helper not in states.input_text | map(attribute='entity_id') | list", "states(helper) in ['unknown', 'unavailable']"),
     ("announcement drops the sender", "base", 'from.empty() ? text : from + ": " + text', "text"),

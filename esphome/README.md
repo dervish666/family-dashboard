@@ -403,7 +403,7 @@ or the panel's request is refused and the log says why.
    `esphome.family_letter_read` with `child: kid_a` and the sent time it saw.
 4. An automation empties `input_text.letter_kid_a` (and the postie copy if it is still there).
    Every screen drops it. If the sent time does not match, a newer letter arrived in between and
-   stays.
+   stays. A **Done** with no sent time leaves the letter too, and says so in the log.
 
 If the letter is read on the wall card first, a v1.8 card with `letter:` empties the child's
 helper (and the postie copy) itself; an older card empties the postie and a second automation

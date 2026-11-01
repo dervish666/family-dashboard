@@ -647,6 +647,9 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
   At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
   the space station's wall most of all; use a wide card there. A card under 640 px wide stacks
   the person's face over their lists (v1.9.0), so a letter and the week can be read on a phone.
+- With `prefers-reduced-motion` set, the scene is redrawn every 10 seconds instead of moving. The
+  creatures still go about their day between redraws, so each one can land somewhere new; the
+  clock, the lists and the status line update as usual.
 - On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
   since the template sensor tags each event with its owner's name. Calendars set on people
   have no such rule.
