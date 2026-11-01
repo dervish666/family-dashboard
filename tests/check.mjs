@@ -528,6 +528,16 @@ ok(holFn.length > 0 && holFn.indexOf(".catch(") < 0, "holidays() does not swallo
 ok(/holidays\(tok\)\.catch\(function \(e\) \{ console\.warn\("meadow: holidays", e\); holErr = /.test(engSrc)
   && /holidaysErr: holErr, holidaysAt: s\[7\] \? new Date\(\) : DATA\.holidaysAt \|\| null/.test(engSrc)
   && /else if \(DATA\.holidaysErr\) st = "Holidays unavailable \("/.test(engSrc), "a failed holiday fetch reaches the status line with the age of the list it kept");
+// Reduced motion: the world (and the data it shows) runs every frame, the canvas repaints every REDUCED_PAINT ms,
+// a tap aims at what was painted, and turning the preference on or off takes effect without a reload.
+const frameFn = engSrc.slice(engSrc.indexOf("function frame(ms)"), engSrc.indexOf("function start()"));
+ok(/\n    update\(dt\);\n    if \(!REDUCED \|\| ms - lastPaint >= REDUCED_PAINT\) \{ lastPaint = ms; draw\(/.test(frameFn) && (frameFn.match(/draw\(/g) || []).length === 1,
+  "reduced motion: frame() updates every tick and draws only when the repaint is due");
+ok(/REDUCED_PAINT = (\d+)/.test(engSrc) && +engSrc.match(/REDUCED_PAINT = (\d+)/)[1] >= 5000, "reduced motion: the scene repaints at most every five seconds");
+ok(/REDUCE_MQ\.addEventListener\("change", readReduced\)/.test(engSrc) && /REDUCE_MQ\.removeEventListener\("change", readReduced\)/.test(engSrc)
+  && /REDUCE_MQ\.addListener\(readReduced\)/.test(engSrc), "reduced motion: the preference is followed live, on Chrome 87's listener too, and let go on stop");
+ok(/at = REDUCED && t\.seen \? t\.seen : seenAt\(t\)/.test(engSrc) && /if \(REDUCED\) fam\.forEach\(function \(t\) \{ t\.seen = seenAt\(t\); \}\);/.test(frameFn),
+  "reduced motion: a tap on a creature hits where it was painted");
 ok(/import \{[^}]*\bsleepCurve\b[^}]*\} from "\.\.\/post\.js"/.test(engSrc) && !/function sleepCurve/.test(engSrc), "the engine sleeps on post.js's curve, not a copy of it");
 ok(engSrc.indexOf("if (!LETTER.queue.length || asleep || nightness > 0.35 || POSTIE.busy) return;") >= 0 && engSrc.indexOf("if (!LETTER.queue.length || nightness > 0.35) return;") >= 0,
   "the postie's letter run and the airmail stop at the same 0.35 the hint reads");
