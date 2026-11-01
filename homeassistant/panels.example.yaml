@@ -225,17 +225,21 @@ automation:
               logger: family_panels
               message: "A room panel reported a letter read for an unknown child: {{ slug }}"
           - stop: Unknown child
+      # With the sent helper set, a Done must carry the same sent time or the
+      # letter stays: a missing or unreadable one cannot prove it was this
+      # letter. Without the helper there is nothing to compare, so it clears.
       - if: >-
-          {{ seen_sent not in ['', 'unknown', 'unavailable']
-             and states(sent_helper) not in ['unknown', 'unavailable']
+          {{ states(sent_helper) not in ['unknown', 'unavailable']
              and states(sent_helper) != seen_sent }}
         then:
           - action: system_log.write
             data:
               level: info
               logger: family_panels
-              message: "{{ helper }}: a newer letter arrived after the one marked read; kept it."
-          - stop: Newer letter kept
+              message: >-
+                {{ helper }}: {{ 'the read carried no sent time, so it cannot be matched to the letter waiting'
+                if seen_sent in ['', 'unknown', 'unavailable'] else 'a newer letter arrived after the one marked read' }}; kept it.
+          - stop: Letter kept
       - variables:
           current: "{{ states(helper) if states(helper) not in ['unknown', 'unavailable'] else '' }}"
           parts: "{{ current.split('|', 1) }}"

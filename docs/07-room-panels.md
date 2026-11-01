@@ -35,7 +35,9 @@ which leaves about 230 characters of letter.
 **The sent time.** `input_datetime.letter_<slug>_sent` (date and time) is optional. The script
 sets it on every send. A panel's **Done** carries the value it saw, and the read automation
 only clears the letter when it still matches, so reading an old letter never deletes a new one.
-The daily expiry uses it, falling back to the helper's last change.
+A **Done** that carries no sent time, or `unknown`, leaves the letter and writes why to the log:
+it cannot show which letter was read. Without the helper there is nothing to compare, and any
+**Done** for that child clears whatever letter is waiting. The daily expiry uses it, falling back to the helper's last change.
 
 **Sending.** `script.family_send_panel_letter`, fields `to`, `sender` and `text`. `to` is a slug
 (`kid_a`) or a name (`Kid A`); the script slugifies it. It stops, and writes an error to the
