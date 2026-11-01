@@ -2270,14 +2270,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   // Trips from the family calendar, a year ahead. The REST calendar endpoint gives
   // all-day events as {date} and timed ones as {dateTime}; either way the day is the
-  // first ten characters. A failure leaves the trips out and says so in the console.
+  // first ten characters. load() catches a failure: the last good list stays, and the
+  // status line says it is unavailable and how old the list is.
   function holidays(tok) {
     if (!SENSORS.trips) return Promise.resolve([]);
     var td = ymd(now()), end = (+td.slice(0, 4) + 1) + td.slice(4);
     return tok.callApi("GET", "calendars/" + SENSORS.trips + "?start=" + td + "T00:00:00&end=" + end + "T00:00:00")
       .then(function (evs) { return evs.filter(function (e) { return /\bholidays?\b/i.test(e.summary || ""); }).map(function (e) {
-        return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); })
-      .catch(function (e) { console.warn("meadow: holidays", e); return null; });
+        return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); });
   }
   // The week, two ways. Calendar mode (a calendar on any person): ask Home Assistant's
   // calendar API for each one, so no template sensor is needed. v1.0.0 mode: read the
@@ -2304,7 +2304,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null, extraErr = null;
+    var schoolErr = null, extraErr = null, holErr = null;
     hassToken().then(function (tok) {
       // the school sensors are optional: a missing one blanks its part of the School card, nothing else
       function opt(id) { if (!id) return Promise.resolve(null);
@@ -2319,13 +2319,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
       return Promise.all([readWeek(tok), extra,
         school, opt(SENSORS.kit), null,                  // null: the slot v1.1.0 used for sensors.lunch
-        opt(SENSORS.sun), opt(SENSORS.weather), holidays(tok)]); })
+        opt(SENSORS.sun), opt(SENSORS.weather),
+        holidays(tok).catch(function (e) { console.warn("meadow: holidays", e); holErr = (e && (e.message || e.body && e.body.message)) || String(e); return null; })]); })
       .then(function (s) {
         var wk = s[0];
         DATA = { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, extra: s[1] ? s[1].attributes || null : null, extraErr: extraErr, error: null, gotAt: new Date(),
           school: { states: s[2], kit: s[3] && s[3].attributes, err: schoolErr },
           sun: s[5] && s[5].attributes, weather: s[6] ? { state: s[6].state, attributes: s[6].attributes } : null,
-          holidays: s[7] || (DATA.holidays || []) };                                // a failed fetch keeps the last good list
+          holidays: s[7] || (DATA.holidays || []),                                  // a failed fetch keeps the last good list
+          holidaysErr: holErr, holidaysAt: s[7] ? new Date() : DATA.holidaysAt || null };
         refreshTags();
       })
       .catch(function (e) { console.error("meadow: load failed", e); DATA.error = e.message || String(e); });
@@ -3125,6 +3127,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
     else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
     else if (LETTER.bad.length) st = "Letters unavailable: " + LETTER.bad.map(function (b) { return b.who; }).join(", ");
+    else if (DATA.holidaysErr) st = "Holidays unavailable (" + DATA.holidaysErr + ")" + (DATA.holidaysAt ? ". Showing the list from " + dayLabel(ymd(DATA.holidaysAt)).toLowerCase() + " " + pad2(DATA.holidaysAt.getHours()) + ":" + pad2(DATA.holidaysAt.getMinutes()) : "");
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";

@@ -522,6 +522,12 @@ const engSrc = fs.readFileSync(path.join(src, "engine", "engine.js"), "utf8");
 ok(/var calHealth = calendarHealth\(DATA, name\);/.test(engSrc) && /calHealth !== "ok" \? "Calendar unavailable, so this card can't say what's on\."/.test(engSrc)
   && /: calHealth !== "ok" \? "Calendar unavailable" : "Free today";/.test(engSrc) && /if \(DATA\.error\) foot\.push\(/.test(engSrc),
   "a person's card reads calendarHealth for its empty line and summary, and names a failed load in its foot");
+// The holidays: a failed fetch keeps the last list, and the status line says so and how old it is.
+const holFn = engSrc.slice(engSrc.indexOf("function holidays(tok)"), engSrc.indexOf("function readWeek("));
+ok(holFn.length > 0 && holFn.indexOf(".catch(") < 0, "holidays() does not swallow its own failure");
+ok(/holidays\(tok\)\.catch\(function \(e\) \{ console\.warn\("meadow: holidays", e\); holErr = /.test(engSrc)
+  && /holidaysErr: holErr, holidaysAt: s\[7\] \? new Date\(\) : DATA\.holidaysAt \|\| null/.test(engSrc)
+  && /else if \(DATA\.holidaysErr\) st = "Holidays unavailable \("/.test(engSrc), "a failed holiday fetch reaches the status line with the age of the list it kept");
 ok(/import \{[^}]*\bsleepCurve\b[^}]*\} from "\.\.\/post\.js"/.test(engSrc) && !/function sleepCurve/.test(engSrc), "the engine sleeps on post.js's curve, not a copy of it");
 ok(engSrc.indexOf("if (!LETTER.queue.length || asleep || nightness > 0.35 || POSTIE.busy) return;") >= 0 && engSrc.indexOf("if (!LETTER.queue.length || nightness > 0.35) return;") >= 0,
   "the postie's letter run and the airmail stop at the same 0.35 the hint reads");
