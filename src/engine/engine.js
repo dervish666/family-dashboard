@@ -1,4 +1,4 @@
-import { weekRange, calendarPath, parseCalendarEvents } from "../calendar.js";
+import { weekRange, calendarPath, parseCalendarEvents, calendarHealth } from "../calendar.js";
 import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat, prng } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
@@ -3204,11 +3204,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var p = t.person, name = p.name, td = ymd(now()), html = "";
     var mine = DATA.events.filter(function (e) { return e.who === name; });
     var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
+    var calHealth = calendarHealth(DATA, name);
     settleLetter();
     if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); }     // the postie's letter, read once
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
-      : '<div class="empty">' + ((DATA.calFailed || []).some(function (f) { return f.who === name; }) ? "Calendar unavailable, so this card can't say what's on."
+      : '<div class="empty">' + (calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
         : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
     if (later.length) {
       html += "<h2>This week</h2>";
@@ -3237,6 +3238,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
     var calBad = (DATA.calFailed || []).filter(function (f) { return f.who === name; });
     sch.foot.forEach(function (f) { foot.push('<span class="bad">' + esc(f) + "</span>"); });
+    if (DATA.error) foot.push('<span class="bad">Can\'t load the week (' + esc(DATA.error) + ")" + (DATA.weekAt ? ", so this is the last week that loaded." : ".") + "</span>");
     if (calBad.length) foot.push('<span class="bad">Calendar unavailable: ' + calBad.map(function (f) { return esc(f.id); }).join(", ") + ". This week may be missing events.</span>");
     if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
     if (dueS.foot) foot.push('<span class="bad">' + esc(dueS.foot) + "</span>");
@@ -3246,7 +3248,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;
     $("who").textContent = name;
-    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calBad.length ? "Calendar unavailable" : "Free today";
+    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");
     // portrait: the same creature, redrawn large rather than scaled up blurry

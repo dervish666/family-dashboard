@@ -111,6 +111,11 @@ eq(rows, [
   { who: "Alex", what: "Half term", day: "2026-10-26", all_day: true, start: "2026-10-26", at: "" },
   { who: "Alex", what: "Busy", day: "2026-10-29", all_day: false, start: "2026-10-29T18:00:00+01:00", at: "18:00" }], "calendar events become week rows");
 throws(function () { m.parseCalendarEvents({ message: "Entity not found" }, "Alex", range); }, /not a list/, "an error answer is not an empty week");
+// A person's card: a failed load, or one of their calendars down, is not a free day.
+eq([m.calendarHealth({ events: [], error: null, calFailed: [] }, "Alex"), m.calendarHealth({ events: [], error: "no calendar answered (calendar.alex)" }, "Alex"),
+  m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }] }, "Sky"), m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }] }, "Alex"),
+  m.calendarHealth({ events: [], extra: null, weekAt: null, error: null, gotAt: null }, "Alex")],
+  ["ok", "error", "failed", "ok", "ok"], "calendar health: total failure, one of theirs down, someone else's down, before any load");
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
@@ -514,6 +519,9 @@ eq([m.postHint(pat(0, 0), 20.5, 2), m.postHint(pat(5, 0), 20.5, 1), m.postHint(p
 eq([m.postHint(pat(20, 50), 21.5, 1), m.postHint(pat(20, 51), 21.5, 1)], ["", "Post goes at 07:09 tomorrow"], "a party night keeps the post an hour longer");
 // The engine's own gate, read out of the source, is the one the hours use.
 const engSrc = fs.readFileSync(path.join(src, "engine", "engine.js"), "utf8");
+ok(/var calHealth = calendarHealth\(DATA, name\);/.test(engSrc) && /calHealth !== "ok" \? "Calendar unavailable, so this card can't say what's on\."/.test(engSrc)
+  && /: calHealth !== "ok" \? "Calendar unavailable" : "Free today";/.test(engSrc) && /if \(DATA\.error\) foot\.push\(/.test(engSrc),
+  "a person's card reads calendarHealth for its empty line and summary, and names a failed load in its foot");
 ok(/import \{[^}]*\bsleepCurve\b[^}]*\} from "\.\.\/post\.js"/.test(engSrc) && !/function sleepCurve/.test(engSrc), "the engine sleeps on post.js's curve, not a copy of it");
 ok(engSrc.indexOf("if (!LETTER.queue.length || asleep || nightness > 0.35 || POSTIE.busy) return;") >= 0 && engSrc.indexOf("if (!LETTER.queue.length || nightness > 0.35) return;") >= 0,
   "the postie's letter run and the airmail stop at the same 0.35 the hint reads");

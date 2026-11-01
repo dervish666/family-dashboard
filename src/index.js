@@ -24,7 +24,7 @@ import "./card.js";
 
 // For tests/check.mjs. Home Assistant loads this file as a module and ignores the exports.
 export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
-export { parseCalendarEvents, weekRange, calendarPath } from "./calendar.js";
+export { parseCalendarEvents, weekRange, calendarPath, calendarHealth } from "./calendar.js";
 export { parseTimetable, parseLunch, lunchChoice, lessonsEnd, lessonsOver } from "./school.js";
 export { parseAnnouncement, parseDue, dueForHud, tileState, thresholdText, parseThresholdText, TILE_ICONS, MAX_TILES } from "./extras.js";
 export { normCrier, parseAnnounce, annStep, newCrier, crierStep, crierShowing, holdFor, wrapWords, fitWords, CRIER_LATE, CRIER_TIMES } from "./crier.js";

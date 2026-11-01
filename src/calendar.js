@@ -27,3 +27,11 @@ export function parseCalendarEvents(evs, who, range) {
       at: allDay ? "" : s.slice(11, 16) };
   }).filter(function (r) { return r; });
 }
+
+// Whether a person's card can trust its week: "error" when the whole load failed (on a
+// first load the week is empty, which is not a free day), "failed" when one of their own
+// calendars did not answer, otherwise "ok".
+export function calendarHealth(data, name) {
+  if (data && data.error) return "error";
+  return ((data && data.calFailed) || []).some(function (f) { return f.who === name; }) ? "failed" : "ok";
+}
