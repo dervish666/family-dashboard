@@ -134,10 +134,81 @@ eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
 eq([one.demo, one.people.length, one.people[5].calendar, one.sensors.weather], [true, 6, "calendar.home", "weather.forecast_home"], "one calendar goes to the household");
 const many = m.stubConfig({ states: { "calendar.a": {}, "calendar.b": {}, "calendar.c": {}, "calendar.d": {}, "calendar.e": {}, "calendar.family": {}, "calendar.f": {}, "calendar.g": {} } });
-eq(many.people.map(function (p) { return p.calendar; }), ["calendar.a", "calendar.b", "calendar.c", "calendar.d", "calendar.e", ["calendar.f", "calendar.g", "calendar.family"]], "several calendars go one per person, shared and left over ones to the household");
+eq(many.people.map(function (p) { return p.calendar || null; }), [null, null, null, null, null, "calendar.family"], "of several calendars only the shared one is handed out, to the household");
 eq(m.normalize(Object.assign({}, many, { demo: false })).calendarMode, true, "the stub with demo off reads the calendars");
 const none = m.stubConfig(null);
 eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
+
+// ── Birthdays, the first-run stub and the editor ─────────────────────────────────
+// A real cast's birthdays are its own. dates without birthdays used to merge the demo
+// cast's in, and the sky counted down to Kid 1 and Parent 1 in a two-person house.
+const realCast = [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home" }];
+eq(m.normalize({ people: realCast, dates: { fixed: [] } }).dates, { birthdays: {}, fixed: [] }, "dates without birthdays brings none of the demo cast's to a cast with calendars");
+const ownBd = m.normalize({ people: realCast, dates: { birthdays: { Sam: "02-29" } } }).dates;
+eq([ownBd.birthdays, ownBd.fixed.length], [{ Sam: "02-29" }, 4], "a cast's own birthdays, and the fixed days still default");
+eq(m.normalize({ people: realCast, dates: { birthdays: null } }).dates.birthdays, {}, "an empty birthdays: in YAML is no birthdays");
+eq([m.normalize({}).dates.birthdays["Kid 1"], m.normalize({ sensors: { week: "sensor.family_week" }, people: [{ name: "Kid 1" }], dates: { fixed: [] } }).dates.birthdays["Parent 1"]],
+  ["01-22", "03-14"], "a v1.0.0 config keeps the demo birthdays, as it always merged them");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: "1985-03-14" } } }); }, /Sam's birthday must be a month and day as MM-DD, like "03-14", got "1985-03-14"/, "a birthday with a year names the person and the value");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: "02-30" } } }); }, /Sam's birthday .*"02-30"/, "a day the month does not have");
+["13-01", "00-10", "3-14", "03-14 "].forEach(function (v) { throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: v } } }); }, /Sam's birthday/, "birthday " + JSON.stringify(v)); });
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: 314 } } }); }, /Sam's birthday .*got 314/, "a birthday that is a number");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: ["03-14"] } }); }, /dates.birthdays must be a mapping/, "birthdays as a list");
+throws(function () { m.normalize({ sensors: { week: "sensor.family_week" }, dates: { birthdays: { "Kid 1": "22-01" } } }); }, /Kid 1's birthday/, "a v1.0.0 config's birthdays are checked too");
+
+// First run: only a calendar named for the whole house is handed out. A work or partner's
+// calendar the setup login can see stays off the wall until someone picks it.
+const priv = m.stubConfig({ states: { "calendar.sam_work": {}, "calendar.partner": {}, "calendar.family": {}, "calendar.holidays_uk": {} } });
+eq(priv.people.map(function (p) { return p.calendar || null; }), [null, null, null, null, null, ["calendar.family", "calendar.holidays_uk"]], "personal calendars are not handed to the demo cast");
+const solo = m.stubConfig({ states: { "calendar.sam_work": {}, "weather.home": {} } });
+eq([solo.people.some(function (p) { return p.calendar; }), solo.sensors], [false, { weather: "weather.home", week: null }], "a lone personal calendar goes to nobody");
+throws(function () { m.normalize(Object.assign({}, solo, { demo: false })); }, /give at least one person a calendar/, "and demo off then asks for a calendar instead of reading sensor.family_week");
+
+// The editor, on its plain-input fallback (no ha-form here), with just enough DOM to build.
+function fakeEl(tag) {
+  return { tag: tag, kids: [], style: {}, on: {}, q: {}, value: "", checked: false, textContent: "",
+    appendChild: function (c) { this.kids.push(c); return c; }, setAttribute: function () {},
+    addEventListener: function (t, f) { this.on[t] = f; }, querySelector: function (s) { return this.q[s] || (this.q[s] = fakeEl(s)); } };
+}
+const domWas = { create: document.createElement, text: document.createTextNode };
+let Editor = null, sent = [];
+document.createElement = fakeEl; document.createTextNode = function (t) { return { text: t }; };
+globalThis.HTMLElement.prototype.attachShadow = function () { return (this.shadowRoot = fakeEl("shadow")); };
+globalThis.HTMLElement.prototype.dispatchEvent = function (e) { sent.push(e.detail.config); return true; };
+const defineWas = customElements.define;
+customElements.define = function (name, cls) { if (name === "family-dashboard-card-editor") Editor = cls; };
+await import(pathToFileURL(path.join(src, "editor.js")).href);
+customElements.define = defineWas;
+ok(typeof Editor === "function", "src/editor.js defines the editor element");
+function editor(cfg) { const ed = new Editor(); ed.setConfig(cfg); sent = []; return ed; }
+function field(ed, i, label) { const row = ed._forms.people[i].el.kids.filter(function (r) { return r.kids[0] && r.kids[0].textContent === label; })[0]; return row && row.kids[1]; }
+function type(ed, i, label, v) { const el = field(ed, i, label); el.value = v; el.on.change(); return sent[sent.length - 1]; }
+const BD = "Birthday (MM-DD)";
+const edCfg = { people: [{ name: "Sam", calendar: "calendar.sam", adult: true }, { name: "Ann", adult: true }, { name: "Home", calendar: "calendar.family", adult: true, glasses: true }],
+  dates: { birthdays: { Sam: "03-14", Ann: "06-02" }, fixed: [] }, anniversary: ["Sam", "Ann"] };
+const ed = editor(edCfg);
+eq([field(ed, 0, BD).value, field(ed, 1, BD).value], ["03-14", "06-02"], "editor: each person's birthday field shows dates.birthdays");
+eq(type(ed, 1, BD, " 07-04 ").dates, { birthdays: { Sam: "03-14", Ann: "07-04" }, fixed: [] }, "editor: a typed birthday is written under the name, the other dates keys kept");
+eq(type(ed, 1, BD, "").dates.birthdays, { Sam: "03-14" }, "editor: an emptied birthday field removes it");
+const ren = type(ed, 0, "Name", "Samira");
+eq([ren.dates.birthdays, ren.anniversary], [{ Samira: "03-14" }, ["Samira", "Ann"]], "editor: a rename carries the birthday and the anniversary entry");
+// Typed key by key, a new name can pass through someone else's: Tobias to Tommy via Tom.
+const ty = editor({ people: [{ name: "Tom", calendar: "calendar.tom" }, { name: "Tobias" }, { name: "Home" }], dates: { birthdays: { Tom: "01-01", Tobias: "05-05" } }, anniversary: ["Tom", "Ann"] });
+let last = null;
+["T", "To", "Tom", "Tomm", "Tommy"].forEach(function (v) { last = type(ty, 1, "Name", v); });
+eq([last.dates.birthdays, last.anniversary, field(ty, 0, BD).value, field(ty, 1, BD).value], [{ Tom: "01-01", Tommy: "05-05" }, ["Tom", "Ann"], "01-01", "05-05"],
+  "editor: a name typed through another person's takes nothing of theirs and keeps its own");
+// A v1.0.0 cast with no dates goes by the demo birthdays and anniversary, so those follow a rename too.
+const v1r = type(editor({ sensors: { week: "sensor.family_week" } }), 0, "Name", "Pat"), v1b = (v1r.dates || {}).birthdays || {};
+eq([v1b.Pat, "Parent 1" in v1b, v1b["Kid 1"], v1r.anniversary], ["03-14", false, "01-22", ["Pat", "Parent 2"]], "editor: renaming a v1.0.0 default person carries the default birthday and anniversary");
+// The household's row asks nothing a household does not have, and an edit keeps YAML's flags.
+const rowLabels = function (e, i) { return e._forms.people[i].el.kids.map(function (r) { return r.kids[0] && r.kids[0].textContent; }); };
+eq(["Role", BD, "Accessories", "Goes to school"].map(function (l) { return [rowLabels(ed, 0).indexOf(l) >= 0, rowLabels(ed, 2).indexOf(l) >= 0]; }),
+  [[true, false], [true, false], [true, false], [true, false]], "editor: the household's row has no role, birthday, accessories or school");
+const house = type(ed, 2, "Name", "Our house").people[2];
+eq([house.name, house.adult, house.glasses], ["Our house", true, true], "editor: editing the household keeps its YAML role and accessories");
+document.createElement = domWas.create; document.createTextNode = domWas.text;
+delete globalThis.HTMLElement.prototype.attachShadow; delete globalThis.HTMLElement.prototype.dispatchEvent;
 
 // ── School data per child (v1.2.0) ──────────────────────────────────────────────
 // Config: people[].timetable / .lunch / .choice, and v1.1.0's sensors + schoolWho mapped on.
