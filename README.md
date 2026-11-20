@@ -81,8 +81,9 @@ sensors:
 ```
 
 The card reads each calendar through Home Assistant's calendar API every five minutes. A
-calendar that does not answer is named on its owner's card and in the corner, so a missing
-calendar never reads as a free day. The school data sensor (`sensors.extra`) works the same
+calendar that does not answer, or takes more than 20 seconds, is named on its owner's card and
+in the corner, so a missing calendar never reads as a free day. Until the first answer the card
+says the week is still loading. The school data sensor (`sensors.extra`) works the same
 way: off when empty, "School info unavailable" when it is set but missing.
 
 It looks best alone in a `panel` view.
