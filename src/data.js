@@ -1,6 +1,7 @@
-// The card's data: what it reads from Home Assistant. No DOM and no engine state: the engine
-// hands in hass, its clock and its timers, schedules the loads and merges each answer into
-// its snapshot (DATA). tests/check.mjs runs these as they are.
+// The card's data: the reads from Home Assistant, each child's school day read from them, and
+// the status line that says what is old or broken. No DOM and no engine state: the engine hands
+// in hass, its clock and its timers, schedules the loads and merges each answer into its
+// snapshot (DATA). tests/check.mjs runs these as they are.
 //
 //   newLoader(config, now, timers)  one per engine: load() reads the week, the holidays and
 //                                   the other sensors, each landing on its own through put()

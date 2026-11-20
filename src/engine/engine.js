@@ -7,7 +7,7 @@ import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js"
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
-import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel as dayLabelAt, DAYS_LONG, schoolDay, weekday } from "../data.js";
+import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel, DAYS_LONG, schoolDay, weekday } from "../data.js";
 import { personCard, schoolCard, shopCard, postCleared } from "../popup.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
@@ -51,7 +51,6 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (HOUR) { var h = parseFloat(HOUR); d.setHours(h | 0, Math.round((h % 1) * 60), 0, 0); }
     return d;
   }
-  function dayLabel(ds) { return dayLabelAt(ds, now()); }               // data.js, on the test hooks' clock
 
   function foodSprite(berry) {
     var s = 18 * K, c = canvas(s * 2, s * 2), g = c.getContext("2d"), x = s, y = s * 1.3;
@@ -3134,7 +3133,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function bakeBanner(e) {
     if (typeof e === "string") e = { who: "House", what: e, day: ymd(now()), all_day: true };
     var p = PEOPLE.filter(function (q) { return q.name === e.who; })[0];
-    var when = (e.day === ymd(now()) ? "" : dayLabel(e.day) + " ") + (e.all_day ? "" : e.at);
+    var when = (e.day === ymd(now()) ? "" : dayLabel(e.day, now()) + " ") + (e.all_day ? "" : e.at);
     var what = e.what.length > 38 ? e.what.slice(0, 36) + "..." : e.what;
     var g0 = canvas(10, 10).getContext("2d"), f1 = "600 " + 19 * K + "px Fredoka", f2 = "500 " + 19 * K + "px Fredoka";
     var parts2 = [[when, f1, INK], [e.who === "House" ? "" : e.who, f1, p ? shade(p.col, 0.55) : INK], [what, f2, INK]].filter(function (a) { return a[0]; });

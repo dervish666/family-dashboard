@@ -18,7 +18,7 @@
 //   letters.js        per-person letters (the room panels' from|text), and the dedupe with the postie
 //   post.js           the post office's hours (the hint by the postbox) and the letter badge on a name tag
 //   popup.js          the popup cards' HTML (a person's, the School's, the workshop's), built from the snapshot
-//   engine/engine.js  the world: creatures, the day, weather, parties, the cards
+//   engine/engine.js  the world: creatures, the day, weather, parties, and opening and closing the cards
 //   engine/draw.js    canvas helpers shared by the engine, creatures and scenes
 //   creatures/*.js    one module per animal, listed in creatures/index.js
 //   scenes/*.js       one module per scene, listed in scenes/index.js
