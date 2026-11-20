@@ -147,6 +147,8 @@ config.js|s/if (p.letter .. p.letter === out.sensors.letter)/if (false)/|a perso
 config.js|s/birthdaysConf(calendarMode ? raw.dates .. raw.dates.birthdays :/birthdaysConf(calendarMode ? (raw.dates ? out.dates.birthdays : {}) :/|dates without birthdays brings the demo cast's to a cast with calendars
 config.js|s/if (!md .*MONTH_DAYS\[+md\[1\] - 1\])/if (false)/|a birthday with a year in it is accepted
 config.js|s/+md\[2\] > MONTH_DAYS\[+md\[1\] - 1\]/+md[2] > 31/|02-30 is accepted as a birthday
+config.js|s/birthday\/.test(id); });/birthday\/.test(id) + 1; });/|the first-run stub hands every calendar out
+config.js|s/{ weather: weather, week: null }/{ weather: weather }/|with no calendar handed out, demo off reads sensor.family_week
 post.js|s/export const POST_GATE = 0.35;/export const POST_GATE = 0.3;/|the hint's gate drifts from the postie's
 post.js|s/  if (h < 7.5) return 7.5 - h;/  if (h < 7.5) return 7.4 - h;/|the morning curve moves and the post goes at 07:03
 post.js|s/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE); }/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE + 0.01); }/|the hint's gate is a hair looser than the postie's

@@ -298,27 +298,21 @@ export function normalize(raw) {
   return out;
 }
 
-// First install: the demo cast, with the calendars this Home Assistant has already
-// handed out. One calendar goes to the household. With more, family, home, holiday and
-// birthday calendars go to the household and the rest one per person in order, any
-// left over to the household. Turning demo off is then the only step.
+// First install: the demo cast. Calendars named for the whole house (family, home, house,
+// holiday, birthday) go to the household. Nobody else gets one. The setup login can see work
+// and partners' calendars that do not belong on a shared wall, so each person's calendar is
+// picked in the editor. With none handed out, week: null makes demo off ask for a calendar
+// rather than read the v1.0.0 template sensor.
 export function stubConfig(hass) {
   const states = hass && hass.states || {};
   const ids = Object.keys(states).sort();
   const cals = ids.filter(function (id) { return id.indexOf("calendar.") === 0; });
-  const shared = /family|home|house|holiday|birthday/;
-  const own = cals.filter(function (id) { return !shared.test(id); });
+  const shared = cals.filter(function (id) { return /family|home|house|holiday|birthday/.test(id); });
   const people = clone(DEFAULTS.people);
-  const last = people.length - 1;
-  function toHouse(id) { const h = people[last]; h.calendar = h.calendar ? [].concat(h.calendar, id) : id; }
-  if (cals.length === 1) toHouse(cals[0]);
-  else {
-    own.forEach(function (id, i) { if (i < last) people[i].calendar = id; else toHouse(id); });
-    cals.filter(function (id) { return shared.test(id); }).forEach(toHouse);
-  }
+  if (shared.length) people[people.length - 1].calendar = shared.length === 1 ? shared[0] : shared;
   const weather = states["weather.forecast_home"] ? "weather.forecast_home" : ids.filter(function (id) { return id.indexOf("weather.") === 0; })[0] || null;
   const cfg = { demo: true, people: people };
-  if (cals.length) cfg.sensors = { weather: weather };
+  if (cals.length) cfg.sensors = shared.length ? { weather: weather } : { weather: weather, week: null };
   return cfg;
 }
 

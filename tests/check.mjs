@@ -122,12 +122,12 @@ eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
 eq([one.demo, one.people.length, one.people[5].calendar, one.sensors.weather], [true, 6, "calendar.home", "weather.forecast_home"], "one calendar goes to the household");
 const many = m.stubConfig({ states: { "calendar.a": {}, "calendar.b": {}, "calendar.c": {}, "calendar.d": {}, "calendar.e": {}, "calendar.family": {}, "calendar.f": {}, "calendar.g": {} } });
-eq(many.people.map(function (p) { return p.calendar; }), ["calendar.a", "calendar.b", "calendar.c", "calendar.d", "calendar.e", ["calendar.f", "calendar.g", "calendar.family"]], "several calendars go one per person, shared and left over ones to the household");
+eq(many.people.map(function (p) { return p.calendar || null; }), [null, null, null, null, null, "calendar.family"], "of several calendars only the shared one is handed out, to the household");
 eq(m.normalize(Object.assign({}, many, { demo: false })).calendarMode, true, "the stub with demo off reads the calendars");
 const none = m.stubConfig(null);
 eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
 
-// ── Birthdays ────────────────────────────────────────────────────────────────────
+// ── Birthdays and the first-run stub ─────────────────────────────────────────────
 // A real cast's birthdays are its own. dates without birthdays used to merge the demo
 // cast's in, and the sky counted down to Kid 1 and Parent 1 in a two-person house.
 const realCast = [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home" }];
@@ -143,6 +143,14 @@ throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: 
 throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: 314 } } }); }, /Sam's birthday .*got 314/, "a birthday that is a number");
 throws(function () { m.normalize({ people: realCast, dates: { birthdays: ["03-14"] } }); }, /dates.birthdays must be a mapping/, "birthdays as a list");
 throws(function () { m.normalize({ sensors: { week: "sensor.family_week" }, dates: { birthdays: { "Kid 1": "22-01" } } }); }, /Kid 1's birthday/, "a v1.0.0 config's birthdays are checked too");
+
+// First run: only a calendar named for the whole house is handed out. A work or partner's
+// calendar the setup login can see stays off the wall until someone picks it.
+const priv = m.stubConfig({ states: { "calendar.sam_work": {}, "calendar.partner": {}, "calendar.family": {}, "calendar.holidays_uk": {} } });
+eq(priv.people.map(function (p) { return p.calendar || null; }), [null, null, null, null, null, ["calendar.family", "calendar.holidays_uk"]], "personal calendars are not handed to the demo cast");
+const solo = m.stubConfig({ states: { "calendar.sam_work": {}, "weather.home": {} } });
+eq([solo.people.some(function (p) { return p.calendar; }), solo.sensors], [false, { weather: "weather.home", week: null }], "a lone personal calendar goes to nobody");
+throws(function () { m.normalize(Object.assign({}, solo, { demo: false })); }, /give at least one person a calendar/, "and demo off then asks for a calendar instead of reading sensor.family_week");
 
 // ── School data per child (v1.2.0) ──────────────────────────────────────────────
 // Config: people[].timetable / .lunch / .choice, and v1.1.0's sensors + schoolWho mapped on.
