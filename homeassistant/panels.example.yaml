@@ -39,11 +39,11 @@
 # another integration works too if it keeps the same format; 255 is still
 # the ceiling, because that is what an entity state can hold.
 #
-# input_datetime.letter_<slug>_sent (optional) records when it was sent. A
-# panel's Done carries the letter it showed and that letter's sent time, so a
-# Done on an old letter never clears a newer one that arrived meanwhile, and
-# the daily expiry uses it. Without it the expiry falls back to the helper's
-# last change.
+# input_datetime.letter_<slug>_sent (optional) records when it was sent. The
+# daily expiry uses it, falling back to the helper's last change without it.
+# A panel's Done carries the letter it showed, and only that text clears, so
+# a Done on an old letter never clears a newer one that arrived meanwhile.
+# Panel firmware too old to carry the letter is matched on the sent time.
 #
 # Read once, gone everywhere: whoever reads it first (the panel's Done, or
 # opening that child on the wall card, which reads the helper itself when the
@@ -227,17 +227,19 @@ automation:
               logger: family_panels
               message: "A room panel reported a letter read for an unknown child: {{ slug }}"
           - stop: Unknown child
-      # A Done names the letter the panel showed: its sent time and, from
-      # firmware that sends it, the helper value itself (`letter`). It clears
-      # only if the helpers still hold that letter. With the sent helper set,
-      # a missing or unreadable sent time cannot prove it was this letter, so
-      # it stays. A panel too old to send `letter` is matched on the sent time
-      # alone, and with no sent helper either, its Done clears what waits.
+      # A Done names the letter the panel showed. From firmware that sends it
+      # (`letter`, the helper value the panel opened) it clears only while the
+      # helper holds that value, whatever the sent time. The panel hears the
+      # two helpers separately, so its sent time can lag. The same text sent
+      # twice counts as one letter. A panel too old to send `letter` is
+      # matched on the sent time. With the sent helper set, a missing or
+      # different one keeps the letter; with no sent helper its Done clears
+      # what waits.
       - if: >-
-          {{ (states(sent_helper) not in ['unknown', 'unavailable']
-              and states(sent_helper) != seen_sent)
-             or ('letter' in trigger.event.data
-                 and trigger.event.data.letter | string != states(helper)) }}
+          {{ (trigger.event.data.letter | string != states(helper))
+             if 'letter' in trigger.event.data
+             else (states(sent_helper) not in ['unknown', 'unavailable']
+                   and states(sent_helper) != seen_sent) }}
         then:
           - action: system_log.write
             data:
@@ -245,7 +247,7 @@ automation:
               logger: family_panels
               message: >-
                 {{ helper }}: {{ 'the read carried no sent time, so it cannot be matched to the letter waiting'
-                if seen_sent in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']
+                if 'letter' not in trigger.event.data and seen_sent in ['', 'unknown', 'unavailable']
                 else 'the letter waiting is not the one the panel showed' }}; kept it.
           - stop: Letter kept
       - variables:

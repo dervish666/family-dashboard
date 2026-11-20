@@ -481,8 +481,10 @@ def check_send_script(r: Report, ha: dict):
 
 # A panel's Done against what the helpers hold: (event data, sent helper state
 # or None for no helper, cleared?), with letter_kid_a holding LETTER_NOW. A
-# read that cannot be matched keeps the letter. Events with no `letter` are
-# from firmware before it sent one, and must work as they always did.
+# read that cannot be matched keeps the letter. An event with `letter` is
+# matched on that text alone, since the panel hears the sent helper separately
+# and its time can lag. Events with no `letter` are from firmware before it
+# sent one, and must work as they always did.
 SENT_NOW = "2026-11-01 10:00:00"
 SENT_OLD = "2026-10-31 09:00:00"
 LETTER_NOW = "Parent 1|Tea's at six"
@@ -499,8 +501,10 @@ READ_GUARD_CASES = [
     # With the letter the panel showed.
     ({"child": "kid_a", "sent": SENT_NOW, "letter": LETTER_NOW}, SENT_NOW, True),
     ({"child": "kid_a", "sent": SENT_NOW, "letter": LETTER_OLD}, SENT_NOW, False),
-    ({"child": "kid_a", "sent": SENT_OLD, "letter": LETTER_NOW}, SENT_NOW, False),
-    ({"child": "kid_a", "sent": "", "letter": LETTER_NOW}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_OLD, "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": SENT_OLD, "letter": LETTER_OLD}, SENT_OLD, False),
     ({"child": "kid_a", "sent": SENT_NOW, "letter": ""}, SENT_NOW, False),
     ({"child": "kid_a", "sent": SENT_NOW, "letter": "unavailable"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": SENT_NOW, "letter": " " + LETTER_NOW}, SENT_NOW, False),
@@ -595,6 +599,169 @@ int main() {{
             r.check(kept == (raw != shown),
                     f"panel Done, {what}, sent helper {'set' if held else 'absent'}: Home Assistant "
                     f"{'kept' if kept else 'cleared'} {raw!r}")
+
+
+# Letters through time, with the panel and Home Assistant each holding their
+# own values. Home Assistant steps: send (the script's two writes, text then
+# sent time), clear (read on the wall). Panel steps: text and sent (the panel
+# hears what Home Assistant holds now; the two arrive separately), open, done,
+# off and on (the API link), resend (the reconnect's resend, which runs once
+# the subscriptions have landed), lose (the next read the panel sends never
+# reaches Home Assistant). A read Home Assistant accepts empties the
+# helper, and a connected panel hears that at once. want: (what Home Assistant
+# holds, envelope showing, a read waiting). Each round ends with the number of
+# reads the panel sent.
+S3 = "2026-11-01 10:10:00"
+EARLIER = [("send", A, S0), ("text",), ("sent",), ("clear",), ("text",)]
+LETTER_ROUNDS = [
+    ("Done, both helpers heard", [("send", A, S1), ("text",), ("sent",), ("open",), ("done",),
+                                  ("want", "", False, False)], 1),
+    ("Done before the panel hears the new sent time", EARLIER + [
+        ("send", B, S1), ("text",), ("open",), ("done",), ("want", "", False, False), ("sent",),
+        ("want", "", False, False)], 1),
+    ("the same Done offline, sent on reconnect", EARLIER + [
+        ("send", B, S1), ("text",), ("off",), ("open",), ("done",), ("want", B, False, True),
+        ("on",), ("text",), ("sent",), ("want", B, False, True), ("resend",), ("want", "", False, False)], 1),
+    ("open A, B replaces it, Done", [
+        ("send", A, S1), ("text",), ("sent",), ("open",), ("send", B, S2), ("text",), ("done",),
+        ("want", B, True, False), ("off",), ("on",), ("text",), ("sent",), ("resend",), ("want", B, True, False)], 1),
+    ("then A's text again before B is read", [
+        ("send", A, S1), ("text",), ("sent",), ("open",), ("send", B, S2), ("text",), ("done",),
+        ("send", A, S3), ("text",), ("sent",), ("want", A, True, False)], 1),
+    ("Done offline, B replaces A meanwhile", [
+        ("send", A, S1), ("text",), ("sent",), ("off",), ("open",), ("done",), ("send", B, S2),
+        ("on",), ("text",), ("sent",), ("resend",), ("want", B, True, False)], 0),
+    ("Done offline, A read on the wall meanwhile", [
+        ("send", A, S1), ("text",), ("sent",), ("off",), ("open",), ("done",), ("clear",),
+        ("on",), ("text",), ("sent",), ("resend",), ("want", "", False, False)], 0),
+    ("Done as the link drops, sent again on reconnect", [
+        ("send", A, S1), ("text",), ("sent",), ("open",), ("lose",), ("done",), ("want", A, False, True),
+        ("off",), ("on",), ("text",), ("sent",), ("resend",), ("want", "", False, False)], 2),
+    ("Done offline, the same text sent again meanwhile", [
+        ("send", A, S1), ("text",), ("sent",), ("off",), ("open",), ("done",), ("send", A, S2),
+        ("on",), ("text",), ("sent",), ("want", A, False, True), ("resend",), ("want", "", False, False)], 1),
+]
+
+
+def check_letter_rounds(r: Report, ha: dict, kid_src: str, cxx: str | None):
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the letter rounds were not checked")
+        return
+    blocks = {n: cpp_block(kid_src, n) for n in ("letter-parse", "letter-heard", "letter-done", "letter-resent")}
+    # The globals and the glue around each block follow kid.yaml; check_consistency
+    # holds open_letter and letter_done to the lines copied here.
+    src = f"""
+#include <cstdio>
+#include <iostream>
+#include <string>
+static std::string raw_state, sent_state, read_raw_g, read_sent_g, shown_raw_g, shown_sent_g, ev_letter, ev_sent;
+static int letter_kind = 0;
+static bool read_pending_g = false, connected = true, ev = false;
+static void hear_text(const std::string &x) {{
+  raw_state = x;
+  std::string from, text;
+  int kind = 1;
+{blocks["letter-parse"]}
+  std::string read_letter = read_raw_g;
+  bool waiting = read_pending_g;
+{blocks["letter-heard"]}
+  read_raw_g = read_letter;
+  read_pending_g = waiting;
+  letter_kind = kind;
+}}
+static void resend() {{
+  if (!(connected && read_pending_g)) return;
+  ev = true; ev_letter = read_raw_g; ev_sent = read_sent_g;
+  std::string heard = raw_state, read_letter = read_raw_g;
+  bool waiting = read_pending_g;
+{blocks["letter-resent"]}
+  read_raw_g = read_letter;
+  read_pending_g = waiting;
+}}
+static void open_letter() {{
+  if (letter_kind == 2) {{ shown_raw_g = raw_state; shown_sent_g = sent_state; }}
+}}
+static void done() {{
+  std::string raw = raw_state, sent = sent_state;
+  std::string shown = shown_raw_g, opened_sent = shown_sent_g;
+  std::string done_raw, done_sent;
+  int kind = letter_kind;
+{blocks["letter-done"]}
+  read_raw_g = done_raw; read_sent_g = done_sent; read_pending_g = true; letter_kind = kind;
+  resend();
+}}
+int main() {{
+  std::string line;
+  while (std::getline(std::cin, line)) {{
+    ev = false;
+    char op = line.empty() ? '?' : line[0];
+    std::string arg = line.empty() ? "" : line.substr(1);
+    if (op == 'T') hear_text(arg);
+    else if (op == 'S') sent_state = arg;
+    else if (op == 'O') open_letter();
+    else if (op == 'D') done();
+    else if (op == 'R') resend();
+    else if (op == 'C') connected = arg == "1";
+    printf("%d\\x1f%d\\x1f%d\\x1f%s\\x1f%s\\n", letter_kind, read_pending_g ? 1 : 0, ev ? 1 : 0,
+           ev_letter.c_str(), ev_sent.c_str());
+    fflush(stdout);
+  }}
+  return 0;
+}}
+"""
+    env = ha_env()
+    read, guards = read_guard(ha)
+    if len(guards) != 1:
+        return
+    with tempfile.TemporaryDirectory() as d:
+        cpp, exe = os.path.join(d, "t.cpp"), os.path.join(d, "t")
+        Path(cpp).write_text(src, encoding="utf-8")
+        cc = subprocess.run([cxx, "-std=c++17", "-Wall", "-o", exe, cpp], capture_output=True, text=True)
+        if cc.returncode:
+            r.check(False, "letter rounds C++ did not compile:\n" + cc.stderr[-2000:])
+            return
+        for with_sent in (True, False):
+            for what, steps, want_events in LETTER_ROUNDS:
+                label = f"letter round, {what}, sent helper {'set' if with_sent else 'absent'}"
+                p = subprocess.Popen([exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+                ha_text, ha_sent, online, events, state, lose = "unknown", "unknown", True, 0, (0, 0), False
+
+                def panel(cmd):
+                    p.stdin.write(cmd + "\n")
+                    p.stdin.flush()
+                    kind, waiting, went, letter, sent = p.stdout.readline().rstrip("\n").split("\x1f")
+                    return int(kind), int(waiting), went == "1", {"child": "kid_a", "sent": sent, "letter": letter}
+
+                for n, step in enumerate(steps, 1):
+                    op = step[0]
+                    if op == "send":
+                        ha_text, ha_sent = step[1], step[2]
+                    elif op == "clear":
+                        ha_text = ""
+                    elif op == "lose":
+                        lose = True
+                    elif op == "want":
+                        got = (ha_text, state[0] == 2, state[1] == 1)
+                        r.check(got == step[1:], f"{label}: at step {n} got {got}, want {step[1:]}")
+                        continue
+                    else:
+                        cmd = {"text": "T" + ha_text, "sent": "S" + (ha_sent if with_sent else ""), "open": "O",
+                               "done": "D", "resend": "R", "off": "C0", "on": "C1"}[op]
+                        online = {"off": False, "on": True}.get(op, online)
+                        kind, waiting, went, data = panel(cmd)
+                        state = (kind, waiting)
+                        if went:
+                            events += 1
+                            if lose:
+                                lose = False
+                            elif not read_kept(env, read, guards[0], data, ha_text, ha_sent if with_sent else None):
+                                ha_text = ""
+                                if online:
+                                    kind, waiting, _, _ = panel("T")
+                                    state = (kind, waiting)
+                p.stdin.close()
+                p.wait()
+                r.check(events == want_events, f"{label}: the panel sent {events} reads, want {want_events}")
 
 
 def jinja_parse(env, auto_vars: dict, value: str, slug: str, recipients: dict):
@@ -1090,6 +1257,10 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
     fields = dict(re.findall(r"(\w+): (.*)", ev.group(1))) if ev else {}
     r.check(fields.get("sent") == "!lambda return id(read_sent);" and fields.get("letter") == "!lambda return id(read_raw);",
             f"kid.yaml: Done must carry sent and letter, got {sorted(fields)}")
+    # The resend drops a read of a replaced letter only once it has gone.
+    resend = kid_scripts.get("resend_pending", "")
+    r.check(0 <= resend.find("homeassistant.event") < resend.find("BEGIN letter-resent"),
+            "kid.yaml: resend_pending must send the read before letter-resent can drop it")
     guard = read_guard(ha)[1]
     r.check(bool(guard) and "trigger.event.data.letter" in guard[0], "letter read: the guard must compare the letter the panel sent")
     g = esphome_subs(srcs["garden"])
@@ -1331,6 +1502,7 @@ def run(srcs: dict, quiet=False) -> Report:
     check_send_script(r, ha)
     check_read_guard(r, ha)
     check_letter_done(r, ha, srcs["kid"], cxx)
+    check_letter_rounds(r, ha, srcs["kid"], cxx)
     check_parsers(r, ha, srcs["kid"], srcs["base"], cxx)
     check_panel_v2(r, srcs, cxx)
     check_timer_alert(r, srcs, cxx)
@@ -1358,12 +1530,25 @@ SABOTAGES = [
      'if (false) {\n              kind = 3;'),
     ("panel reads a never-set helper as a letter", "kid", 'if (s == "unknown") s = "";', ""),
     ("a Done with no sent time clears the letter", "ha",
-     "{{ (states(sent_helper) not in ['unknown', 'unavailable']\n",
-     "{{ (seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
+     "else (states(sent_helper) not in ['unknown', 'unavailable']\n",
+     "else (seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
     ("read guard ignores the letter the panel showed", "ha",
-     "\n             or ('letter' in trigger.event.data\n                 and trigger.event.data.letter | string != states(helper)) }}",
-     " }}"),
-    ("read guard refuses a panel too old to send the letter", "ha", "or ('letter' in trigger.event.data\n", "or (true\n"),
+     "(trigger.event.data.letter | string != states(helper))\n             if 'letter' in trigger.event.data\n             else ", ""),
+    ("read guard refuses a panel too old to send the letter", "ha", "             if 'letter' in trigger.event.data\n",
+     "             if true\n"),
+    ("read guard still matches the sent time beside the letter", "ha",
+     "(trigger.event.data.letter | string != states(helper))\n",
+     "(trigger.event.data.letter | string != states(helper) or states(sent_helper) != seen_sent)\n"),
+    ("panel keeps a read waiting after its letter was replaced", "kid",
+     "            if (x != read_letter) {\n              waiting = false;\n              read_letter = \"\";\n            } else {\n              kind = 1;\n            }",
+     "            if (kind != 2) {\n              waiting = false;\n              read_letter = \"\";\n            } else if (x == read_letter) {\n              kind = 1;\n            }"),
+    ("panel shows the envelope of a letter it marked read", "kid",
+     "            } else {\n              kind = 1;\n            }\n          }\n          // END letter-heard",
+     "            }\n          }\n          // END letter-heard"),
+    ("a Done on a replaced letter is sent again on every reconnect", "kid",
+     "                  if (heard != read_letter) {", "                  if (false) {"),
+    ("a sent read is dropped while its letter still waits", "kid",
+     "                  if (heard != read_letter) {", "                  if (true) {"),
     ("Done sends the helper's sent time, not the shown letter's", "kid", "done_sent = opened_sent;", "done_sent = sent;"),
     ("Done names the helper's letter, not the one on screen", "kid", "done_raw = shown;", "done_raw = raw;"),
     ("Done hides a letter that replaced the one read", "kid", "              done_sent = opened_sent;\n",

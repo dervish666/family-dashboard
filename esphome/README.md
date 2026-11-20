@@ -401,18 +401,19 @@ or the panel's request is refused and the log says why.
    `letter: input_text.letter_kid_a` reads the helper itself and shows the letter once.
 2. Kid A's panel sees the helper change, shows the red dot and brightens.
 3. Kid A taps the envelope, reads it, taps **Done**. The panel fires
-   `esphome.family_letter_read` with `child: kid_a`, the letter it opened and that letter's
-   sent time.
-4. An automation empties `input_text.letter_kid_a` (and the postie copy if it is still there).
-   Every screen drops it. If the helper no longer holds that letter, or its sent time differs, a
-   newer letter arrived in between and stays, even if it landed while the old one was open. A
-   **Done** with no sent time leaves the letter too, and says so in the log.
+   `esphome.family_letter_read` with `child: kid_a`, the letter it opened and a sent time.
+4. An automation empties `input_text.letter_kid_a` (and the postie copy if it is still there)
+   if it still holds that letter's text. Every screen drops it. If the helper holds another
+   letter, that one arrived in between and stays, even if it landed while the old one was
+   open. The sent time only matters for panel firmware too old to send the letter. There a
+   **Done** whose sent time differs, or is missing, leaves the letter and says so in the log.
 
 If the letter is read on the wall card first, a v1.8 card with `letter:` empties the child's
 helper (and the postie copy) itself; an older card empties the postie and a second automation
 clears the panel. A panel that was off or offline shows the letter when it comes
-back, and a **Done** pressed while offline is sent again when the panel reconnects. Unread
-letters older than `expire_days` (3) go at 03:30.
+back, and a **Done** pressed while offline is sent again when the panel reconnects, unless the
+helper no longer holds that letter by then. Unread letters older than `expire_days` (3) go at
+03:30.
 
 ## Privacy and safety
 

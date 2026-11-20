@@ -33,15 +33,23 @@ a `text` entity from another integration has the same ceiling. The script trims 
 which leaves about 230 characters of letter.
 
 **The sent time.** `input_datetime.letter_<slug>_sent` (date and time) is optional. The script
-sets it on every send. A panel freezes the letter when it is opened, and its **Done** carries
-that letter (`letter`, the helper value as it was) and its sent time (`sent`). The read
-automation only clears the helper when it still holds that letter and, with the sent helper
-set, that sent time, so a letter that arrives while another is on screen survives the **Done**.
-A **Done** that carries no sent time, or `unknown`, while the sent helper is set leaves the
-letter and writes why to the log: it cannot show which letter was read. Panel firmware from
-before `letter` was sent is matched on the sent time alone, and with no sent helper either its
-**Done** clears whatever letter is waiting. The daily expiry uses the sent time, falling back
-to the helper's last change.
+sets it on every send, and the daily expiry uses it, falling back to the helper's last change.
+
+**Which letter a Done means.** A panel freezes the letter when it is opened, and its **Done**
+carries that letter's text (`letter`, the helper value as it was) beside a sent time (`sent`).
+The read automation clears the helper only while it holds that text, so a letter that arrives
+while another is on screen survives the **Done**. The sent time plays no part. The panel hears
+the text and the sent helper separately, so the time it holds can be the previous letter's.
+The same text sent twice counts as one letter, and a **Done** on either clears it. A **Done**
+on a letter that was replaced while it was on screen goes once, is refused, and the new
+letter's envelope stays.
+
+Panel firmware from before `letter` was sent is matched on the sent time alone. With the sent
+helper set, its **Done** with no sent time, `unknown` or a different one leaves the letter and
+writes why to the log; with no sent helper its **Done** clears whatever letter is waiting.
+Update the package and the kid panels together. A package from before this rule also matches
+current firmware on the sent time, and a time that lags the text leaves the letter waiting in
+Home Assistant while the panel hides it.
 
 **Sending.** `script.family_send_panel_letter`, fields `to`, `sender` and `text`. `to` is a slug
 (`kid_a`) or a name (`Kid A`); the script slugifies it. It stops, and writes an error to the
@@ -61,7 +69,9 @@ helper:
 
 **Offline.** The letter waits in the helper, which Home Assistant restores after a restart. A
 panel that was off shows it when it reconnects. A **Done** pressed while the panel was offline
-hides the letter on that panel and is sent again when the API reconnects.
+hides the letter on that panel and is sent again when the API reconnects, as long as the
+helper still holds that letter. If it was read elsewhere or replaced meanwhile, the panel drops
+the **Done** and shows whatever waits now.
 
 **Expiry.** `family_panel_letter_expire` clears unread letters older than `expire_days` (3) at
 03:30. Set `expire_days: 0` to keep them until read.

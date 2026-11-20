@@ -93,13 +93,24 @@ text_sensor:
             }
           }
           // END letter-parse
-          if (kind != 2) {
-            // Home Assistant emptied it: the read went through.
-            id(read_pending) = false;
-            id(read_raw) = "";
-          } else if (x == id(read_raw)) {
-            kind = 1;
+          std::string read_letter = id(read_raw);
+          bool waiting = id(read_pending);
+          // BEGIN letter-heard (tests/panels/check.py compiles this block)
+          {
+            // A read waits only while the helper holds the letter read, and
+            // its envelope stays hidden meanwhile. Emptied, the read went
+            // through. Replaced, Home Assistant refuses a read of the old
+            // letter, so it is not sent again.
+            if (x != read_letter) {
+              waiting = false;
+              read_letter = "";
+            } else {
+              kind = 1;
+            }
           }
+          // END letter-heard
+          id(read_raw) = read_letter;
+          id(read_pending) = waiting;
           bool fresh = kind == 2 && (id(letter_kind) != 2 || text != id(letter_text));
           id(letter_kind) = kind;
           id(letter_from) = from;
@@ -167,10 +178,11 @@ script:
           int kind = id(letter_kind);
           // BEGIN letter-done (tests/panels/check.py compiles this block)
           {
-            // Done is for the letter on screen. While the helper still holds
-            // it, send the sent time it has now (it can land just after the
-            // text). If a new letter replaced it, send the time it was opened
-            // with, and leave the new letter's envelope showing.
+            // Done is for the letter on screen, and Home Assistant matches it
+            // by its text. The sent time is for a read automation from before
+            // that: the helper's time now while it still holds the letter
+            // (the time can land after the text), the time it was opened with
+            // if a new letter replaced it, whose envelope stays.
             done_raw = shown;
             if (raw == shown) {
               done_sent = sent;
@@ -204,6 +216,22 @@ script:
                   child: ${child}
                   sent: !lambda return id(read_sent);
                   letter: !lambda return id(read_raw);
+            - lambda: |-
+                std::string heard = id(letter_raw).state, read_letter = id(read_raw);
+                bool waiting = id(read_pending);
+                // BEGIN letter-resent (tests/panels/check.py compiles this block)
+                {
+                  // Sent. A Done pressed after another letter replaced the
+                  // one on screen goes once. Home Assistant refuses it, and
+                  // a retry would only be refused again.
+                  if (heard != read_letter) {
+                    waiting = false;
+                    read_letter = "";
+                  }
+                }
+                // END letter-resent
+                id(read_raw) = read_letter;
+                id(read_pending) = waiting;
 
 interval:
   # The red dot breathes while a letter waits: two shades, not a flash.

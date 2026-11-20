@@ -318,6 +318,15 @@ def main() -> int:
         fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": b_sent, "letter": "Parent 3|Letter C"})
         settle()
         check(state(token, "input_text.letter_kid_a") == "", "a Done naming the letter waiting, at its sent time, empties it")
+        # The panel hears the two helpers separately: its Done can name the
+        # letter waiting with the sent time of the one before.
+        send(token, "kid_a", "Parent 1", "Letter D")
+        settle()
+        d_sent = state(token, "input_datetime.letter_kid_a_sent")
+        fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": b_sent, "letter": "Parent 1|Letter D"})
+        settle()
+        check(d_sent != b_sent and state(token, "input_text.letter_kid_a") == "",
+              "a Done naming the letter waiting empties it, though its sent time is the letter before's")
         fire(token, "esphome.family_letter_read", {"child": "nobody", "sent": ""})
         settle()
         check(state(token, "input_text.letter_kid_b") == "Pa/rent|42", "a Done for an unknown child changes nothing")
