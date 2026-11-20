@@ -270,5 +270,11 @@ engine/engine.js|s/^    CD_KEY = ""; XS.dueKey = null; .*$//|the countdown chips
 engine/engine.js|s/if (SCENE.ambient) SCENE.ambient.setup(SV); hud(); },/if (SCENE.ambient) SCENE.ambient.setup(SV); },/|a resize leaves the HUD in the old layout until the next tick
 engine/engine.js|s/    cn.style.top = narrow ? foot(\$("hud")) + 6 + "px" : "";/    cn.style.top = "";/|on a phone the tiles stay on the clock
 card.js|s/justify-content: center; pointer-events: none; }/justify-content: center; }/|the banner's whole row takes taps, so a tag beside the banner cannot be tapped
+data.js|s/  if (o.demoInHa) st = DEMO_IN_HA;/  if (false) st = DEMO_IN_HA;/|the demo in a real dashboard has a clear status line, so nothing says it is the demo
+popup.js|s/  if (v.demoInHa) foot.push(.*$/  if (false) {}/|the demo in a real dashboard says nothing about it on the cards
+popup.js|s/^  else {$/  {/|the demo in a real dashboard still says Calendars checked on a person's card
+popup.js|s/^  else if (ex.checked_at) foot.push(checkedAt(ex));$/  if (ex.checked_at) foot.push(checkedAt(ex));/|the demo in a real dashboard still says School info checked on the School card
+engine/engine.js|s/demoInHa: DEMO .. !!HA.hass()/demoInHa: DEMO/|the demo page with no Home Assistant says Demo data too, and the docs' screenshots change
+card.js|s/margin-top: 6px; max-width: 300px; margin-left: auto; }/margin-top: 6px; }/|a long status line runs left into the countdown chips
 EOF
 echo "ok: all $n sabotaged copies failed the check"

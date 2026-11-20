@@ -39,7 +39,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #next b { font-weight: 600; color: var(--hud); }
 #corner { position: absolute; right: 36px; top: 30px; text-align: right; pointer-events: none;
   font-size: 19px; color: var(--hud-soft); }
-#status { color: var(--warn); font-weight: 500; margin-top: 6px; }
+#status { color: var(--warn); font-weight: 500; margin-top: 6px; max-width: 300px; margin-left: auto; }   /* a long one wraps in the corner, clear of the countdowns */
 
 /* Countdowns: a row of tags in the sky between the clock and the corner hint, the
    same white pill with a coloured rim and a number badge as the name tags on the
@@ -99,6 +99,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .fd.narrow #clock .temp { font-size: .39em; margin-left: .18em; vertical-align: .45em; }
 .fd.narrow #hint { display: none; }
 .fd.narrow #corner { left: 16px; right: 16px; text-align: left; }
+.fd.narrow #status { max-width: none; margin-left: 0; }
 .fd.narrow #tiles { justify-content: flex-start; margin-top: 6px; }
 .fd.narrow .tile { margin: 0 7px 0 0; }
 .fd.narrow #dates, .fd.narrow #due, .fd.narrow #announce { left: 16px; right: 16px; }

@@ -2992,7 +2992,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       : DATA.events.length ? "Nothing else on today" : "";
     // Say out loud when the picture is old (data.js statusLine).
     // Written only when the words change: it is a live region, and a reader would say it every second.
-    var stl = statusLine(DATA, d, { demo: DEMO, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
+    var stl = statusLine(DATA, d, { demo: DEMO, demoInHa: DEMO && !!HA.hass(), letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
     if ($("status").textContent !== stl) $("status").textContent = stl;
     $("next").style.opacity = FLIGHT ? 0 : 1;
     extrasHud(d); postHud(d); refreshKeys(); layHud();
@@ -3039,7 +3039,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // ── The card ────────────────────────────────────────────────────────────────
   var openThing = null, closeTimer = null;
   // What the cards are built from (popup.js): the snapshot, the clock and the config.
-  function view(d) { return { data: DATA, now: d, config: CONFIG, src: SRC, demo: DEMO }; }
+  function view(d) { return { data: DATA, now: d, config: CONFIG, src: SRC, demo: DEMO, demoInHa: DEMO && !!HA.hass() }; }
   // A letter opened on someone's card (v1.9.0). It stays theirs while the card is up, so it can
   // be read: Got it, or closing the card, clears it. What to empty is worked out when the card
   // opens (letterRead, as v1.8.0 did on open) and written then, each helper only while it still

@@ -35,6 +35,10 @@ Card
   tiles, so at 1024 the banner keeps its words and nothing is cut. Under 640 px the corner hint
   goes and the tiles move under a smaller clock. A resize fits the countdown chips again.
   1280x800 looks as it did.
+- With **Demo cast** on in a real dashboard, the status line says "Demo data. Turn off Demo
+  cast in the card editor to see your calendars", and the cards' feet say the same instead of
+  "Calendars checked". The demo page on its own is unchanged. A long status line wraps in the
+  corner instead of running into the countdowns.
 
 Editor
 - A "Birthday (MM-DD)" field per person. A rename carries the birthday and anniversary along.

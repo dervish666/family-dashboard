@@ -234,14 +234,35 @@ export async function engineChecks(src, T) {
   const DAY = "2026-10-26";                         // a Monday, GMT
   const NOON = local(2026, 10, 26, 12, 0);
 
-  // The demo (no Home Assistant data): it runs, its status line is clear, and a card has its day.
+  // The demo on its own page (no Home Assistant): it runs, its status line is clear, and a card
+  // has its day and says when it was checked, as the docs' screenshots show.
   {
     C.now = NOON;
-    const card = await boot({ demo: true }, fakeHass(BASE_STATES()));
+    const card = await boot({ demo: true });
     for (let i = 0; i < 40; i++) frame();
-    eq(card.$("status").textContent, "", "the demo's status line is clear");
+    eq(card.$("status").textContent, "", "the demo page's status line is clear");
     card.dbg.open(person(card, "Parent 1"), true);
     eq(card.$("sum").textContent, "1 thing today", "a demo card has its day");
+    ok(/Calendars checked today 12:00\./.test(text(card, "lists")) && !/Demo data/.test(text(card, "lists")), "and the demo page's card foot is as it was");
+    done(card);
+  }
+  // The demo switched on in a real dashboard (Home Assistant there): a person given a real calendar
+  // would read "Free today, calendars checked" on made-up data, so the status line and every card
+  // foot say it is the demo, and no foot claims a check.
+  {
+    C.now = NOON;
+    const ppl = [{ name: "Alice", calendar: "calendar.alice" }, { name: "Kid 1", role: "kid", school: true }, { name: "House" }];
+    const card = await boot({ demo: true, people: ppl }, fakeHass(BASE_STATES()));
+    for (let i = 0; i < 3; i++) frame();
+    eq(card.$("status").textContent, "Demo data. Turn off Demo cast in the card editor to see your calendars", "the demo in Home Assistant says so on the status line");
+    ok(/max-width: 300px/.test(rule(card, "#status")), "a status line that long wraps in the corner, clear of the countdowns");
+    card.dbg.open(person(card, "Alice"), true);
+    ok(/Demo data\. Turn off Demo cast in the card editor to see your calendars\./.test(text(card, "lists")), "and on a person's card");
+    ok(!/checked/.test(text(card, "lists")), "and that card claims no check of calendars or school info");
+    card.$("done").fire("click");
+    card.$("keys").children.filter(function (b) { return b.getAttribute("data-k") === "school"; })[0].fire("click");
+    await advance(400);
+    ok(card.$("who").textContent === "School" && /Demo data\./.test(text(card, "lists")) && !/checked/.test(text(card, "lists")), "the School card says so too, with no check claimed");
     done(card);
   }
   // ── Calendars: a failed load is not a free day ────────────────────────────────

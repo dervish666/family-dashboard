@@ -514,7 +514,7 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
   `/hacsfiles/family-dashboard/family-dashboard.js`) or the browser has the old page cached.
   Reload with the cache cleared, or restart the companion app.
 - **It still shows the demo cast.** **Demo cast** is on, which is the default for a new card.
-  Turn it off in the editor.
+  The status line says "Demo data" while it is. Turn it off in the editor.
 - **"Calendar unavailable" on a card and in the corner.** The calendar entity is missing, or
   the calendar took more than 20 seconds to answer. Check the id in the editor, then open the
   calendar in Home Assistant. A card never reads this as a free day.

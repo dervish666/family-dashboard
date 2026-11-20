@@ -16,6 +16,7 @@
 //   config   the normalised config (people, sensors, calendarMode, sourceOwner, due, schoolWho...)
 //   src      each child's school sources (data.js schoolSources)
 //   demo     true on the demo, whose sensors.extra is made up and never missing
+//   demoInHa true when that demo runs on a real Home Assistant: the foot says so and claims no checks
 // and for personCard also:
 //   person   the person whose card it is
 //   letter   the letter to show at the top, or null
@@ -26,7 +27,7 @@
 import { esc, pad2, ymd } from "./engine/draw.js";
 import { calendarHealth } from "./calendar.js";
 import { lessonsOver, addDays, mondayOf } from "./school.js";
-import { dayLabel, schoolParse, choiceFor, schoolDay, weekday, DAYS, DAYS_LONG, MONTHS } from "./data.js";
+import { dayLabel, schoolParse, choiceFor, schoolDay, weekday, DAYS, DAYS_LONG, MONTHS, DEMO_IN_HA } from "./data.js";
 
 var KIND = { homework: "Homework", kit: "Kit", "term-date": "School", "inset-day": "No school", deadline: "Deadline", event: "School" };
 function row(when, what, chip, raw) {
@@ -104,8 +105,11 @@ export function personCard(v) {
     flags.forEach(function (f) { html += row("", f, "Heads up"); });
   }
   var foot = [];
-  if (data.weekAt) foot.push("Calendars checked " + dayLabel(ymd(data.weekAt), v.now).toLowerCase() + " " + pad2(data.weekAt.getHours()) + ":" + pad2(data.weekAt.getMinutes()) + ".");
-  if (ex.checked_at) foot.push(checkedAt(ex));
+  if (v.demoInHa) foot.push('<span class="bad">' + DEMO_IN_HA + ".</span>");
+  else {
+    if (data.weekAt) foot.push("Calendars checked " + dayLabel(ymd(data.weekAt), v.now).toLowerCase() + " " + pad2(data.weekAt.getHours()) + ":" + pad2(data.weekAt.getMinutes()) + ".");
+    if (ex.checked_at) foot.push(checkedAt(ex));
+  }
   var missing = ((ex.sources || {}).unavailable || []).filter(function (s) {
     return name === "House" || v.config.sourceOwner.some(function (m) { return m[0].test(s) && m[1] === name; }); });
   if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
@@ -297,7 +301,8 @@ export function schoolCard(v) {
   html += ex.schools && ex.schools.length ? ex.schools.map(function (sc) { return termRows(v, sc, td); }).join("")
     : '<div class="empty">Term dates not gathered yet.</div>';
   var foot = [];
-  if (ex.checked_at) foot.push(checkedAt(ex));
+  if (v.demoInHa) foot.push('<span class="bad">' + DEMO_IN_HA + ".</span>");
+  else if (ex.checked_at) foot.push(checkedAt(ex));
   var missing = (ex.sources || {}).unavailable || [];
   if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
   if (!v.demo) { var xs2 = extraState(v); if (xs2) foot.push('<span class="bad">' + esc(xs2) + "</span>"); }
