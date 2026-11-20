@@ -256,6 +256,13 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   eq(loading.sum, "Loading the week", "personCard: before the first load the summary says the week is loading");
   ok(loading.html.indexOf("Still loading the week, so this card can't say what's on yet.") >= 0 && loading.html.indexOf("Nothing on today") < 0, "personCard: and Today is not a free day");
   eq([card("Pat", loaded).sum, card("Alex", loaded).sum], ["No calendar", "Free today"], "personCard: no calendar of their own is not a free day; an empty calendar is");
+  // A v1.0.0 week (sensor.family_week) that stopped updating: older than the stale limit, an empty day is not a free one.
+  const legacy = m.normalize({ people: [{ name: "Alex" }, { name: "House" }], sensors: { week: "sensor.family_week" } });
+  const aged = function (mins) { return m.personCard({ data: Object.assign({}, loaded, { weekAt: new Date(at - mins * 60000) }), now: at, config: legacy, src: {}, demo: false,
+    person: legacy.people[0], letter: null, letters: { clearErr: null, bad: [] }, due: null }); };
+  const old = aged(41);
+  eq([old.sum, aged(39).sum], ["Last checked today 11:19", "Free today"], "personCard: a week past the stale limit says when it was checked instead of Free today");
+  ok(old.html.indexOf("Calendars last checked today 11:19, so this card can't say what's on.") >= 0 && old.html.indexOf("Nothing on today") < 0, "personCard: and Today says so too");
   const title = card("Alex", Object.assign({}, loaded, { events: [{ who: "Alex", what: "Dentist <b>x</b> & \"co\"", day: "2026-10-26", at: "15:00", all_day: false, start: "2026-10-26T15:00:00" },
     { who: "Alex", what: "<i>Trip</i>", day: "2026-10-28", at: "", all_day: true, start: "2026-10-28" }] }),
     { letter: { from: "<i>Mum</i>", text: "Tea <now>", at: new Date(2026, 9, 26, 11, 58) } });

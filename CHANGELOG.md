@@ -15,6 +15,8 @@ Card
   more than 20 seconds counts as unavailable.
 - A calendar answer whose entries have no readable start counts as unavailable, not as a free
   day with "Calendars checked".
+- A week older than 40 minutes (a v1.0.0 template sensor that stopped updating) no longer reads
+  "Free today" on an empty day. The card says when the calendars were last checked.
 - An event over several days is on each of them. A night shift reads "until 06:00" the next
   morning, and a day it covers to midnight reads "All day", not "until 00:00". A v1.0.0
   template-sensor setup has no event ends, so it keeps one row per event.

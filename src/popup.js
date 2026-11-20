@@ -27,7 +27,7 @@
 import { esc, pad2, ymd } from "./engine/draw.js";
 import { calendarHealth } from "./calendar.js";
 import { lessonsOver, addDays, mondayOf } from "./school.js";
-import { dayLabel, schoolParse, choiceFor, schoolDay, weekday, DAYS, DAYS_LONG, MONTHS, DEMO_IN_HA } from "./data.js";
+import { dayLabel, stamp, WEEK_STALE, schoolParse, choiceFor, schoolDay, weekday, DAYS, DAYS_LONG, MONTHS, DEMO_IN_HA } from "./data.js";
 
 var KIND = { homework: "Homework", kit: "Kit", "term-date": "School", "inset-day": "No school", deadline: "Deadline", event: "School" };
 function row(when, what, chip, raw) {
@@ -70,19 +70,22 @@ function dueSection(v, name) {
 }
 
 // ── A person's card ─────────────────────────────────────────────────────────────
-// A failed or unfinished load, or no calendar at all, never reads as a free day: Today and the
-// summary say which it is, and the foot names what failed.
+// A failed or unfinished load, no calendar at all, or a week too old to trust (a v1.0.0
+// template sensor that stopped updating) never reads as a free day: Today and the summary say
+// which it is, and the foot names what failed.
 export function personCard(v) {
   var p = v.person, name = p.name, data = v.data, td = ymd(v.now), html = "";
   var mine = data.events.filter(function (e) { return e.who === name; });
   var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
   var calHealth = calendarHealth(data, name);
   if (v.config.calendarMode && !(p.calendars || []).length && calHealth === "ok") calHealth = "none";   // nothing to read is not a free day
+  if (calHealth === "ok" && data.weekAt && v.now - data.weekAt > WEEK_STALE) calHealth = "stale";
   if (v.letter) html += postBlock(v.letter);
   html += "<h2>Today</h2>";
   html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
     : '<div class="empty">' + (calHealth === "none" ? "No calendar picked for " + esc(name) + " yet. Add one in the card editor."
       : calHealth === "loading" ? "Still loading the week, so this card can't say what's on yet."
+      : calHealth === "stale" ? "Calendars last checked " + stamp(data.weekAt, v.now) + ", so this card can't say what's on."
       : calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
       : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
   if (later.length) {
@@ -107,7 +110,7 @@ export function personCard(v) {
   var foot = [];
   if (v.demoInHa) foot.push('<span class="bad">' + DEMO_IN_HA + ".</span>");
   else {
-    if (data.weekAt) foot.push("Calendars checked " + dayLabel(ymd(data.weekAt), v.now).toLowerCase() + " " + pad2(data.weekAt.getHours()) + ":" + pad2(data.weekAt.getMinutes()) + ".");
+    if (data.weekAt) foot.push("Calendars checked " + stamp(data.weekAt, v.now) + ".");
     if (ex.checked_at) foot.push(checkedAt(ex));
   }
   var missing = ((ex.sources || {}).unavailable || []).filter(function (s) {
@@ -123,7 +126,8 @@ export function personCard(v) {
   v.letters.bad.filter(function (b) { return b.who === name; }).forEach(function (b) { foot.push('<span class="bad">Letters unavailable (' + esc(b.entity) + " " + esc(b.reason) + "), so this card can't say if one is waiting.</span>"); });
   html += '<div class="foot">' + foot.join(" ") + "</div>";
   var sum = today.length ? today.length + (today.length === 1 ? " thing today" : " things today")
-    : calHealth === "none" ? "No calendar" : calHealth === "loading" ? "Loading the week" : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
+    : calHealth === "none" ? "No calendar" : calHealth === "loading" ? "Loading the week" : calHealth === "stale" ? "Last checked " + stamp(data.weekAt, v.now)
+    : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
   return { html: html, sum: sum };
 }
 

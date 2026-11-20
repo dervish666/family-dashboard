@@ -183,7 +183,7 @@ popup.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: false ? 
 popup.js|s/if (data.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
 popup.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
 calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars down reads as a free day
-data.js|s/d - data.weekAt > 40 \* 60000/d - data.weekAt > 400 * 60000/|a week hours old is not flagged stale
+data.js|s/d - data.weekAt > WEEK_STALE) st = /d - data.weekAt > 10 * WEEK_STALE) st = /|a week hours old is not flagged stale
 popup.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
 engine/engine.js|s/esc(up\[0\].what)/up[0].what/|the Next line stops escaping titles
 engine/engine.js|s/if (s \&\& String(s.state) !== l.was) return;//|closing a card empties a shared letter that landed while it was up
@@ -235,6 +235,7 @@ calendar.js|s/(allDay .. MIDNIGHT.test(end))/(allDay)/|a timed event ending at 0
 calendar.js|s/at: "until " + end.slice(11, 16)/at: s.slice(11, 16)/|the morning after a night shift reads the time it started
 calendar.js|s/const until = !atMidnight \&\& /const until = /|a day covered to its end by an event ending at 00:00 reads until 00:00
 calendar.js|s/  if (evs.length \&\& !read) throw/  if (false) throw/|a calendar answer with no readable event reads as a free week
+popup.js|s/  if (calHealth === "ok" \&\& data.weekAt \&\& v.now - data.weekAt > WEEK_STALE) calHealth = "stale";//|a v1.0.0 week hours old reads Free today on an empty day
 engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day after a late shift walks the creature out at the time it started
 engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
 engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day

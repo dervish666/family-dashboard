@@ -12,6 +12,8 @@
 //   byStart(events)                 the week's order
 //   statusLine(data, d, o)          the HUD's status line: what is old or broken, most urgent first
 //   dayLabel(ds, t)                 "Today", "Tomorrow", "Thu 29", or "Thu 5 Nov" a week or more on
+//   stamp(at, t)                    when a read was made, for a sentence: "today 11:19"
+//   WEEK_STALE                      how old a week can be before the card says how old it is
 import { weekRange, calendarPath, parseCalendarEvents } from "./calendar.js";
 import { parseTimetable, parseLunch, lunchChoice, readExtra } from "./school.js";
 import { pad2, ymd } from "./engine/draw.js";
@@ -27,6 +29,8 @@ export function dayLabel(ds, t) {
   var d = new Date(ds + "T12:00:00"), days = (d - t) / 864e5;
   return DAYS[d.getDay()] + " " + d.getDate() + (days > 6 ? " " + MONTHS[d.getMonth()] : "");
 }
+export function stamp(at, t) { return dayLabel(ymd(at), t).toLowerCase() + " " + pad2(at.getHours()) + ":" + pad2(at.getMinutes()); }
+export var WEEK_STALE = 40 * 60000;
 
 // ── Home Assistant ──────────────────────────────────────────────────────────────
 // Home Assistant hands the card its hass object, so there is no token to find:
@@ -149,7 +153,7 @@ export function statusLine(data, d, o) {
   else if (data.error) st = "Can't load the week (" + data.error + ")" + (data.gotAt ? ". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayLabel(ymd(data.gotAt), d).toLowerCase() + " ") +
     pad2(data.gotAt.getHours()) + ":" + pad2(data.gotAt.getMinutes()) : "");              // the day too once it is not today: an overnight outage must not read as this morning
   else if (!data.gotAt && !o.demo) st = "Loading the week";
-  else if (data.weekAt && d - data.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(data.weekAt), d).toLowerCase() + " " + pad2(data.weekAt.getHours()) + ":" + pad2(data.weekAt.getMinutes());
+  else if (data.weekAt && d - data.weekAt > WEEK_STALE) st = "Calendars last checked " + stamp(data.weekAt, d);
   else if (data.calFailed && data.calFailed.length) st = data.calFailed.length + (data.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + data.calFailed.map(function (f) { return f.who; }).join(", ");
   else if (L.bad.length) st = "Letters unavailable: " + L.bad.map(function (b) { return b.who; }).join(", ");
   else if (data.holidaysErr) st = "Holidays unavailable (" + data.holidaysErr + ")" + (data.holidaysAt ? ". Showing the list from " + dayLabel(ymd(data.holidaysAt), d).toLowerCase() + " " + pad2(data.holidaysAt.getHours()) + ":" + pad2(data.holidaysAt.getMinutes()) : "");
