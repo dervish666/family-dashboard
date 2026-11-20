@@ -452,10 +452,66 @@ export async function engineChecks(src, T) {
     const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
     ok(C.raf && intervals() >= 4, "a running card has a frame queued and its polls on intervals");
     const pending = C.raf;
+    ok(C.q.size > intervals(), "and its first live poll waiting on a timeout");
     card.disconnectedCallback();
     eq([C.raf, intervals()], [null, 0], "stop() cancels the frame and clears every interval");
+    eq(C.q.size, 0, "stop() clears its timeouts too");
     pending.fn(C.ms += 1100);
     eq(C.raf, null, "a frame already on its way when stop() ran does not queue another");
+    done(card);
+  }
+  // The card reuses its shadow root, so an old engine's timeout must not reach the new popup:
+  // the 60 s auto-close of a card opened before a config change, and a tap's delayed open.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    card.dbg.open(person(card, "Alex"), true);
+    card.setConfig({ type: "custom:family-dashboard-card", query: "dbg", people: PEOPLE, sensors: { weather: "weather.home" } });
+    await mount(card);
+    await advance(30000);
+    card.dbg.open(person(card, "Sky"), true);
+    await advance(31000);
+    ok(card.$("scrim").classList.contains("open") && card.$("who").textContent === "Sky", "the old engine's auto-close does not close the new engine's card");
+    await advance(30000);
+    ok(!card.$("scrim").classList.contains("open"), "the new engine's own auto-close does, 60 s after it opened");
+    // a tap on a creature opens its card 320 ms later; one made just before the card left the page opens nothing
+    frame();
+    const tap = function () { const b = person(card, "Alex").tagBox; card.$("world").fire("pointerdown", { clientX: b[0] + b[2] / 2, clientY: b[1] + b[3] / 2 }); };
+    tap();
+    await advance(400);
+    eq(card.$("who").textContent + " " + card.$("scrim").classList.contains("open"), "Alex true", "a tap on a name tag opens that person's card");
+    card.$("done").fire("click");
+    frame();
+    tap();
+    card.disconnectedCallback();
+    card.connectedCallback();
+    await mount(card);
+    await advance(400);
+    ok(!card.$("scrim").classList.contains("open"), "a tap made before the card left the page does not open a card on the new one");
+    done(card);
+  }
+  // The bell (announcement_sound) gets an AudioContext on its first ring; stop() closes it.
+  {
+    C.now = NOON;
+    const ACS = [];
+    globalThis.AudioContext = class {
+      constructor() { this.state = "running"; this.currentTime = 0; this.destination = {}; this.closed = false; ACS.push(this); }
+      createOscillator() { return { frequency: {}, connect() {}, start() {}, stop() {} }; }
+      createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} }; }
+      resume() { return Promise.resolve(); }
+      close() { this.closed = true; return Promise.resolve(); }
+    };
+    const st = BASE_STATES();
+    st["input_text.announcement"] = { state: "Tea's ready", last_changed: new RealDate(NOON - 5000).toISOString(), attributes: {} };
+    const hass = fakeHass(st);
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" }, announcement: "input_text.announcement", announcement_sound: true }, hass);
+    for (let i = 0; i < 600 && !ACS.length; i++) frame();
+    ok(ACS.length === 1 && !ACS[0].closed, "the town crier rings the bell for a new announcement");
+    card.disconnectedCallback();
+    await flush();
+    ok(ACS[0].closed, "stop() closes the bell's audio");
+    delete globalThis.AudioContext;
     done(card);
   }
   // A new config (the editor's save) stops the running engine and starts one on the new config.

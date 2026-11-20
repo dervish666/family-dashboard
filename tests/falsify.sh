@@ -187,5 +187,8 @@ engine/engine.js|s/    else if (!DATA.gotAt \&\& !DEMO) st = "Loading the week";
 engine/engine.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
 engine/engine.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
 engine/engine.js|s/console.error("meadow: the week did not load", e); DATA.error/console.error("meadow: the week did not load", e); DATA.events = []; DATA.error/|a failed reload throws away the last good week
+engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  function setTimeoutX(f, ms) { var id = window.setTimeout(/|the engine's timeouts are not its own, so stop() cannot clear them
+engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });//|stop() leaves the auto-close and a tap's open waiting
+engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open
 EOF
 echo "ok: all $n sabotaged copies failed the check"

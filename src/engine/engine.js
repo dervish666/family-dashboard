@@ -19,9 +19,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
   var Q = HOOKS ? "?" + String(HOOKS).replace(/^\?/, "") : "";
   var DEMO = CONFIG.demo === true || /[?&]demo\b/.test(Q);
-  // Timers and the frame loop belong to this card: stop() clears them when it leaves the page.
-  var TIMERS = [], STOPPED = false, STARTED = false, RAF = 0;
-  function setInterval(f, ms) { var id = window.setInterval(f, ms); TIMERS.push(id); return id; }
+  // Timers and the frame loop belong to this card: stop() clears them when it leaves the page,
+  // and one already on its way runs nothing. The card reuses its shadow root, so an old engine's
+  // timeout would otherwise reach the new engine's popup through ROOT.getElementById.
+  var TIMERS = [], TOUTS = [], STOPPED = false, STARTED = false, RAF = 0;
+  function setInterval(f, ms) { var id = window.setInterval(function () { if (!STOPPED) f(); }, ms); TIMERS.push(id); return id; }
+  function setTimeout(f, ms) { var id = window.setTimeout(function () { clearTimeout(id); if (!STOPPED) f(); }, ms); TOUTS.push(id); return id; }
+  function clearTimeout(id) { var i = TOUTS.indexOf(id); if (i >= 0) TOUTS.splice(i, 1); window.clearTimeout(id); }
   function requestAnimationFrame(f) { if (!STOPPED) RAF = window.requestAnimationFrame(f); return RAF; }
   var HOUR = (Q.match(/[?&]hour=([\d.]+)/) || [])[1];          // test hook: fake the clock
   var DATE = (Q.match(/[?&]date=(\d{4}-\d\d-\d\d)/) || [])[1];  // test hook: fake the day (countdowns, parties, school days); pair with hour=
@@ -3705,6 +3709,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       size(); if (VIL) VILLAGE = makeVillage(); else makeDrops(); makeWeatherSprites();
       if (SCENE.ambient) SCENE.ambient.setup(SV); },
     stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF);
+      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });
+      if (CAUDIO) { var ac = CAUDIO; CAUDIO = null; Promise.resolve().then(function () { return ac.close(); }).catch(function (e) { console.warn("family-dashboard-card: the bell's audio did not close", e); }); }
       if (REDUCE_MQ) { if (REDUCE_MQ.removeEventListener) REDUCE_MQ.removeEventListener("change", readReduced); else if (REDUCE_MQ.removeListener) REDUCE_MQ.removeListener(readReduced); } }
   };
 }
