@@ -207,6 +207,10 @@ eq(["Role", BD, "Accessories", "Goes to school"].map(function (l) { return [rowL
   [[true, false], [true, false], [true, false], [true, false]], "editor: the household's row has no role, birthday, accessories or school");
 const house = type(ed, 2, "Name", "Our house").people[2];
 eq([house.name, house.adult, house.glasses], ["Our house", true, true], "editor: editing the household keeps its YAML role and accessories");
+// A person with no look in YAML is drawn as the card's own pick; an edit keeps that, not a crow.
+const noLook = { people: [{ name: "Ann", calendar: "calendar.ann" }, { name: "Bo" }, { name: "Home", calendar: "calendar.family" }] };
+const nl = type(editor(noLook), 2, "Name", "Our home").people[2];
+eq(nl.look == null ? m.normalize(noLook).people[2].look : nl.look, m.normalize(noLook).people[2].look, "editor: an edit keeps a look-less person's drawn animal");
 document.createElement = domWas.create; document.createTextNode = domWas.text;
 delete globalThis.HTMLElement.prototype.attachShadow; delete globalThis.HTMLElement.prototype.dispatchEvent;
 

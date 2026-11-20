@@ -1,4 +1,4 @@
-import { DEFAULTS, LOOK_TG, PALETTE, ACCESSORIES, SCENES, normalize, rgbHex, clone } from "./config.js";
+import { DEFAULTS, LOOKS, LOOK_TG, PALETTE, ACCESSORIES, SCENES, normalize, rgbHex, clone } from "./config.js";
 import { CREATURES, CREATURE } from "./creatures/index.js";
 import { SCENE_LIST, SCENE_BY_ID } from "./scenes/index.js";
 import { TILE_ICONS, MAX_TILES, TILE_DEFAULTS, thresholdText, parseThresholdText, hexOf } from "./extras.js";
@@ -236,7 +236,7 @@ class FamilyDashboardCardEditor extends HTMLElement {
       shown.birthday = has(bdays, shown.key) && bdays[shown.key] != null ? String(bdays[shown.key]) : "";
       self._shown[i] = shown;
       const data = { timetable: shown.timetable, lunch: shown.lunch, birthday: shown.birthday, name: nm, role: p.adult || p.role === "adult" ? "adult" : "kid",
-        look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || "crow", col: hexRgb(/^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length]),
+        look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || LOOKS[i % 6], col: hexRgb(/^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length]),
         person_letter: typeof p.letter === "string" ? p.letter : "", calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school };
       // the household's form has none of these, so its changes never rewrite them
       if (i === people.length - 1 && people.length > 1) HOUSE_HIDES.forEach(function (k) { delete data[k]; });
