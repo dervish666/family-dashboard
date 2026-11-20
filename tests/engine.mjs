@@ -419,6 +419,17 @@ export async function engineChecks(src, T) {
     ok(text(card, "next").indexOf("Dentist &lt;b&gt;x&lt;/b&gt;") >= 0 && text(card, "next").indexOf("<b>x</b>") < 0, "a title's markup is escaped in the Next line");
     done(card);
   }
+  // The household is the last person, whatever it is called: its events are on the Next line
+  // without a name, as the House's are.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.family": [timed("Bin day", DAY, "15:00")] });
+    const card = await boot({ people: [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home", calendar: "calendar.family" }], sensors: { weather: "weather.home" } }, hass);
+    frame();
+    eq(text(card, "next"), "Next: <b>15:00</b> Bin day", "a household called Home: its event is on the Next line without its name");
+    done(card);
+  }
   // A week older than the stale limit (40 minutes) says how old it is; a fresher one does not.
   for (const [mins, want] of [[41, "Calendars last checked today 11:19"], [39, ""]]) {
     C.now = NOON;

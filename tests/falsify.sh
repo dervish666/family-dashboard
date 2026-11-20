@@ -236,6 +236,9 @@ calendar.js|s/at: "until " + end.slice(11, 16)/at: s.slice(11, 16)/|the morning 
 calendar.js|s/const until = !atMidnight \&\& /const until = /|a day covered to its end by an event ending at 00:00 reads until 00:00
 calendar.js|s/  if (evs.length \&\& !read) throw/  if (false) throw/|a calendar answer with no readable event reads as a free week
 popup.js|s/  if (calHealth === "ok" \&\& data.weekAt \&\& v.now - data.weekAt > WEEK_STALE) calHealth = "stale";//|a v1.0.0 week hours old reads Free today on an empty day
+popup.js|s/var flags = house ? /var flags = name === "House" ? /|a household not called House loses its flags
+popup.js|s/    return house .. v.config.sourceOwner/    return name === "House" ? true : v.config.sourceOwner/|a household not called House loses the sources that could not be checked
+engine/engine.js|s/esc(up\[0\].who === HOUSEHOLD ? ""/esc(up[0].who === "House" ? ""/|the Next line names a household not called House
 engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day after a late shift walks the creature out at the time it started
 engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
 engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day

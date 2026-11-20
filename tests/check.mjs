@@ -275,6 +275,15 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   const bad = Object.assign({}, loaded, { extra: { items: [{ who: "Sky", date: "2026-10-27", kind: "homework", what: "Maths <sheet>" }] }, extraBad: ["schools is not a list"] });
   ok(card("Sky", bad).html.indexOf("School info unreadable (schools is not a list).") >= 0 && card("Sky", bad, { demo: true }).html.indexOf("School info") < 0,
     "personCard: school info in the wrong shape is named in the foot, and the demo's never is");
+  // The household is the last person, whatever it is called: its flags, every source that could
+  // not be checked and its own Today line follow it to "Home".
+  const homeCfg = m.normalize({ people: [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home", calendar: "calendar.family" }], sensors: { extra: "sensor.family_extra" } });
+  const homeData = Object.assign({}, loaded, { extra: { items: [], flags: ["Half term starts in three weeks"], sources: { ok: [], unavailable: ["parent-mail"] } } });
+  const homeCard = function (i) { return m.personCard({ data: homeData, now: at, config: homeCfg, src: {}, demo: false, person: homeCfg.people[i], letter: null, letters: { clearErr: null, bad: [] }, due: null }).html; };
+  const hc = homeCard(1), sc = homeCard(0);
+  ok(/Heads up<\/span>Half term starts in three weeks/.test(hc) && /Couldn't check: parent-mail\./.test(hc) && /Nothing for the house today\./.test(hc),
+    "personCard: a household called Home has the flags, the sources that could not be checked and the house's Today");
+  ok(!/Half term starts/.test(sc) && !/parent-mail/.test(sc), "personCard: and the person before it has neither");
   const sch = function (data, day, more) { return m.schoolCard(Object.assign({ data: data, now: day, config: cfg, src: {}, demo: false }, more || {})); };
   const mon = sch(bad, at);
   ok(mon.html.indexOf("Tomorrow</div><div class=\"what\"><span class=\"chip\">Sky</span>Homework: Maths &lt;sheet&gt;") >= 0, "schoolCard: a school item is coming up, escaped, under the child's name");

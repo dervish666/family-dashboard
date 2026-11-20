@@ -75,6 +75,7 @@ function dueSection(v, name) {
 // which it is, and the foot names what failed.
 export function personCard(v) {
   var p = v.person, name = p.name, data = v.data, td = ymd(v.now), html = "";
+  var people = v.config.people, house = people[people.length - 1].name === name;      // the last person is the household, whatever its name
   var mine = data.events.filter(function (e) { return e.who === name; });
   var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
   var calHealth = calendarHealth(data, name);
@@ -87,7 +88,7 @@ export function personCard(v) {
       : calHealth === "loading" ? "Still loading the week, so this card can't say what's on yet."
       : calHealth === "stale" ? "Calendars last checked " + stamp(data.weekAt, v.now) + ", so this card can't say what's on."
       : calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
-      : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
+      : house && people.length > 1 ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
   if (later.length) {
     html += "<h2>This week</h2>";
     later.forEach(function (e) { html += row(dayLabel(e.day, v.now) + (e.all_day ? "" : " " + e.at), e.what); });
@@ -100,7 +101,7 @@ export function personCard(v) {
   var ex = data.extra || {}, items = (ex.items || []).filter(function (i) { return i.who === name && i.date >= td; })
     .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
   var kit = (ex.kit || []).filter(function (k) { return k.who === name; });
-  var flags = name === "House" ? (ex.flags || []) : [];
+  var flags = house ? (ex.flags || []) : [];
   if (items.length || kit.length || flags.length) {
     html += "<h2>Good to know</h2>";
     items.forEach(function (i) { html += row(dayLabel(i.date, v.now), i.what, KIND[i.kind] || i.kind); });
@@ -114,7 +115,7 @@ export function personCard(v) {
     if (ex.checked_at) foot.push(checkedAt(ex));
   }
   var missing = ((ex.sources || {}).unavailable || []).filter(function (s) {
-    return name === "House" || v.config.sourceOwner.some(function (m) { return m[0].test(s) && m[1] === name; }); });
+    return house || v.config.sourceOwner.some(function (m) { return m[0].test(s) && m[1] === name; }); });
   if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
   var calBad = (data.calFailed || []).filter(function (f) { return f.who === name; });
   sch.foot.forEach(function (f) { foot.push('<span class="bad">' + esc(f) + "</span>"); });

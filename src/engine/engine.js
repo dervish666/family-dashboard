@@ -16,6 +16,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   "use strict";
   var PEOPLE = CONFIG.people, ANNIVERSARY = CONFIG.anniversary, SENSORS = CONFIG.sensors, SCHOOL_LINE = CONFIG.schoolLine,
     RAIN_STATES = CONFIG.rainStates, DATES = CONFIG.dates, VIEW = CONFIG.view, OFFICE_URL = CONFIG.officeUrl;
+  var HOUSEHOLD = PEOPLE[PEOPLE.length - 1].name;     // the last person is the household, whatever its name
 
   var Q = HOOKS ? "?" + String(HOOKS).replace(/^\?/, "") : "";
   var DEMO = CONFIG.demo === true || /[?&]demo\b/.test(Q);
@@ -1631,7 +1632,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function partyFor(title) {
     var t = String(title).trim(), all = PEOPLE.map(function (p) { return p.name; });
     if (/birthday|\bbday\b/i.test(t) && !/king/i.test(t)) {
-      var p = PEOPLE.filter(function (q) { return q.name !== "House" && [q.name].concat(q.aliases || []).some(function (a) {
+      var p = PEOPLE.filter(function (q) { return (PEOPLE.length < 2 || q.name !== HOUSEHOLD) && [q.name].concat(q.aliases || []).some(function (a) {
         return new RegExp("\\b" + a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t); }); })[0];
       return p ? { who: [p.name], label: "Happy birthday " + p.name + "!" } : null;
     }
@@ -2988,7 +2989,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       (WX.live && WX.temp != null ? '<span class="temp">' + Math.round(WX.temp) + "\u00b0</span>" : "");
     $("date").textContent = DAYS_LONG[d.getDay()] + " " + d.getDate() + " " + MONTHS_LONG[d.getMonth()];
     var td = ymd(d), up = DATA.events.filter(function (e) { return e.day === td && !e.all_day && new Date(e.start) > d; });
-    $("next").innerHTML = up.length ? "Next: <b>" + esc(up[0].at) + "</b> " + esc(up[0].who === "House" ? "" : up[0].who + ", ") + esc(up[0].what)
+    $("next").innerHTML = up.length ? "Next: <b>" + esc(up[0].at) + "</b> " + esc(up[0].who === HOUSEHOLD ? "" : up[0].who + ", ") + esc(up[0].what)
       : DATA.events.length ? "Nothing else on today" : "";
     // Say out loud when the picture is old (data.js statusLine).
     // Written only when the words change: it is a live region, and a reader would say it every second.
@@ -3162,12 +3163,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return null;
   }
   function bakeBanner(e) {
-    if (typeof e === "string") e = { who: "House", what: e, day: ymd(now()), all_day: true };
+    if (typeof e === "string") e = { who: HOUSEHOLD, what: e, day: ymd(now()), all_day: true };
     var p = PEOPLE.filter(function (q) { return q.name === e.who; })[0];
     var when = (e.day === ymd(now()) ? "" : dayLabel(e.day, now()) + " ") + (e.all_day ? "" : e.at);
     var what = e.what.length > 38 ? e.what.slice(0, 36) + "..." : e.what;
     var g0 = canvas(10, 10).getContext("2d"), f1 = "600 " + 19 * K + "px Fredoka", f2 = "500 " + 19 * K + "px Fredoka";
-    var parts2 = [[when, f1, INK], [e.who === "House" ? "" : e.who, f1, p ? shade(p.col, 0.55) : INK], [what, f2, INK]].filter(function (a) { return a[0]; });
+    var parts2 = [[when, f1, INK], [e.who === HOUSEHOLD ? "" : e.who, f1, p ? shade(p.col, 0.55) : INK], [what, f2, INK]].filter(function (a) { return a[0]; });
     var gap = 10 * K, tw = 0;
     parts2.forEach(function (a) { g0.font = a[1]; a.push(g0.measureText(a[0]).width); tw += a[3] + gap; });
     var w = tw + 28 * K, h = 34 * K, c = canvas(w, h), g = c.getContext("2d");

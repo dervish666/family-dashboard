@@ -22,6 +22,9 @@ Card
   template-sensor setup has no event ends, so it keeps one row per event.
 - A real cast has only the birthdays its config names, each a real `MM-DD` day. Only a v1.0.0
   config keeps the demo birthdays.
+- The household is the last person whatever it is called. A household named "Home" keeps the
+  flags, the "Couldn't check" line, its own Today line and a Next line without its name, as
+  "House" always had.
 - School info in the wrong shape is named on the cards, and the rest still shows.
 - A card that closes itself after a minute keeps an unread letter. Got it, Done and a tap
   outside still clear it. A read letter leaves the letter book.
