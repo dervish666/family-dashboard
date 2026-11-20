@@ -14,7 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: HACS validation
-        uses: hacs/action@main
+        # main as of 2026-11-20 (its last commit is from 2026-06-08), pinned so a push there cannot change this job
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
         with:
           category: plugin
 
@@ -53,5 +54,11 @@ jobs:
       - run: npm ci
       - name: Config, calendar, creature and scene checks
         run: node tests/check.mjs
+      # Again on New York time (the runner's own zone is UTC), so a check that only holds on
+      # UK time fails here. The engine cases set their own zone and run the same both times.
+      - name: The same checks in New York
+        run: node tests/check.mjs
+        env:
+          TZ: America/New_York
       - name: Prove the checks can fail
         run: sh tests/falsify.sh
