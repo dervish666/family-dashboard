@@ -206,6 +206,8 @@ data.js|s/if (newest("week", gen)) put({ error: /if (newest("week", gen)) put({ 
 engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  function setTimeoutX(f, ms) { var id = window.setTimeout(/|the engine's timeouts are not its own, so stop() cannot clear them
 engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });//|stop() leaves the auto-close and a tap's open waiting
 engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open
+engine/engine.js|s/      FETCHES.splice(0).forEach(function (ac) { ac.abort(); });//|stop() leaves the office fetch running with no deadline
+engine/engine.js|s/function (patch, retag) { if (STOPPED) return; /function (patch, retag) { /|a calendar answer that lands after stop() is published into the stopped engine
 data.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function newest(k, gen) {/|a slow load that lands last replaces a newer week
 engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { /|midnight waits for the five-minute reload
 engine/engine.js|s/ if (openThing \&\& openThing.person) openCard(openThing, false, true); }/ }/|an open card keeps yesterday's Today after midnight

@@ -23,7 +23,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // Timers and the frame loop belong to this card: stop() clears them when it leaves the page,
   // and one already on its way runs nothing. The card reuses its shadow root, so an old engine's
   // timeout would otherwise reach the new engine's popup through ROOT.getElementById.
-  var TIMERS = [], TOUTS = [], STOPPED = false, STARTED = false, RAF = 0;
+  var TIMERS = [], TOUTS = [], STOPPED = false, STARTED = false, RAF = 0, FETCHES = [];   // FETCHES: the AbortControllers of fetches still out
   function setInterval(f, ms) { var id = window.setInterval(function () { if (!STOPPED) f(); }, ms); TIMERS.push(id); return id; }
   function setTimeout(f, ms) { var id = window.setTimeout(function () { clearTimeout(id); if (!STOPPED) f(); }, ms); TOUTS.push(id); return id; }
   function clearTimeout(id) { var i = TOUTS.indexOf(id); if (i >= 0) TOUTS.splice(i, 1); window.clearTimeout(id); }
@@ -2194,11 +2194,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // The card's hass, for the polls and writes that are the engine's own (data.js hassReady).
   function hassToken() { return hassReady(HA.hass()); }
   // The loads themselves are in data.js (newLoader): the week, the holidays and the sensors each
-  // land on their own, and put() merges each answer into DATA here. The demo makes its data up.
+  // land on their own, and put() merges each answer into DATA here, unless the engine has stopped
+  // since. The demo makes its data up.
   var LOAD = newLoader(CONFIG, now, { setTimeout: setTimeout, clearTimeout: clearTimeout });
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { DATA = Object.assign({}, DATA, patch); if (retag) refreshTags(); });
+    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { if (STOPPED) return; DATA = Object.assign({}, DATA, patch); if (retag) refreshTags(); });
   }
   function demoData() {
     var d = function (n) { return ymd(new Date(now().getTime() + n * 864e5)); };
@@ -2506,13 +2507,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       OFFICE.line = f === "off" || f === "quiet" || !m ? null : m[1] === "ask" ? { name: m[2], text: "needs you", kind: "ask", key: "hook", at: Date.now() } : { name: m[1], text: m[2], kind: "work", key: "hook", at: Date.now() };
       return; }
     if (DEMO || !OFFICE_URL) return;
+    // stop() clears the six-second deadline with the other timeouts, so it aborts the fetch itself (FETCHES)
     var ac = window.AbortController ? new AbortController() : null, tm = ac ? setTimeout(function () { ac.abort(); }, 6000) : 0;
+    if (ac) FETCHES.push(ac);
     fetch(OFFICE_URL, { cache: "no-store", signal: ac ? ac.signal : undefined })
       .then(function (r) { if (!r.ok) throw new Error("office returned " + r.status); return r.json(); })
       .then(function (all) { OFFICE.ok = true; OFFICE.err = null; OFFICE.at = new Date(); var was = OFFICE.line, ln = officeLine(all);
         if (ln && (!was || ln.key !== was.key || ln.text !== was.text) && ROBOT) { ROBOT.hop = 0.5; ROBOT.flash = 1.2; } })
       .catch(function (e) { if (OFFICE.ok !== false) console.warn("meadow: office poll failed", e); OFFICE.ok = false; OFFICE.err = e.message || String(e); OFFICE.line = null; })
-      .then(function () { clearTimeout(tm); });
+      .then(function () { clearTimeout(tm); FETCHES = FETCHES.filter(function (x) { return x !== ac; }); });
   }
   // Body and head baked once (screen lit and dark); legs and the antenna light live.
   function bakeRobot(lit) {
@@ -3429,6 +3432,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       if (SCENE.ambient) SCENE.ambient.setup(SV); hud(); },
     stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF);
       TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });
+      FETCHES.splice(0).forEach(function (ac) { ac.abort(); });
       if (CAUDIO) { var ac = CAUDIO; CAUDIO = null; Promise.resolve().then(function () { return ac.close(); }).catch(function (e) { console.warn("family-dashboard-card: the bell's audio did not close", e); }); }
       if (REDUCE_MQ) { if (REDUCE_MQ.removeEventListener) REDUCE_MQ.removeEventListener("change", readReduced); else if (REDUCE_MQ.removeListener) REDUCE_MQ.removeListener(readReduced); } }
   };

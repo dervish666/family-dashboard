@@ -913,6 +913,29 @@ export async function engineChecks(src, T) {
     eq(C.raf, null, "a frame already on its way when stop() ran does not queue another");
     done(card);
   }
+  // stop() takes the work it started with it: the office fetch, whose six-second deadline it
+  // cleared with the other timeouts, is aborted, and a calendar answer that lands afterwards is
+  // not published into the stopped engine.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.alex": HOLD });
+    let signal = null;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = function (url, o) { signal = o.signal; return new Promise(function (ok, no) { signal.addEventListener("abort", function () { no(new Error("aborted")); }); }); };
+    try {
+      const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" }, officeUrl: "http://localhost/office" }, hass);
+      await advance(1400);
+      ok(signal && !signal.aborted && hass.held.length === 1, "the office poll and a calendar are both still out");
+      const dbg = card.dbg;
+      card.disconnectedCallback();
+      eq(signal.aborted, true, "stop() aborts the office fetch");
+      hass.held[0].ok([timed("After stop", DAY, "16:00")]);
+      await flush();
+      eq(dbg.next(), null, "a calendar answer that lands after stop() is not published");
+      done(card);
+    } finally { globalThis.fetch = realFetch; }
+  }
   // The card reuses its shadow root, so an old engine's timeout must not reach the new popup:
   // the 60 s auto-close of a card opened before a config change, and a tap's delayed open.
   {

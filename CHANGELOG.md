@@ -32,7 +32,8 @@ Card
 - A card that closes itself after a minute keeps an unread letter. Got it, Done and a tap
   outside still clear it. A read letter leaves the letter book.
 - Midnight moves the week on, and a slow old load cannot bring the old week back. A stopped
-  engine runs no more timeouts.
+  engine runs no more timeouts, aborts the office fetch it had out, and takes no late calendar
+  answer.
 - A keyboard or a screen reader can open every card. Each person, the School and each
   landmark with a view has a button, named like its tag ("Kid 2, 1 thing today, letter
   waiting"), that does what a tap does and rings its target on the scene while it has focus.
