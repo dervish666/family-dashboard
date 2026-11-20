@@ -287,6 +287,19 @@ TIMER_STEP_CASES = [
     (1600 + H6, 1600, 120, 4, 0),
 ]
 
+# (phase, fired, said, end) -> (fired, announce). fired is the card shown this
+# boot, not kept in flash; said is the end Home Assistant last heard, kept in flash.
+TIMER_ALERT_CASES = [
+    (0, True, 1600, 0, False, False),
+    (1, True, 1600, 5000, False, False),
+    (2, False, 0, 1600, True, True),
+    (2, True, 0, 1600, True, False),
+    (2, False, 1600, 1600, True, False),   # restarted inside the ring window after saying it
+    (2, False, 1000, 1600, True, True),    # said an earlier timer in this slot, not this one
+    (3, False, 0, 1600, True, False),      # ended while the panel was off
+    (3, False, 1600, 1600, True, False),
+]
+
 # secs -> (full, brief)
 TIMER_FMT_CASES = [
     (0, "0:00", "0 min"),
@@ -806,6 +819,51 @@ int main() {{
         r.check(n == len(table), f"panel v2 C++ {name}: {n} results for {len(table)} cases")
 
 
+def check_timer_alert(r: Report, srcs: dict, cxx: str | None):
+    """A timer is announced once per end time, a restart included."""
+    timers = srcs["timers"]
+    doc = load_ha(timers)
+    g = {x["id"]: x for x in doc.get("globals", [])}
+    for i in (1, 2, 3):
+        said = g.get(f"timer_{i}_said", {})
+        r.check(said.get("type") == "uint32_t" and said.get("restore_value") is True,
+                f"timers.yaml: timer_{i}_said must be a uint32_t kept in flash")
+    scripts = {s["id"]: s for s in doc.get("script", []) if isinstance(s.get("id"), str)}
+    r.check("uint32_t saids[3] = {id(timer_1_said), id(timer_2_said), id(timer_3_said)};" in json.dumps(scripts.get("timer_tick")),
+            "timers.yaml: timer_tick must read each timer's said end")
+    announce = scripts.get("timer_announce", {})
+    sent_branch = json.dumps(((announce.get("then") or [{}])[0].get("if") or {}).get("then", []))
+    r.check("*saids[slot] = *ends[slot];" in sent_branch and "&id(timer_1_said), &id(timer_2_said), &id(timer_3_said)" in sent_branch
+            and "esphome.family_panel_timer_done" in sent_branch,
+            "timers.yaml: timer_announce must record the end it announced, in the branch that sends")
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the timer alert was not checked")
+        return
+    block = cpp_block(timers, "timer-alert")
+    calls = "\n  ".join(f"alert({p}, {str(f).lower()}, {s}u, {e}u);" for p, f, s, e, _, _ in TIMER_ALERT_CASES)
+    src = f"""
+#include <cstdint>
+#include <cstdio>
+static void alert(int phase, bool fired, uint32_t said, uint32_t end) {{
+  bool announce = false;
+{block}
+  printf("%d %d\\x1e", fired ? 1 : 0, announce ? 1 : 0);
+}}
+int main() {{
+  {calls}
+  return 0;
+}}
+"""
+    out = run_cpp(r, cxx, src, "timer alert C++")
+    if out is None:
+        return
+    got = out.split("\x1e")[:-1]
+    r.check(len(got) == len(TIMER_ALERT_CASES), f"timer alert C++: {len(got)} results for {len(TIMER_ALERT_CASES)} cases")
+    for (p, f, s, e, fired, ann), row in zip(TIMER_ALERT_CASES, got):
+        r.check(row == f"{int(fired)} {int(ann)}",
+                f"timer alert phase {p} fired {f} said {s} end {e}: got {row!r}, want fired {fired} announce {ann}")
+
+
 def check_kitchen_ha(r: Report, hak: dict):
     autos = {a["id"]: a for a in hak["automation"]}
     light = autos["family_panel_light"]
@@ -1275,6 +1333,7 @@ def run(srcs: dict, quiet=False) -> Report:
     check_letter_done(r, ha, srcs["kid"], cxx)
     check_parsers(r, ha, srcs["kid"], srcs["base"], cxx)
     check_panel_v2(r, srcs, cxx)
+    check_timer_alert(r, srcs, cxx)
     check_kitchen_ha(r, hak)
     check_mirrors(r, ha)
     check_consistency(r, ha, hak, srcs)
@@ -1358,6 +1417,10 @@ SABOTAGES = [
     ("kitchen tile target not in light_targets", "ex_kitchen", "tile_3_target: hall", "tile_3_target: hallway"),
     ("broadcast fixed to one script", "ha", 'entity_id: "{{ announce_script }}"', "entity_id: script.family_announce"),
     ("timer event renamed on the panel", "timers", "event: esphome.family_panel_timer_done", "event: esphome.family_timer_done"),
+    ("a restart announces a timer again", "timers", "announce = phase == 2 && said != end;", "announce = phase == 2;"),
+    ("the announced end is lost on a restart", "timers", "  - id: timer_2_said\n    type: uint32_t\n    restore_value: true\n",
+     "  - id: timer_2_said\n    type: uint32_t\n    restore_value: false\n"),
+    ("an announcement forgets which end it said", "timers", "                *saids[slot] = *ends[slot];\n", ""),
     ("strip loses its lines attribute", "hak", "          lines: \"{{ strip_lines | join('\\n') }}\"", "          rows: \"{{ strip_lines | join('\\n') }}\""),
     ("Kid A back on a 24-hour clock", "ex_kid_a", 'clock_format: "12h"', 'clock_format: "24h"'),
     ("base default night turned dim", "base", '  night_mode: "off"', '  night_mode: "dim"'),

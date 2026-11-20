@@ -212,7 +212,8 @@ The kitchen timers run on the panel. When one ends, the panel chimes and shows i
 its own, and fires `esphome.family_panel_timer_done` with `timer` (the name), `slot` and
 `panel`, once. A timer that ended while the panel was off fires nothing when it comes back
 (unless it ended in the last two minutes): the house speakers do not announce a timer from
-twenty minutes ago.
+twenty minutes ago. The panel keeps the end time it last announced in flash, so a restart
+inside those two minutes rings the timer again on the panel but does not announce it twice.
 
 The chime on the panel gets louder each time it repeats, from `timer_volume` to full scale 30
 seconds in, and the panel's **Test alarm** button in Home Assistant plays that climb without a

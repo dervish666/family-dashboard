@@ -132,8 +132,9 @@ clears it. When one ends the panel lights up, shows a full-width "Timer done" ca
 timer's name and **Dismiss**, plays the chime every `timer_chime_every` seconds until Dismiss or
 `timer_ring_seconds` (two minutes) after the end, and fires the event once so Home Assistant can
 say it out loud. End times are kept in flash: after a reboot, a timer still running carries on;
-one that ended in the last two minutes rings; one that ended longer ago shows its card quietly,
-with no chime and nothing said; after six hours it is forgotten.
+one that ended in the last two minutes rings, and is said out loud only if it was not before the
+reboot; one that ended longer ago shows its card quietly, with no chime and nothing said; after
+six hours it is forgotten.
 
 The chime starts at `timer_volume` (0.85) and, with `timer_escalate` on (the default), each
 repeat is a step louder until it reaches `timer_volume_max` (1.0, full scale) 30 seconds in:
