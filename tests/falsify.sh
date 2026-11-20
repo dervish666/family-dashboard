@@ -149,6 +149,12 @@ config.js|s/if (!md .*MONTH_DAYS\[+md\[1\] - 1\])/if (false)/|a birthday with a 
 config.js|s/+md\[2\] > MONTH_DAYS\[+md\[1\] - 1\]/+md[2] > 31/|02-30 is accepted as a birthday
 config.js|s/birthday\/.test(id); });/birthday\/.test(id) + 1; });/|the first-run stub hands every calendar out
 config.js|s/{ weather: weather, week: null }/{ weather: weather }/|with no calendar handed out, demo off reads sensor.family_week
+editor.js|s/if (bd) c.dates = /if (false) c.dates = /|a birthday typed in the editor is never written
+editor.js|s/if (has(bdays, from)) {/if (false) {/|a rename in the editor orphans the birthday
+editor.js|s/if (ann .. ann.indexOf(from) >= 0)/if (false)/|a rename in the editor orphans the anniversary entry
+editor.js|s/shown.key = prev\[i\] .. people.some/shown.key = false \&\& people.some/|a name typed through another person's shows and carries their birthday
+editor.js|s/key = to !== from .. !taken(to) .. !taken(from) ? to : from/key = to !== from ? to : from/|a name typed through another person's takes their birthday
+editor.js|s/ : calendarCast(people) ? {} : DEFAULTS.dates.birthdays;/ : {};/|renaming a v1.0.0 default person orphans the demo birthday
 post.js|s/export const POST_GATE = 0.35;/export const POST_GATE = 0.3;/|the hint's gate drifts from the postie's
 post.js|s/  if (h < 7.5) return 7.5 - h;/  if (h < 7.5) return 7.4 - h;/|the morning curve moves and the post goes at 07:03
 post.js|s/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE); }/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE + 0.01); }/|the hint's gate is a hair looser than the postie's

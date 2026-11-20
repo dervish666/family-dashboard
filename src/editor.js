@@ -7,7 +7,7 @@ import { TILE_ICONS, MAX_TILES, TILE_DEFAULTS, thresholdText, parseThresholdText
 // <family-dashboard-card-editor>: the cast, each person's calendar, the optional sensors,
 // the scene and the demo switch. It uses Home Assistant's own ha-form where the frontend
 // has it and falls back to plain inputs where it does not. It writes only the keys a
-// change touches, so YAML it does not know about (aliases, dates, sourceOwner) survives.
+// change touches, so YAML it does not know about (aliases, dates.fixed, sourceOwner) survives.
 // The animals the editor offers: every creature in the registry marked editor: true.
 const EDITOR_LOOKS = CREATURES.filter(function (c) { return c.editor; }).map(function (c) { return c.id; });
 const ACCESSORY_LABELS = { glasses: "Glasses", phones: "Headphones", daisy: "Daisy", bee: "Bee (one person only)" };
@@ -21,7 +21,7 @@ const SENSOR_FIELDS = [
   ["kit", "sensor", "School kit"]
 ];
 const LABELS = { name: "Name", role: "Role", look: "Animal", col: "Colour", calendar: "Calendar", accessories: "Accessories",
-  school: "Goes to school", person_letter: "Own letter helper (room panel letters)", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
+  school: "Goes to school", birthday: "Birthday (MM-DD)", person_letter: "Own letter helper (room panel letters)", timetable: "Timetable sensor", lunch: "Lunch menu sensor", demo: "Demo cast (no Home Assistant data)", scene: "Scene", week: "Week template sensor (v1.0.0 setups)" };
 SENSOR_FIELDS.forEach(function (f) { LABELS[f[0]] = f[2]; });
 Object.assign(LABELS, { announcement: "Announcement entity (input_text or sensor)", announcement_title: "Announcement heading (optional)", due: "Due times sensor",
   announcement_crier: "Town crier for a new announcement", announcement_sound: "Ring a bell sound", announcement_clear: "A tap empties the entity (input_text or text)",
@@ -52,7 +52,8 @@ const TOP_SCHEMA = [{ type: "grid", name: "", schema: [
   { name: "demo", selector: { boolean: {} } }] }];
 const PERSON_BASE = [
   { type: "grid", name: "", schema: [{ name: "name", required: true, selector: { text: {} } },
-    { name: "role", required: true, selector: { select: { mode: "dropdown", options: [{ value: "adult", label: "Adult" }, { value: "kid", label: "Kid" }] } } }] },
+    { name: "role", required: true, selector: { select: { mode: "dropdown", options: [{ value: "adult", label: "Adult" }, { value: "kid", label: "Kid" }] } } },
+    { name: "birthday", selector: { text: {} } }] },
   { type: "grid", name: "", schema: [
     { name: "look", required: true, selector: { select: { mode: "dropdown", options: EDITOR_LOOKS.map(function (l) { return { value: l, label: CREATURE[l].label }; }) } } },
     { name: "col", selector: { color_rgb: {} } }] },
@@ -67,6 +68,23 @@ const PERSON_BASE = [
 const SCHOOL_FIELDS = [{ type: "grid", name: "", schema: [entityField("timetable", "sensor"), entityField("lunch", "sensor")] }];
 function personSchema(school) { return school ? PERSON_BASE.concat(SCHOOL_FIELDS) : PERSON_BASE; }
 function entityOf(v) { return v == null || v === "" ? "" : typeof v === "string" ? v : v.entity || ""; }
+function isMap(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+function calendarCast(people) {
+  return people.some(function (p) { const v = p && (p.calendar != null ? p.calendar : p.calendars); return v != null && v !== "" && [].concat(v).length > 0; });
+}
+// The birthdays and anniversary the card goes by, picked as normalize() picks them. They are
+// the config's own, else a v1.0.0 cast's defaults. A cast with calendars has no default
+// birthdays, and its default anniversary is the first two names, which follows a rename by
+// itself (null).
+function birthdaysOf(c, people) {
+  const d = isMap(c.dates) ? c.dates : {};
+  return d.birthdays !== undefined ? (isMap(d.birthdays) ? d.birthdays : {}) : calendarCast(people) ? {} : DEFAULTS.dates.birthdays;
+}
+function anniversaryOf(c, people) {
+  if (Array.isArray(c.anniversary)) return c.anniversary;
+  return c.anniversary === undefined && !calendarCast(people) ? DEFAULTS.anniversary : null;
+}
 function sensorSchema(withWeek) {
   const s = SENSOR_FIELDS.map(function (f) { return entityField(f[0], f[1]); });
   return withWeek ? [entityField("week", "sensor")].concat(s) : s;
@@ -197,15 +215,21 @@ class FamilyDashboardCardEditor extends HTMLElement {
       self._forms.theads[i].querySelector("b").textContent = sh.label || sh.entity || "New tile";
       return sh;
     });
+    const prev = this._shown || [], bdays = birthdaysOf(this._config, people);
     this._shown = [];
     people.forEach(function (p, i) {
       const cal = p.calendar != null ? p.calendar : p.calendars;
       // School sensors: the person's own, else the v1.1.0 sensors.timetable / lunch normalize()
       // gave them, so a legacy card shows what it reads.
-      const ep = eff && eff.people[i], shown = {};
+      const ep = eff && eff.people[i], shown = {}, nm = p.name == null ? "" : String(p.name);
       ["timetable", "lunch"].forEach(function (k) { shown[k] = entityOf(p[k]) || (ep && ep[k] && ep[k].legacy ? ep[k].entity : ""); shown[k + "Legacy"] = !entityOf(p[k]) && !!shown[k]; });
+      // shown.key is the name this row's birthday and anniversary entries sit under. While another
+      // row has the same name (Tom, typed on the way to Tommy) it keeps the last one, so neither
+      // person's entries are mixed up.
+      shown.key = prev[i] && people.some(function (q, k) { return k !== i && q && String(q.name) === nm; }) ? prev[i].key : nm;
+      shown.birthday = has(bdays, shown.key) && bdays[shown.key] != null ? String(bdays[shown.key]) : "";
       self._shown[i] = shown;
-      self._forms.people[i].set({ timetable: shown.timetable, lunch: shown.lunch, name: p.name == null ? "" : String(p.name), role: p.adult || p.role === "adult" ? "adult" : "kid",
+      self._forms.people[i].set({ timetable: shown.timetable, lunch: shown.lunch, birthday: shown.birthday, name: nm, role: p.adult || p.role === "adult" ? "adult" : "kid",
         look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || "crow", col: hexRgb(/^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length]),
         person_letter: typeof p.letter === "string" ? p.letter : "", calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school });
       self._forms.heads[i].querySelector(".dot").style.background = /^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length];
@@ -273,7 +297,21 @@ class FamilyDashboardCardEditor extends HTMLElement {
   }
   _person(i, d) {
     const c = clone(this._config), people = clone(this._people()), p = people[i];
+    const shown = (this._shown && this._shown[i]) || {}, from = shown.key != null ? shown.key : String(p.name);
+    const bdays = clone(birthdaysOf(c, people)), ann = anniversaryOf(c, people);
     if (d.name != null) p.name = d.name;
+    // A rename takes the birthday and the anniversary entry along, but never onto or off a name
+    // another person has. Until the name is unique again, the row keeps its key.
+    function taken(nm) { return people.some(function (q, k) { return k !== i && String(q.name) === nm; }); }
+    const to = String(p.name), key = to !== from && !taken(to) && !taken(from) ? to : from;
+    let bd = false;
+    if (key !== from) {
+      if (has(bdays, from)) { bdays[key] = bdays[from]; delete bdays[from]; bd = true; }
+      if (ann && ann.indexOf(from) >= 0) c.anniversary = ann.map(function (n) { return n === from ? key : n; });
+    }
+    if ("birthday" in d) { const v = String(d.birthday == null ? "" : d.birthday).trim();
+      if (v !== (shown.birthday || "")) { if (v) bdays[key] = v; else delete bdays[key]; bd = true; } }
+    if (bd) c.dates = Object.assign({}, isMap(c.dates) ? c.dates : {}, { birthdays: bdays });
     if (d.role === "adult") p.adult = true; else delete p.adult;
     delete p.role;
     if (d.look && d.look !== p.look) { p.look = d.look; if (LOOK_TG[d.look]) p.tg = LOOK_TG[d.look]; else delete p.tg; }
@@ -287,7 +325,6 @@ class FamilyDashboardCardEditor extends HTMLElement {
     if ("person_letter" in d) { const v = (d.person_letter || "").trim(), cur = typeof p.letter === "string" ? p.letter : "";
       if (v !== cur) { if (v) p.letter = v; else delete p.letter; } }
     // Only a field the user changed is written, so a v1.1.0 sensor shown here stays where it is.
-    const shown = (this._shown && this._shown[i]) || {};
     ["timetable", "lunch"].forEach(function (k) {
       if (!(k in d)) return;
       const v = (d[k] || "").trim();
