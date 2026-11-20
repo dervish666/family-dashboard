@@ -300,6 +300,20 @@ export async function engineChecks(src, T) {
     ok(/9\u00b0/.test(text(card, "clock")), "the weather updates although the week failed");
     done(card);
   }
+  // The week that failed to reload says when it is from, with the day once that is not today.
+  {
+    C.now = local(2026, 10, 26, 23, 50);
+    const hass = fakeHass(BASE_STATES());
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    hass.answer = function () { return new Error("Calendar offline"); };
+    await advance(6 * 60000);
+    frame();
+    ok(/\. Showing 23:50$/.test(card.$("status").textContent), "a failed reload the same evening shows the time of the week it kept");
+    await advance(5 * 60000);
+    frame();
+    ok(/^Can't load the week \(.*\)\. Showing mon 26 23:50$/.test(card.$("status").textContent), "after midnight it says which day that week is from");
+    done(card);
+  }
   // A calendar that never answers counts as failed after 20 s; the sensors do not wait for it.
   {
     C.now = NOON;

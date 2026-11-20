@@ -3158,7 +3158,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       : DATA.events.length ? "Nothing else on today" : "";
     // Say out loud when the picture is old. A stale week must not read as a quiet one.
     var st = "";
-    if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
+    if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + (ymd(DATA.gotAt) === ymd(d) ? "" : dayLabel(ymd(DATA.gotAt)).toLowerCase() + " ") +
+      pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");              // the day too once it is not today: an overnight outage must not read as this morning
     else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
     else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");

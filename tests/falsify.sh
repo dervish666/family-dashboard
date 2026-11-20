@@ -197,5 +197,6 @@ engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) html += po
 engine/engine.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
 engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
 engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
+engine/engine.js|s/". Showing " + (ymd(DATA.gotAt) === ymd(d) ? "" : dayLabel(ymd(DATA.gotAt)).toLowerCase() + " ") +/". Showing " +/|an overnight outage's Showing time has no day
 EOF
 echo "ok: all $n sabotaged copies failed the check"
