@@ -155,6 +155,9 @@ editor.js|s/if (ann .. ann.indexOf(from) >= 0)/if (false)/|a rename in the edito
 editor.js|s/shown.key = prev\[i\] .. people.some/shown.key = false \&\& people.some/|a name typed through another person's shows and carries their birthday
 editor.js|s/key = to !== from .. !taken(to) .. !taken(from) ? to : from/key = to !== from ? to : from/|a name typed through another person's takes their birthday
 editor.js|s/ : calendarCast(people) ? {} : DEFAULTS.dates.birthdays;/ : {};/|renaming a v1.0.0 default person orphans the demo birthday
+editor.js|s/, i === n - 1 .. n > 1), function (d)/, false), function (d)/|the household's row asks adult or kid, school and accessories
+editor.js|s/if ("accessories" in d) {/if (true) {/|an edit to the household drops the accessories YAML gave it
+editor.js|s/if ("role" in d) {/if (true) {/|an edit to the household drops the adult flag YAML gave it
 post.js|s/export const POST_GATE = 0.35;/export const POST_GATE = 0.3;/|the hint's gate drifts from the postie's
 post.js|s/  if (h < 7.5) return 7.5 - h;/  if (h < 7.5) return 7.4 - h;/|the morning curve moves and the post goes at 07:03
 post.js|s/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE); }/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE + 0.01); }/|the hint's gate is a hair looser than the postie's

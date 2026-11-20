@@ -17,7 +17,7 @@ const SENSOR_FIELDS = [
   ["letter", "input_text", "Letter helper for everyone (the postie, \"Name: text\")"],
   ["trips", "calendar", "Trips calendar (Holiday events become countdowns)"],
   ["printer", null, "3D printer sensor prefix (Bambu Lab)"],
-  ["extra", "sensor", "School data (family_extra)"],
+  ["extra", "sensor", "School notes sensor (items, kit days, term dates)"],
   ["kit", "sensor", "School kit"]
 ];
 const LABELS = { name: "Name", role: "Role", look: "Animal", col: "Colour", calendar: "Calendar", accessories: "Accessories",
@@ -50,23 +50,29 @@ function entityField(name, domain) {
 const TOP_SCHEMA = [{ type: "grid", name: "", schema: [
   { name: "scene", required: true, selector: { select: { mode: "dropdown", options: SCENES.map(function (s) { return { value: s.id, label: s.name }; }) } } },
   { name: "demo", selector: { boolean: {} } }] }];
+const NAME_FIELD = { name: "name", required: true, selector: { text: {} } };
+const LOOK_ROW = { type: "grid", name: "", schema: [
+  { name: "look", required: true, selector: { select: { mode: "dropdown", options: EDITOR_LOOKS.map(function (l) { return { value: l, label: CREATURE[l].label }; }) } } },
+  { name: "col", selector: { color_rgb: {} } }] };
+const CALENDAR_FIELD = { name: "calendar", selector: { entity: { multiple: true, filter: { domain: "calendar" } } } };
+// v1.8.0: people[].letter. Named person_letter here because LABELS.letter is the shared helper's.
+const LETTER_FIELD = entityField("person_letter", ["input_text", "text"]);
 const PERSON_BASE = [
-  { type: "grid", name: "", schema: [{ name: "name", required: true, selector: { text: {} } },
+  { type: "grid", name: "", schema: [NAME_FIELD,
     { name: "role", required: true, selector: { select: { mode: "dropdown", options: [{ value: "adult", label: "Adult" }, { value: "kid", label: "Kid" }] } } },
     { name: "birthday", selector: { text: {} } }] },
-  { type: "grid", name: "", schema: [
-    { name: "look", required: true, selector: { select: { mode: "dropdown", options: EDITOR_LOOKS.map(function (l) { return { value: l, label: CREATURE[l].label }; }) } } },
-    { name: "col", selector: { color_rgb: {} } }] },
-  { name: "calendar", selector: { entity: { multiple: true, filter: { domain: "calendar" } } } },
-  // v1.8.0: people[].letter. Named person_letter here because LABELS.letter is the shared helper's.
-  entityField("person_letter", ["input_text", "text"]),
+  LOOK_ROW, CALENDAR_FIELD, LETTER_FIELD,
   { name: "accessories", selector: { select: { multiple: true, mode: "list", options: ACCESSORIES.map(function (a) { return { value: a, label: ACCESSORY_LABELS[a] }; }) } } },
   { name: "school", selector: { boolean: {} } }
 ];
+// The household is nobody's age, has no birthday, goes to no school and wears nothing. Its
+// row leaves those out, and _person writes only the keys a form sends, so YAML keeps them.
+const HOUSE_SCHEMA = [NAME_FIELD, LOOK_ROW, CALENDAR_FIELD, LETTER_FIELD];
+const HOUSE_HIDES = ["role", "birthday", "accessories", "school", "timetable", "lunch"];
 // A child who goes to school also gets their timetable and lunch menu sensors (school.js
 // reads them; the shapes are in the README).
 const SCHOOL_FIELDS = [{ type: "grid", name: "", schema: [entityField("timetable", "sensor"), entityField("lunch", "sensor")] }];
-function personSchema(school) { return school ? PERSON_BASE.concat(SCHOOL_FIELDS) : PERSON_BASE; }
+function personSchema(school, house) { return house ? HOUSE_SCHEMA : school ? PERSON_BASE.concat(SCHOOL_FIELDS) : PERSON_BASE; }
 function entityOf(v) { return v == null || v === "" ? "" : typeof v === "string" ? v : v.entity || ""; }
 function isMap(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
@@ -229,9 +235,12 @@ class FamilyDashboardCardEditor extends HTMLElement {
       shown.key = prev[i] && people.some(function (q, k) { return k !== i && q && String(q.name) === nm; }) ? prev[i].key : nm;
       shown.birthday = has(bdays, shown.key) && bdays[shown.key] != null ? String(bdays[shown.key]) : "";
       self._shown[i] = shown;
-      self._forms.people[i].set({ timetable: shown.timetable, lunch: shown.lunch, birthday: shown.birthday, name: nm, role: p.adult || p.role === "adult" ? "adult" : "kid",
+      const data = { timetable: shown.timetable, lunch: shown.lunch, birthday: shown.birthday, name: nm, role: p.adult || p.role === "adult" ? "adult" : "kid",
         look: EDITOR_LOOKS.indexOf(p.look) >= 0 ? p.look : p.look || "crow", col: hexRgb(/^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length]),
-        person_letter: typeof p.letter === "string" ? p.letter : "", calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school });
+        person_letter: typeof p.letter === "string" ? p.letter : "", calendar: cal == null || cal === "" ? [] : [].concat(cal), accessories: ACCESSORIES.filter(function (a) { return p[a]; }), school: !!p.school };
+      // the household's form has none of these, so its changes never rewrite them
+      if (i === people.length - 1 && people.length > 1) HOUSE_HIDES.forEach(function (k) { delete data[k]; });
+      self._forms.people[i].set(data);
       self._forms.heads[i].querySelector(".dot").style.background = /^#[0-9a-f]{6}$/i.test(p.col || "") ? p.col : PALETTE[i % PALETTE.length];
       self._forms.heads[i].querySelector("b").textContent = (p.name || "Unnamed") + (i === people.length - 1 && people.length > 1 ? " (household)" : "");
     });
@@ -269,14 +278,15 @@ class FamilyDashboardCardEditor extends HTMLElement {
         bt.addEventListener("click", function () { self._move(i, b[1]); }); head.appendChild(bt); });
       const rm = document.createElement("button"); rm.textContent = "Remove"; rm.disabled = n < 2;
       rm.addEventListener("click", function () { self._remove(i); }); head.appendChild(rm);
-      const f = makeForm(personSchema(mask && mask[i] === "1"), function (d) { self._person(i, d); });
+      const f = makeForm(personSchema(mask && mask[i] === "1", i === n - 1 && n > 1), function (d) { self._person(i, d); });
       box.appendChild(head); box.appendChild(f.el); ps.appendChild(box);
       F.people.push(f); F.heads.push(head);
     }
     const add = document.createElement("button"); add.className = "add"; add.textContent = "Add person";
     add.addEventListener("click", function () { self._add(); }); ps.appendChild(add);
     F.sensors = makeForm(sensorSchema(withWeek), function (d) { self._sensors(d); });
-    sec("Sensors", "All optional. Leave one empty and that part of the scene stays off. A sensor that is set but missing says unavailable on the cards.").appendChild(F.sensors.el);
+    sec("Sensors", "All optional. Leave one empty and that part of the scene stays off. A sensor that is set but missing says unavailable on the cards. " +
+      "School notes is one sensor for what calendars cannot hold. Its shape is in docs/06-views.md, under \"Everything calendars cannot hold\".").appendChild(F.sensors.el);
     F.extras = makeForm(EXTRA_SCHEMA, function (d) { self._extras(d); });
     sec("Announcements and due times", "A banner in the sky while the announcement entity holds text, and a town crier who walks out and reads a new one aloud on a scroll. A row of chips for a sensor whose items attribute lists { label, due, person }. Empty means off.").appendChild(F.extras.el);
     const ts = sec("Status tiles", "Up to " + MAX_TILES + " small tiles under the corner hint, one per entity: a number fills the icon in its threshold colour, on and off use their two colours. A tap opens the entity in Home Assistant.");
@@ -312,16 +322,15 @@ class FamilyDashboardCardEditor extends HTMLElement {
     if ("birthday" in d) { const v = String(d.birthday == null ? "" : d.birthday).trim();
       if (v !== (shown.birthday || "")) { if (v) bdays[key] = v; else delete bdays[key]; bd = true; } }
     if (bd) c.dates = Object.assign({}, isMap(c.dates) ? c.dates : {}, { birthdays: bdays });
-    if (d.role === "adult") p.adult = true; else delete p.adult;
-    delete p.role;
+    if ("role" in d) { if (d.role === "adult") p.adult = true; else delete p.adult; delete p.role; }
     if (d.look && d.look !== p.look) { p.look = d.look; if (LOOK_TG[d.look]) p.tg = LOOK_TG[d.look]; else delete p.tg; }
     if (Array.isArray(d.col) && rgbHex(d.col) !== String(p.col || "").toLowerCase()) p.col = rgbHex(d.col);
     const cal = (d.calendar == null ? [] : [].concat(d.calendar)).filter(Boolean);
     delete p.calendars; if (!cal.length) delete p.calendar; else p.calendar = cal.length === 1 ? cal[0] : cal;
-    const acc = d.accessories || [];
-    ACCESSORIES.forEach(function (a) { if (acc.indexOf(a) >= 0) p[a] = true; else delete p[a]; });
-    if (p.bee) people.forEach(function (q, k) { if (k !== i) delete q.bee; });
-    if (d.school) p.school = true; else delete p.school;
+    if ("accessories" in d) { const acc = d.accessories || [];
+      ACCESSORIES.forEach(function (a) { if (acc.indexOf(a) >= 0) p[a] = true; else delete p[a]; });
+      if (p.bee) people.forEach(function (q, k) { if (k !== i) delete q.bee; }); }
+    if ("school" in d) { if (d.school) p.school = true; else delete p.school; }
     if ("person_letter" in d) { const v = (d.person_letter || "").trim(), cur = typeof p.letter === "string" ? p.letter : "";
       if (v !== cur) { if (v) p.letter = v; else delete p.letter; } }
     // Only a field the user changed is written, so a v1.1.0 sensor shown here stays where it is.

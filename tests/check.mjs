@@ -189,6 +189,12 @@ eq([last.dates.birthdays, last.anniversary, field(ty, 0, BD).value, field(ty, 1,
 // A v1.0.0 cast with no dates goes by the demo birthdays and anniversary, so those follow a rename too.
 const v1r = type(editor({ sensors: { week: "sensor.family_week" } }), 0, "Name", "Pat"), v1b = (v1r.dates || {}).birthdays || {};
 eq([v1b.Pat, "Parent 1" in v1b, v1b["Kid 1"], v1r.anniversary], ["03-14", false, "01-22", ["Pat", "Parent 2"]], "editor: renaming a v1.0.0 default person carries the default birthday and anniversary");
+// The household's row asks nothing a household does not have, and an edit keeps YAML's flags.
+const rowLabels = function (e, i) { return e._forms.people[i].el.kids.map(function (r) { return r.kids[0] && r.kids[0].textContent; }); };
+eq(["Role", BD, "Accessories", "Goes to school"].map(function (l) { return [rowLabels(ed, 0).indexOf(l) >= 0, rowLabels(ed, 2).indexOf(l) >= 0]; }),
+  [[true, false], [true, false], [true, false], [true, false]], "editor: the household's row has no role, birthday, accessories or school");
+const house = type(ed, 2, "Name", "Our house").people[2];
+eq([house.name, house.adult, house.glasses], ["Our house", true, true], "editor: editing the household keeps its YAML role and accessories");
 document.createElement = domWas.create; document.createTextNode = domWas.text;
 delete globalThis.HTMLElement.prototype.attachShadow; delete globalThis.HTMLElement.prototype.dispatchEvent;
 
