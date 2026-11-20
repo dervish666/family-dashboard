@@ -128,7 +128,7 @@ async function advance(ms) {
 // One animation frame, a little over a second after the last, so the HUD redraws too.
 function frame() { const f = C.raf; if (!f) return false; C.raf = null; C.ms += 1100; f.fn(C.ms); return true; }
 function intervals() { let n = 0; C.q.forEach(function (t) { if (t.every) n++; }); return n; }
-function local(y, mo, d, h, mi) { return new RealDate(y, mo - 1, d, h, mi || 0).getTime(); }
+function local(y, mo, d, h, mi, sec) { return new RealDate(y, mo - 1, d, h, mi || 0, sec || 0).getTime(); }
 
 // ── Home Assistant ──────────────────────────────────────────────────────────────
 // answer(path) gives each callApi its reply: an array or object, an Error to reject with,
@@ -370,6 +370,63 @@ export async function engineChecks(src, T) {
     frame();
     eq(card.$("status").textContent, "Holidays unavailable (Trips offline). Showing the list from today 12:00", "a failed holiday fetch reaches the status line with the age of the list it kept");
     ok(/Cornwall/.test(text(card, "dates")), "a failed holiday fetch keeps the last list");
+    done(card);
+  }
+
+  // Midnight: the week reloads for the new seven days and an open card redraws for the new
+  // today without reading its letter again; a slow load from before midnight that lands after
+  // the new one is dropped.
+  {
+    const MON = "2026-10-26", TUE = "2026-10-27", WED = "2026-10-28";
+    C.now = local(2026, 10, 26, 23, 54, 50);
+    const st = BASE_STATES();
+    st["input_text.family_letter"] = { state: "Alex: Night note", last_changed: "2026-10-26T23:50:00Z" };
+    const hass = fakeHass(st);
+    const from = function (y, mo, d) { return "start=" + encodeURIComponent(new RealDate(y, mo - 1, d).toISOString()); };
+    let phase = "boot";
+    hass.answer = function (p) {
+      const alex = calId(p) === "calendar.alex";
+      if (p.indexOf(from(2026, 10, 27)) >= 0) return alex ? [timed("Dentist", TUE, "09:00"), allDay("Fresh plan", WED)] : [];
+      if (phase === "hold") return HOLD;
+      return alex ? [timed("Dentist", TUE, "09:00")] : [];
+    };
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home", letter: "input_text.family_letter" } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    phase = "hold";
+    await advance(5 * 60000 - 1600 + 2000);            // 23:59:52: the five-minute reload is out, and slow
+    eq(hass.held.length, 4, "the 23:59:50 reload is waiting on its four calendars");
+    card.dbg.open(alex, true);
+    ok(/Night note/.test(text(card, "lists")) && /Tomorrow/.test(text(card, "lists")) && card.$("sum").textContent === "Free today", "before midnight: the letter, and the dentist tomorrow");
+    await advance(9000);
+    frame();                                           // 00:00:01
+    await flush();
+    ok(hass.api.some(function (p) { return calId(p) === "calendar.alex" && p.indexOf(from(2026, 10, 27)) >= 0; }), "at midnight the card asks for the new seven days");
+    eq(card.$("sum").textContent, "1 thing today", "at midnight the open card's summary is for the new today");
+    ok(/<h2>Today<\/h2><div class="row"><div class="when">09:00<\/div><div class="what">Dentist</.test(text(card, "lists")), "and the dentist has moved to Today");
+    ok(/Night note/.test(text(card, "lists")) && card.$("scrim").classList.contains("open"), "the open card keeps its letter across midnight");
+    eq(sets(hass, "input_text.family_letter").length, 0, "and the redraw does not read the letter, so nothing is cleared");
+    hass.held.splice(0).forEach(function (h) { h.ok(calId(h.path) === "calendar.alex" ? [timed("Dentist", TUE, "09:00"), allDay("Stale plan", WED)] : []); });
+    await flush();
+    card.$("done").fire("click");
+    await flush();
+    eq(sets(hass, "input_text.family_letter").map(function (c) { return c.data.value; }), [""], "closing the card then clears the letter, once");
+    card.dbg.open(alex, true);
+    ok(/Fresh plan/.test(text(card, "lists")) && !/Stale plan/.test(text(card, "lists")), "the slow load from before midnight, landing last, does not replace the new week");
+    done(card);
+  }
+  // "Tomorrow" is the next civil day, on the eve of a clock change too (a 23 or a 25 hour day).
+  for (const [at, rows, want, what] of [
+    [local(2026, 3, 28, 23, 30), [allDay("Sunday thing", "2026-03-29"), allDay("Monday thing", "2026-03-30")], ["Tomorrow Sunday thing", "Mon 30 Monday thing"], "the evening before the clocks go forward"],
+    [local(2026, 10, 25, 0, 30), [allDay("Monday thing", "2026-10-26")], ["Tomorrow Monday thing"], "just after midnight on the day the clocks go back"]]) {
+    C.now = at;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.alex": rows });
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    card.dbg.open(person(card, "Alex"), true);
+    const got = [...text(card, "lists").matchAll(/<div class="when">([^<]*)<\/div><div class="what">([^<]*)</g)].map(function (m) { return m[1] + " " + m[2]; });
+    eq(got, want, "Tomorrow, " + what);
     done(card);
   }
 

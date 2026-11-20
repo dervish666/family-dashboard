@@ -52,7 +52,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return d;
   }
   function dayLabel(ds) {
-    var t = now(), today = ymd(t), tm = new Date(t.getTime() + 864e5);
+    var t = now(), today = ymd(t), tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);   // the next civil day: a DST eve is 23 or 25 hours
     if (ds === today) return "Today";
     if (ds === ymd(tm)) return "Tomorrow";
     var d = new Date(ds + "T12:00:00"), days = (d - t) / 864e5;
@@ -2319,10 +2319,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   // The week, the holidays and the sensors each land on their own. A week that fails keeps its
   // last good copy and says so (DATA.error); the weather, the sun, school and the holidays
-  // update either way.
+  // update either way. Each load has a number, and an answer from an older load than the one
+  // already shown is dropped: a slow load from before midnight must not bring yesterday's week back.
+  var LOADS = 0, SHOWN = { week: 0, hol: 0 };
+  function newest(k, gen) { if (gen < SHOWN[k]) return false; SHOWN[k] = gen; return true; }
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null, extraErr = null;
+    var schoolErr = null, extraErr = null, gen = ++LOADS;
     hassToken().then(function (tok) {
       // the school sensors are optional: a missing one blanks its part of the School card, nothing else
       function opt(id) { if (!id) return Promise.resolve(null);
@@ -2336,11 +2339,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var school = Promise.all(ids.map(function (id) { return getState(id, tok).then(function (s) { states[id] = s; })
         .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
       var week = readWeek(tok).then(function (wk) {
+        if (!newest("week", gen)) return;
         DATA = Object.assign({}, DATA, { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, error: null, gotAt: new Date() });
         refreshTags();
-      }, function (e) { console.error("meadow: the week did not load", e); DATA.error = e.message || String(e); });
-      var hols = holidays(tok).then(function (h) { DATA = Object.assign({}, DATA, { holidays: h, holidaysErr: null, holidaysAt: new Date() }); },
-        function (e) { console.warn("meadow: holidays", e); DATA.holidaysErr = (e && (e.message || e.body && e.body.message)) || String(e); });   // the last good list stays
+      }, function (e) { console.error("meadow: the week did not load", e); if (newest("week", gen)) DATA.error = e.message || String(e); });
+      var hols = holidays(tok).then(function (h) { if (newest("hol", gen)) DATA = Object.assign({}, DATA, { holidays: h, holidaysErr: null, holidaysAt: new Date() }); },
+        function (e) { console.warn("meadow: holidays", e); if (newest("hol", gen)) DATA.holidaysErr = (e && (e.message || e.body && e.body.message)) || String(e); });   // the last good list stays
       var rest = Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]).then(function (s) {
         DATA = Object.assign({}, DATA, { extra: s[0] ? s[0].attributes || null : null, extraErr: extraErr, school: { states: s[1], kit: s[2] && s[2].attributes, err: schoolErr },
           pc: null, sun: s[3] && s[3].attributes, weather: s[4] ? { state: s[4].state, attributes: s[4].attributes } : null, othersAt: new Date() });
@@ -3135,8 +3139,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
   // ── HUD ─────────────────────────────────────────────────────────────────────
   var $ = function (id) { return ROOT.getElementById(id); };
+  // At local midnight the week moves on: load the new seven days, and redraw an open person's
+  // card for the new today, letter and all (it is not read again, so nothing is cleared).
+  var HUD_DAY = null;
   function hud() {
     var d = now();
+    if (HUD_DAY && HUD_DAY !== ymd(d)) { load(); if (openThing && openThing.person) openCard(openThing, false, true); }
+    HUD_DAY = ymd(d);
     CD = countdowns(); PARTY = findParty(); HOUSE = findHouseParty(); renderDates();
     $("clock").innerHTML = pad2(d.getHours()) + ":" + pad2(d.getMinutes()) +
       (WX.live && WX.temp != null ? '<span class="temp">' + Math.round(WX.temp) + "\u00b0</span>" : "");
@@ -3226,13 +3235,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (b) b.outerHTML = '<div class="post done">' + (r.l.from ? "Letter from " + esc(r.l.from) + " cleared." : "Letter cleared.") + "</div>";
     clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
   }
-  function openCard(t, tap) {
+  // again: redraw the card already open (midnight) without reading its letter again.
+  function openCard(t, tap, again) {
     var p = t.person, name = p.name, td = ymd(now()), html = "";
     var mine = DATA.events.filter(function (e) { return e.who === name; });
     var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
     var calHealth = calendarHealth(DATA, name);
-    settleLetter();
-    if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); }     // the postie's letter, read once
+    if (again) { if (READING && READING.t === t) html += postBlock(READING.l); }
+    else { settleLetter(); if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); } }     // the postie's letter, read once
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
       : '<div class="empty">' + (calHealth === "loading" ? "Still loading the week, so this card can't say what's on yet."
@@ -3273,10 +3283,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     LETTER.bad.filter(function (b) { return b.who === name; }).forEach(function (b) { foot.push('<span class="bad">Letters unavailable (' + esc(b.entity) + " " + esc(b.reason) + "), so this card can't say if one is waiting.</span>"); });
     html += '<div class="foot">' + foot.join(" ") + "</div>";
 
-    $("lists").innerHTML = html; $("lists").scrollTop = 0;
-    $("who").textContent = name;
+    $("lists").innerHTML = html;
     $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today")
       : calHealth === "loading" ? "Loading the week" : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
+    if (again) return;
+    $("lists").scrollTop = 0;
+    $("who").textContent = name;
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");
     // portrait: the same creature, redrawn large rather than scaled up blurry
