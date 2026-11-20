@@ -2620,7 +2620,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     clock: '<circle cx="12" cy="12.5" r="9.5" fill="#FFF4E8" stroke="#8A5A3C" stroke-width="1.8"/><path d="M12 7v5.8l3.6 2.2" fill="none" stroke="#26352C" stroke-width="2" stroke-linecap="round"/>',
     bell: '<path d="M12 3.2c3.6 0 6 2.8 6 6.6v4.4l2 3.2H4l2-3.2V9.8c0-3.8 2.4-6.6 6-6.6z" fill="#E8A93C"/><path d="M8.6 7.4q1.4-2 3.4-2" fill="none" stroke="#FFF4C8" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="19.6" r="2.3" fill="#8A5A3C"/><rect x="11" y="1" width="2" height="2.8" rx="1" fill="#8A5A3C"/>'
   };
-  function xIcon(k) { return '<svg class="dic" viewBox="0 0 24 24">' + XICON[k] + "</svg>"; }
+  function xIcon(k) { return '<svg class="dic" viewBox="0 0 24 24" aria-hidden="true">' + XICON[k] + "</svg>"; }
   // A tile's icon, 32x40: the liquid, mercury or light takes the reading's colour and level.
   function tileSvg(kind, col, level, na, uid) {
     var ink = na ? "#8A8A94" : "#26352C", glass = "#F4F7FA", y = function (top, bot) { return (bot - (bot - top) * level).toFixed(1); }, s = "";
@@ -2651,7 +2651,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         '<path d="M8 10h16v9a8 8 0 01-16 0z" fill="' + (on ? col : glass) + '" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/>' +
         (on ? '<path d="M17 14l-3.5 5h3l-1.5 4.5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' : "");
     }
-    return '<svg viewBox="0 0 32 40" width="32" height="40">' + s + "</svg>";
+    return '<svg viewBox="0 0 32 40" width="32" height="40" aria-hidden="true">' + s + "</svg>";
   }
   // The demo's made-up states, one per configured entity, worded from the demo clock.
   function demoExtra(id) {
@@ -2680,10 +2680,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var before = $("scrim");
     function el(id, parent) { var e = document.createElement("div"); e.id = id; if (parent) parent.appendChild(e); else WRAP.insertBefore(e, before); return e; }
     if (DUE_CONF) el("due");
+    // The banner and the tiles are buttons, so they act on click: a tap, Enter or Space. #announce
+    // is a live region, so a new announcement is read out.
     if (ANN_CONF) { var an = el("announce"); if (DUE_CONF) an.style.top = "124px";
-      an.addEventListener("pointerdown", function () { activity(); var a = XS.ann; if (a && a.status === "show") annTap(a.key); }); }
+      an.setAttribute("role", "status");
+      an.addEventListener("click", function () { activity(); var a = XS.ann; if (a && a.status === "show") annTap(a.key); }); }
     if (TILE_CONF.length) { var tl = el("tiles", $("corner"));
-      tl.addEventListener("pointerdown", function (e) { activity();
+      tl.addEventListener("click", function (e) { activity();
         var t = e.target && e.target.closest ? e.target.closest(".tile") : null, k = t ? +t.getAttribute("data-i") : -1;
         if (k >= 0 && TILE_CONF[k]) { note(XS.taps, TILE_CONF[k].entity); t.classList.add("tap"); setTimeout(function () { t.classList.remove("tap"); }, 260);
           if (!DEMO) HA.moreInfo(TILE_CONF[k].entity); } }); }
@@ -2703,7 +2706,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (key === XS.annKey) return; XS.annKey = key;
     var el = $("announce"), head = (ANN_CONF.title || "") + (a.from ? (ANN_CONF.title ? ", from " : "From ") + a.from : "");
     if (a.status === "unavailable") el.innerHTML = '<div class="ann na">' + xIcon("bell") + '<div class="ax">' + esc((ANN_CONF.title || "Announcements") + " unavailable") + "</div></div>";
-    else if (key !== "-" && key.charAt(0) !== "c") el.innerHTML = '<div class="ann">' + xIcon("bell") + '<div class="ab">' + (head ? '<div class="at">' + esc(head) + "</div>" : "") + '<div class="ax">' + esc(a.text) + "</div></div></div>";
+    else if (key !== "-" && key.charAt(0) !== "c") el.innerHTML = '<button type="button" class="ann">' + xIcon("bell") + '<span class="ab">' + (head ? '<span class="at">' + esc(head) + "</span>" : "") + '<span class="ax">' + esc(a.text) + "</span></span></button>";
     else el.innerHTML = "";
   }
   function dueCol(it) { var p = PEOPLE.filter(function (q) { return q.name === it.person; })[0] || PEOPLE[PEOPLE.length - 1]; return p.col; }
@@ -2738,8 +2741,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     $("tiles").innerHTML = TILE_CONF.map(function (t, i) {
       var s = out[i]; if (!s) return "";
       var st = xState(t.entity), na = s.status !== "ok", label = t.label || (st && st.attributes && st.attributes.friendly_name) || t.entity.split(".")[1].replace(/_/g, " ");
-      return '<div class="tile' + (na ? " na" : "") + '" data-i="' + i + '" style="border-color:' + (na ? "#8A8A94" : shade(s.color, 0.85)) + '">' +
-        tileSvg(t.icon, na ? "#C9C9D0" : s.color, na ? 0 : s.level, na, "fdt" + i) + '<div class="tv">' + esc(s.text) + '</div><div class="tl">' + esc(label) + "</div></div>";
+      return '<button type="button" class="tile' + (na ? " na" : "") + '" data-i="' + i + '" style="border-color:' + (na ? "#8A8A94" : shade(s.color, 0.85)) + '">' +
+        tileSvg(t.icon, na ? "#C9C9D0" : s.color, na ? 0 : s.level, na, "fdt" + i) + '<span class="tv">' + esc(s.text) + '</span><span class="tl">' + esc(label) + "</span></button>";
     }).join("");
   }
   // ── The town crier (v1.7.0) ─────────────────────────────────────────────────

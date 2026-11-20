@@ -258,5 +258,11 @@ engine/engine.js|s/        b.addEventListener("click", function () { keyAct(w.k)
 engine/engine.js|s/ + (postBadge(t.letter) ? ", letter waiting" : "")//|a person's button does not say a letter is waiting
 engine/engine.js|s/label: t.person.name + onToday(todayFor(t.person.name).length)/label: t.person.name/|a person's button does not say how many things are on today
 engine/engine.js|s/if (h.robot ? ROBOT .. VIEW.office : VIEW\[id\])/if (h.robot ? ROBOT \&\& VIEW.office : false)/|a landmark with a view has no button
+engine/engine.js|s/      tl.addEventListener("click", function (e) { activity();/      tl.addEventListener("pointerdown", function (e) { activity();/|a status tile acts on pointerdown, so Enter on it does nothing
+engine/engine.js|s/      an.addEventListener("click", function () { activity();/      an.addEventListener("pointerdown", function () { activity();/|the banner acts on pointerdown, so Enter on it does nothing
+engine/engine.js|s/      an.setAttribute("role", "status");//|a new announcement is not read out
+engine/engine.js|s/return '<button type="button" class="tile'/return '<div class="tile'/|a status tile is a div that Tab never reaches
+card.js|s/border-style: dashed; color: #55555E; }/border-style: dashed; color: #6E6E78; }/|an unavailable tile's text is 3.9:1 on its grey
+card.js|s/.tile .tl { display: block; font: 500 13px\/16px/.tile .tl { display: block; font: 500 11px\/14px/|a tile's label stays at 11 px
 EOF
 echo "ok: all $n sabotaged copies failed the check"

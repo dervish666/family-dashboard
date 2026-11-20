@@ -28,6 +28,9 @@ Card
 - The popup is a dialog. Done takes focus when it opens, Tab stays inside it, Escape closes it
   the way Done does, and closing hands focus back. A closed popup is hidden from Tab and from
   readers. The status line is spoken when its words change.
+- Status tiles and the announcement banner are buttons that act on a tap, Enter or Space, and
+  a new announcement is read out. Grey "unavailable" text is 5.7:1 on its grey (was 3.9:1), and
+  a tile's label is 13 px (was 11).
 
 Editor
 - A "Birthday (MM-DD)" field per person. A rename carries the birthday and anniversary along.

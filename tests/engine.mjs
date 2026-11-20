@@ -741,6 +741,39 @@ export async function engineChecks(src, T) {
     ok(card.sr.activeElement === null, "and closing lets go of focus, so it is not left on a hidden Done");
     done(card);
   }
+  // The status tiles and the announcement banner are buttons that act on click (a tap, Enter or
+  // Space), not on pointerdown, and the banner is a live region. Unavailable text passes AA.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    st["sensor.fridge"] = { state: "5.2", attributes: { unit_of_measurement: "°C" } };
+    st["input_text.announcement"] = { state: "Tea's ready", last_changed: new RealDate(NOON - 5000).toISOString(), attributes: {} };
+    const hass = fakeHass(st);
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" }, announcement: "input_text.announcement", announcement_crier: false,
+      status_tiles: [{ entity: "sensor.fridge", label: "Fridge", icon: "flask" }, { entity: "sensor.gone", label: "Shed", icon: "thermometer" }] }, hass);
+    const asked = [];
+    card.dispatchEvent = function (e) { if (e.type === "hass-more-info") asked.push(e.detail.entityId); return true; };
+    frame();
+    ok(/^<button type="button" class="tile" data-i="0"/.test(text(card, "tiles")) && /<button type="button" class="tile na" data-i="1"/.test(text(card, "tiles")), "each status tile is a button");
+    ok(/^<button type="button" class="ann">/.test(text(card, "announce")), "the announcement banner is a button");
+    eq(card.$("announce").getAttribute("role"), "status", "the banner is a live region, so a new announcement is read out");
+    const tile = { getAttribute: function () { return "0"; }, classList: { add: function () {}, remove: function () {} } }, on = { closest: function () { return tile; } };
+    card.$("tiles").fire("pointerdown", { target: on });
+    card.$("announce").fire("pointerdown");
+    eq([card.dbg.extras().taps, asked, card.dbg.extras().hidden], [[], [], null], "a pointerdown alone does nothing: a tile and the banner act on click");
+    card.$("tiles").fire("click", { target: on });
+    eq([card.dbg.extras().taps, asked], [["sensor.fridge"], ["sensor.fridge"]], "a click on a tile opens Home Assistant's more-info for its entity");
+    card.$("announce").fire("click");
+    ok(card.dbg.extras().hidden && /^Tea's ready\|/.test(card.dbg.extras().hidden), "a click on the banner takes it down");
+    const hex = function (r) { const m = (rule(card, r) || "").match(/(?:^|; |\n\s*)color: (#[0-9A-F]{6})/i); return m && m[1]; };
+    const lum = function (h) { return [1, 3, 5].map(function (i) { const c = parseInt(h.slice(i, i + 2), 16) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); })
+      .reduce(function (t, c, i) { return t + c * [0.2126, 0.7152, 0.0722][i]; }, 0); };
+    const contrast = function (a, b) { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    const na = [".tile.na", ".tile.na .tl", ".dchip.na", ".ann.na"].map(function (r) { return [r, hex(r)]; });
+    ok(na.every(function (x) { return x[1] && contrast(x[1], "#E2E2E6") >= 4.5; }), "unavailable text on its grey is at least 4.5:1 (" + na.map(function (x) { return x.join(" "); }).join(", ") + ")");
+    ok(/ 13px\//.test(rule(card, ".tile .tl")), "a tile's label is 13 px");
+    done(card);
+  }
   // A letter kept that way is back in the letter book: a panel's Done still takes it off the tag.
   {
     C.now = NOON;
