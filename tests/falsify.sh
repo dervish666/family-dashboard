@@ -177,13 +177,13 @@ scenes/meadow.js|s/  postbox: function (S) { var p = S.lay.post; return { x: p.x
 scenes/winter.js|s/  postbox: function () { var p = G.postbox; return { x: p.x, y: p.y - 36 }; },/  postbox: function () { var p = G.postbox; return { x: p.x, y: NaN }; },/|the winter postbox is nowhere
 scenes/winter.js|s/  postbox: function () {/  postbox: 3, xx: function () {/|a postbox that is not a function
 data.js|s/if (!ok.length) throw new Error("no calendar answered/if (false) throw new Error("no calendar answered/|every calendar failing reads as an empty week
-engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable" : "Free today";/: "Free today";/|a failed load's summary says Free today
-engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
-engine/engine.js|s/if (DATA.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
-engine/engine.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
+popup.js|s/: calHealth !== "ok" ? "Calendar unavailable" : "Free today";/: "Free today";/|a failed load's summary says Free today
+popup.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
+popup.js|s/if (data.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
+popup.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
 calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars down reads as a free day
 data.js|s/d - data.weekAt > 40 \* 60000/d - data.weekAt > 400 * 60000/|a week hours old is not flagged stale
-engine/engine.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
+popup.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
 engine/engine.js|s/esc(up\[0\].what)/up[0].what/|the Next line stops escaping titles
 engine/engine.js|s/if (s \&\& String(s.state) !== l.was) return;//|closing a card empties a shared letter that landed while it was up
 engine/engine.js|s/if (!s .. String(s.state) !== c.expect) return;/if (!s) return;/|closing a card empties a per-person letter that landed while it was up
@@ -197,7 +197,7 @@ data.js|s/    .then(function (evs) { return evs.filter(/    .catch(function () {
 card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
 engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
 calendar.js|s/  if (!data .. !data.gotAt) return "loading";//|a card opened before the first load says Free today
-engine/engine.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
+popup.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
 data.js|s/  else if (!data.gotAt \&\& !o.demo) st = "Loading the week";//|the status line never says the week is loading
 data.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
 data.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
@@ -208,7 +208,7 @@ engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var a
 data.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function newest(k, gen) {/|a slow load that lands last replaces a newer week
 engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { /|midnight waits for the five-minute reload
 engine/engine.js|s/ if (openThing \&\& openThing.person) openCard(openThing, false, true); }/ }/|an open card keeps yesterday's Today after midnight
-engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) html += postBlock(READING.l); }/    if (false) {}/|the midnight redraw reads the letter again and clears it
+engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) letter = READING.l; }/    if (false) {}/|the midnight redraw reads the letter again and clears it
 data.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
 engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
 engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
@@ -225,7 +225,7 @@ engine/engine.js|s/closeTimer = setTimeout(autoClose, 60000)/closeTimer = setTim
 engine/engine.js|s/  \$("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });//|a tap inside the card does not start its minute again
 engine/engine.js|s/)) BOOK.live.push(r.l);/)) void 0;/|a letter kept by the auto-close is left out of the book, so a panel's Done cannot take it back
 data.js|s/var xr = readExtra(s\[0\] ? s\[0\].attributes : null);/var xr = { data: s[0] ? s[0].attributes : null, bad: [] };/|the engine hands sensors.extra to the cards unchecked, and schools as a string stops the HUD
-engine/engine.js|s/    if (DATA.extraBad \&\& DATA.extraBad.length) return "School info unreadable/    if (false) return "School info unreadable/|school info in the wrong shape is left out without a word on the cards
+popup.js|s/  if (data.extraBad \&\& data.extraBad.length) return "School info unreadable/  if (false) return "School info unreadable/|school info in the wrong shape is left out without a word on the cards
 school.js|s/const kept = v.map(each).filter(function (x) { return x != null; })/const kept = v.slice()/|an entry of sensors.extra in the wrong shape is kept
 school.js|s/if (!Array.isArray(v)) { bad.push(key + " is not a list"); return \[\]; }/if (!Array.isArray(v)) return [];/|a part of sensors.extra that is not a list is dropped without a word
 calendar.js|s/for (let day = sd < first ? first : sd; day <= ed /for (let day = sd < first ? first : sd; day <= (sd < first ? first : sd) /|an event is listed on its first day only
@@ -238,9 +238,11 @@ engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continu
 engine/engine.js|s#      if (e.cont) continue;  *// the second day of a trip#      // the second day of a trip#|the banner's next thing on is the second day of a trip
 data.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
 editor.js|s/: p.look .. LOOKS\[i % 6\],/: p.look ? p.look : "crow",/|an edit turns a look-less person into a crow
-engine/engine.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
+popup.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
 data.js|s/  else if (L.clearErr) st = /  else if (false) st = /|a letter that could not be cleared is not on the status line
 data.js|s/  else if (o.annErr) st = /  else if (false) st = /|an announcement that could not be cleared is not on the status line
 data.js|s/  if (inTerm) return true;/  if (inTerm) return null;/|a day in term reads as cannot tell, so nobody goes to school on term dates alone
+popup.js|s/sum = !weekday(d) ? "Weekend" :/sum = false ? "Weekend" :/|the School card counts who is at school at the weekend
+popup.js|s/"Letter from " + esc(l.from) + " cleared."/"Letter from " + l.from + " cleared."/|the cleared letter's line stops escaping who it was from
 EOF
 echo "ok: all $n sabotaged copies failed the check"

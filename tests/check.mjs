@@ -1,6 +1,6 @@
 // Runnable check for the parts of the card that need no real pixels: config normalisation,
-// calendar parsing, the loads from Home Assistant (data.js, on a fake hass) and the status line, the school timetable and
-// lunch parsers, the announcement extras and the town crier's
+// calendar parsing, the loads from Home Assistant (data.js, on a fake hass) and the status line, the
+// popup cards' HTML (popup.js), the school timetable and lunch parsers, the announcement extras and the town crier's
 // rules, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
 // throwing). Then the engine itself, booted from src/ by tests/engine.mjs. No dependencies.
@@ -227,6 +227,45 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   eq([first.status, first.lessons.map(function (l) { return l.subject; }), m.schoolParse({ events: [] }, src, "timetable", "Sky", new Date(2026, 9, 26, 12)).status],
     ["ok", ["Maths"], "loading"], "schoolParse: the day's lessons once the sensors are read, loading before");
   ok(m.schoolParse(snap, src, "timetable", "Sky", new Date(2026, 9, 26, 9), new Date()) === first, "schoolParse: a child's day is parsed once per snapshot");
+}
+
+// ── The popup cards (popup.js), from a snapshot alone ─────────────────────────────
+{
+  const at = new Date(2026, 9, 26, 12, 0), cfg = m.normalize({ people: [{ name: "Alex", calendar: "calendar.alex" }, { name: "Sky", role: "kid", school: true, calendar: "calendar.sky" },
+    { name: "Pat" }, { name: "House", calendar: "calendar.house" }], sensors: { extra: "sensor.family_extra" } });
+  const who = function (n) { return cfg.people.filter(function (p) { return p.name === n; })[0]; };
+  const card = function (name, data, more) {
+    return m.personCard(Object.assign({ data: data, now: at, config: cfg, src: {}, demo: false, person: who(name), letter: null, letters: { clearErr: null, bad: [] }, due: null }, more || {})); };
+  const loaded = { events: [], gotAt: at, weekAt: at, error: null, calFailed: [], extra: { items: [] }, othersAt: at };
+  const one = card("Alex", Object.assign({}, loaded, { calFailed: [{ who: "Alex", id: "calendar.alex" }] }));
+  eq(one.sum, "Calendar unavailable", "personCard: their calendar failed, so the summary is not Free today");
+  ok(one.html.indexOf("Calendar unavailable, so this card can't say what's on.") >= 0 && one.html.indexOf("Calendar unavailable: calendar.alex. This week may be missing events.") >= 0,
+    "personCard: Today says the calendar is unavailable, and the foot names which one");
+  eq(card("House", Object.assign({}, loaded, { calFailed: [{ who: "Alex", id: "calendar.alex" }] })).sum, "Free today", "personCard: someone else's calendar down leaves the House free");
+  const down = card("Alex", Object.assign({}, loaded, { error: "no calendar answered (calendar.alex)" }));
+  eq(down.sum, "Calendar unavailable", "personCard: a failed load is not a free day");
+  ok(/Can't load the week \(no calendar answered \(calendar\.alex\)\), so this is the last week that loaded\./.test(down.html), "personCard: the foot names the failed load, and that the week showing is the last one");
+  const loading = card("Alex", { events: [], gotAt: null, weekAt: null, error: null });
+  eq(loading.sum, "Loading the week", "personCard: before the first load the summary says the week is loading");
+  ok(loading.html.indexOf("Still loading the week, so this card can't say what's on yet.") >= 0 && loading.html.indexOf("Nothing on today") < 0, "personCard: and Today is not a free day");
+  eq([card("Pat", loaded).sum, card("Alex", loaded).sum], ["No calendar", "Free today"], "personCard: no calendar of their own is not a free day; an empty calendar is");
+  const title = card("Alex", Object.assign({}, loaded, { events: [{ who: "Alex", what: "Dentist <b>x</b> & \"co\"", day: "2026-10-26", at: "15:00", all_day: false, start: "2026-10-26T15:00:00" },
+    { who: "Alex", what: "<i>Trip</i>", day: "2026-10-28", at: "", all_day: true, start: "2026-10-28" }] }),
+    { letter: { from: "<i>Mum</i>", text: "Tea <now>", at: new Date(2026, 9, 26, 11, 58) } });
+  ok(title.html.indexOf("Dentist &lt;b&gt;x&lt;/b&gt; &amp; &quot;co&quot;") >= 0 && title.html.indexOf("&lt;i&gt;Trip&lt;/i&gt;") >= 0 && !/<b>x<\/b>|<i>/.test(title.html),
+    "personCard: a title's markup comes out escaped, today and later in the week");
+  ok(/^<div class="post">.*Letter from <b>&lt;i&gt;Mum&lt;\/i&gt;<\/b> <span class="pt">11:58<\/span>.*Tea &lt;now&gt;/.test(title.html), "personCard: the letter comes first, its sender and words escaped");
+  eq(title.sum, "1 thing today", "personCard: today's events count in the summary");
+  eq(m.postCleared({ from: "<i>Mum</i>" }) + m.postCleared({ from: "" }), '<div class="post done">Letter from &lt;i&gt;Mum&lt;/i&gt; cleared.</div><div class="post done">Letter cleared.</div>',
+    "postCleared: the line a read letter leaves, its sender escaped");
+  const bad = Object.assign({}, loaded, { extra: { items: [{ who: "Sky", date: "2026-10-27", kind: "homework", what: "Maths <sheet>" }] }, extraBad: ["schools is not a list"] });
+  ok(card("Sky", bad).html.indexOf("School info unreadable (schools is not a list).") >= 0 && card("Sky", bad, { demo: true }).html.indexOf("School info") < 0,
+    "personCard: school info in the wrong shape is named in the foot, and the demo's never is");
+  const sch = function (data, day, more) { return m.schoolCard(Object.assign({ data: data, now: day, config: cfg, src: {}, demo: false }, more || {})); };
+  const mon = sch(bad, at);
+  ok(mon.html.indexOf("Tomorrow</div><div class=\"what\"><span class=\"chip\">Sky</span>Homework: Maths &lt;sheet&gt;") >= 0, "schoolCard: a school item is coming up, escaped, under the child's name");
+  ok(mon.html.indexOf("Sky: ") < 0 && mon.html.indexOf("School info unreadable (schools is not a list).") >= 0, "schoolCard: the foot names the unreadable school info");
+  eq([mon.sum, sch(bad, new Date(2026, 9, 31, 12)).sum], ["Can't tell who has school today", "Weekend"], "schoolCard: a weekday nobody can be placed on is not a day off, and Saturday is the weekend");
 }
 
 // First install: the demo cast, picking up whatever calendars exist.
