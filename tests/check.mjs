@@ -230,6 +230,14 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
     "schoolDay: a lesson day, a closed day, a Saturday, and nothing read yet");
   eq([on(snap, "Ann", 26), m.schoolDay(snap, src, "Ann", new Date(2026, 10, 2, 12)), on({ events: [], extra: term([{ label: "T1", from: "2026-09-01", to: null }]) }, "Ann", 26), on(snap, "Home", 26)],
     [false, true, null, null], "schoolDay: half term between two known terms, the first day back, an open-ended term, and no school data at all");
+  // A timetable day that is ok but has no lessons sends nobody to school: the lunch and terms decide.
+  const bare = { weeks: ["A"], days: { A: { mon: ["Maths"], tue: [], wed: ["PE"], thu: ["Music"], fri: ["French"] } } };
+  const sl = { "sensor.sky_tt": { state: "A", attributes: { timetable: bare } } };
+  const lsrc = m.schoolSources([{ name: "Sky", school: true, timetable: { entity: "sensor.sky_tt", attribute: "timetable" }, lunch: { entity: "sensor.sky_lunch", attribute: "menu" } }], false);
+  const withLunch = function (st) { return { events: [], school: { states: Object.assign({ "sensor.sky_lunch": { state: "ok", attributes: { menu: { "2026-10-27": { status: st } } } } }, sl) } }; };
+  eq([m.schoolDay({ events: [], school: { states: sl } }, src, "Sky", new Date(2026, 9, 27, 12)), m.schoolDay(withLunch("served"), lsrc, "Sky", new Date(2026, 9, 27, 12)),
+    m.schoolDay(withLunch("closed"), lsrc, "Sky", new Date(2026, 9, 27, 12))], [null, true, false],
+    "schoolDay: a timetable day with no lessons is no evidence of school; the lunch menu then decides");
   const first = m.schoolParse(snap, src, "timetable", "Sky", new Date(2026, 9, 26, 12), new Date(2026, 9, 26, 12));
   eq([first.status, first.lessons.map(function (l) { return l.subject; }), m.schoolParse({ events: [] }, src, "timetable", "Sky", new Date(2026, 9, 26, 12)).status],
     ["ok", ["Maths"], "loading"], "schoolParse: the day's lessons once the sensors are read, loading before");
@@ -284,6 +292,13 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   ok(/Heads up<\/span>Half term starts in three weeks/.test(hc) && /Couldn't check: parent-mail\./.test(hc) && /Nothing for the house today\./.test(hc),
     "personCard: a household called Home has the flags, the sources that could not be checked and the house's Today");
   ok(!/Half term starts/.test(sc) && !/parent-mail/.test(sc), "personCard: and the person before it has neither");
+  // Lunch on a Friday: the next school day skips Monday's INSET to Tuesday's menu.
+  const lunchSrc = { Sky: { lunch: { entity: "sensor.sky_lunch", attribute: "menu" } } }, fri = new Date(2026, 9, 30, 12);
+  const lunchData = Object.assign({}, loaded, { school: { states: { "sensor.sky_lunch": { state: "served", attributes: { menu: {
+    "2026-10-30": { status: "served", options: ["Friday pie"] }, "2026-11-02": { status: "closed", note: "INSET" }, "2026-11-03": { status: "served", options: ["Tuesday pasta"] } } } } } } });
+  const lunchRows = [...m.personCard({ data: lunchData, now: fri, config: cfg, src: lunchSrc, demo: false, person: who("Sky"), letter: null, letters: { clearErr: null, bad: [] }, due: null })
+    .html.split("<h2>Lunch</h2>")[1].matchAll(/<div class="when">([^<]*)<\/div><div class="what">(?:<[^>]*>)*([^<]*)/g)].map(function (x) { return x[1] + " " + x[2]; });
+  eq(lunchRows, ["Today Friday pie", "Tue 3 Tuesday pasta"], "personCard: on a Friday the next lunch skips a closed Monday to Tuesday's menu");
   const sch = function (data, day, more) { return m.schoolCard(Object.assign({ data: data, now: day, config: cfg, src: {}, demo: false }, more || {})); };
   const mon = sch(bad, at);
   ok(mon.html.indexOf("Tomorrow</div><div class=\"what\"><span class=\"chip\">Sky</span>Homework: Maths &lt;sheet&gt;") >= 0, "schoolCard: a school item is coming up, escaped, under the child's name");

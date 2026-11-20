@@ -171,6 +171,16 @@ function nextLessonDay(v, name, from) {
     if (t.status === "ok" || t.status === "unavailable" || t.status === "no_week") return { d: d, t: t, i: i }; }
   return null;
 }
+// The next school day for lunch: the next weekday the menu (or the timetable) does not mark
+// closed, so a Friday card skips an INSET Monday for Tuesday's menu. Two weeks closed (Christmas):
+// the first weekday, which then says why.
+function nextLunchDay(v, name, from) {
+  var first = null, tt = v.src[name].timetable;
+  for (var i = 1; i <= 14; i++) { var x = addDays(from, i); if (!weekday(x)) continue;
+    if (!first) first = x;
+    if (lunchFor(v, name, x).status !== "closed" && !(tt && ttFor(v, name, x).status === "closed")) return x; }
+  return first;
+}
 function dishHtml(o, picked) {
   return '<div class="dish' + (picked ? " picked" : "") + '">' + (picked ? '<span class="chip pick">Chosen</span>' : "") + esc(o.name) + (o.kind ? soft(o.kind) : "") +
     o.allergens.map(function (a) { return ' <span class="alg">' + esc(a) + "</span>"; }).join("") + "</div>";
@@ -227,8 +237,7 @@ function schoolSections(v, name) {
       out.foot.push("Lunch menu " + src.lunch.entity + " " + (first.reason || "unavailable") + "."); }
     else {
       var days = weekday(d) ? [d] : [];
-      var nd = addDays(d, 1); while (!weekday(nd)) nd = addDays(nd, 1);
-      days.push(nd);
+      days.push(nextLunchDay(v, name, d));
       days.forEach(function (x) { out.html += row(dayLabel(ymd(x), v.now), lunchHtml(v, name, x, lunchFor(v, name, x), ymd(x) === td), "", true); });
       var ce = choiceFor(v.data, v.src, name, d, first.choice);
       if (ce && ce.err) out.foot.push("Lunch choice unavailable (" + ce.err + ").");

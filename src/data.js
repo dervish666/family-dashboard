@@ -208,9 +208,10 @@ export function weekday(d) { return d.getDay() >= 1 && d.getDay() <= 5; }
 export function schoolDay(data, SRC, name, d) {
   if (!weekday(d)) return false;
   var td = ymd(d);
-  // The child's own timetable and lunch sensors answer first (people[].timetable, .lunch).
+  // The child's own timetable and lunch sensors answer first (people[].timetable, .lunch). A
+  // timetable day with no lessons on it is no evidence of school: the lunch or the term dates decide.
   var tt = schoolParse(data, SRC, "timetable", name, d, d);
-  if (tt && tt.status === "ok") return true;
+  if (tt && tt.status === "ok" && tt.lessons.length) return true;
   if (tt && (tt.status === "closed" || tt.status === "weekend")) return false;
   var ln = schoolParse(data, SRC, "lunch", name, d, d);
   if (ln && ln.status === "served") return true;

@@ -26,6 +26,9 @@ Card
   flags, the "Couldn't check" line, its own Today line and a Next line without its name, as
   "House" always had.
 - School info in the wrong shape is named on the cards, and the rest still shows.
+- A child's lunch on the next school day skips a closed day: a Friday card shows Tuesday's
+  menu after an INSET Monday. A timetable day with no lessons on it no longer walks a child to
+  school; the lunch menu or the term dates decide.
 - A card that closes itself after a minute keeps an unread letter. Got it, Done and a tap
   outside still clear it. A read letter leaves the letter book.
 - Midnight moves the week on, and a slow old load cannot bring the old week back. A stopped

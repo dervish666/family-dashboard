@@ -239,6 +239,8 @@ popup.js|s/  if (calHealth === "ok" \&\& data.weekAt \&\& v.now - data.weekAt > 
 popup.js|s/var flags = house ? /var flags = name === "House" ? /|a household not called House loses its flags
 popup.js|s/    return house .. v.config.sourceOwner/    return name === "House" ? true : v.config.sourceOwner/|a household not called House loses the sources that could not be checked
 engine/engine.js|s/esc(up\[0\].who === HOUSEHOLD ? ""/esc(up[0].who === "House" ? ""/|the Next line names a household not called House
+data.js|s/if (tt \&\& tt.status === "ok" \&\& tt.lessons.length) return true;/if (tt \&\& tt.status === "ok") return true;/|a timetable day with no lessons sends the child to school
+popup.js|s/    if (lunchFor(v, name, x).status !== "closed" .*$/    return x; }/|a Friday's next lunch is a closed Monday, not Tuesday's menu
 engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day after a late shift walks the creature out at the time it started
 engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
 engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day
