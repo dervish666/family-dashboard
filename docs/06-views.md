@@ -51,11 +51,13 @@ What else happens, all of it driven by data and none of it guessed:
   45% never keeps anyone hammering.
 - **The postie.** Type `Kid 3: tea's at six` into `input_text.family_letter`, or run the
   `family_send_letter` script from `scripts.example.yaml` on a phone. The postie carries it to
-  that person, who wears the letter above their tag until someone opens their card. Opening
-  the card shows it and clears the helper. A name the meadow does not know goes to House.
-  A person with their own helper (`people[].letter`, the room panels' `from|text` letters, see
-  [07 Room panels](07-room-panels.md#the-wall-card)) gets those letters the same way, with the
-  sender on the card; opening it empties their helper.
+  that person, who wears the letter above their tag until it is read. Opening the card shows
+  it; **Got it** (or closing the card) clears the helper. A card that closes itself after a
+  minute keeps the letter, so the next open shows it again. A name the meadow does not know
+  goes to House. A person with their own helper (`people[].letter`, the room panels' `from|text`
+  letters, see [07 Room panels](07-room-panels.md#the-wall-card)) gets those letters the same
+  way, with the sender on the card; Got it, Done and a tap outside the card empty
+  their helper.
 - **The kit bag.** When the kit sensor names kit for today, a bag sits by the cottage door
   before school.
 - **Countdowns** in the sky: birthdays and the fixed days in `dates`, Easter, the end of term
@@ -161,7 +163,7 @@ people:
   `{ entity, attribute }` when the data is not in the `timetable` or `menu` attribute.
   `choice` says packed lunch or school dinner: `packed`, `school`, a weekday map such as
   `{ fri: packed }`, or an entity whose state says it. The attribute shapes, and four ways to
-  feed them, are in the README under "School data per child".
+  feed them, are in [08 School data](08-school-data.md).
 - `letter` is this person's own letter helper, an `input_text.` or `text.` entity holding
   `from|text` (the room panels' letters, `input_text.letter_<slug>`). Their letters come the
   postie's way and opening their card empties the helper. Each person needs their own, and it
@@ -501,7 +503,7 @@ keys as attributes. The shape is documented by
 
 **Lessons and lunch, per child.** Each child's `timetable` and `lunch` sensors carry the data
 as attributes: a rotation of weeks with periods, rooms and closed days, and a dated menu
-with options, allergens and a per-day choice. The README section "School data per child" has
+with options, allergens and a per-day choice. [08 School data](08-school-data.md) has
 the exact shapes and worked examples, and `configuration.example.yaml` has a timetable read
 from a JSON file with a week override helper, and a lunch rotation written out for the next
 14 days.

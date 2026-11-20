@@ -9,12 +9,12 @@ tablet with a current browser can run it.
 |---|---|
 | `dashboards/wall-panel.yaml`, `themes/wall-panel.yaml` | the dashboard and its glass theme |
 | `www/panel-fonts.js`, `www/fonts/` | self-hosted Instrument Sans for the theme |
-| `dist/family-dashboard.js` | the Meadow card, installed through HACS (see the README) |
+| `dist/family-dashboard.js` | the Family Dashboard card, installed through HACS (see the README) |
 | `tools/wallpaper.py` | draws the wallpaper behind the glass |
 
 ## 1. Install the frontend pieces
 
-Install **card-mod** and **Mushroom** from HACS, and **Family Dashboard** (the Meadow card) from HACS as a custom repository for now (see the README). Copy `homeassistant/www/` to `config/www/`
+Install **card-mod** and **Mushroom** from HACS, and **Family Dashboard** from HACS as a custom repository for now (see the README). Copy `homeassistant/www/` to `config/www/`
 and `homeassistant/themes/wall-panel.yaml` to `config/themes/`. Make sure your
 `configuration.yaml` loads themes from that folder:
 
