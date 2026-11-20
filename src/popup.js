@@ -1,4 +1,4 @@
-// The popup cards' HTML: a person's card and the School card. Data in, HTML out: no DOM, no
+// The popup cards' HTML: a person's card, the School card and the workshop's. Data in, HTML out: no DOM, no
 // timers, no engine state, so tests/check.mjs builds them as they are. The engine writes what
 // these return into the popup and keeps the rest (the portrait, focus, the letter's lifecycle,
 // the minute before the card closes itself).
@@ -6,6 +6,8 @@
 //   personCard(v)   { html, sum } for one person: their letter, today, this week, due times,
 //                   lessons and lunch, good to know, and the foot that says what could not be read
 //   schoolCard(v)   { html, sum } for the School: every child's week, lunch, kit, items, term dates
+//   shopCard(v)     { html, sum } for the workshop's printer, from v.printer (PR), v.state
+//                   (printerState(): "empty" once nothing is fresh) and v.now
 //   postCleared(l)  the line a letter's block becomes once Got it is tapped
 //
 // v is what the cards are built from:
@@ -26,8 +28,8 @@ import { calendarHealth } from "./calendar.js";
 import { lessonsOver, addDays, mondayOf } from "./school.js";
 import { dayLabel, schoolParse, choiceFor, schoolDay, weekday, DAYS, DAYS_LONG, MONTHS } from "./data.js";
 
-export var KIND = { homework: "Homework", kit: "Kit", "term-date": "School", "inset-day": "No school", deadline: "Deadline", event: "School" };
-export function row(when, what, chip, raw) {
+var KIND = { homework: "Homework", kit: "Kit", "term-date": "School", "inset-day": "No school", deadline: "Deadline", event: "School" };
+function row(when, what, chip, raw) {
   return '<div class="row"><div class="when">' + esc(when) + '</div><div class="what">' + (chip ? '<span class="chip">' + esc(chip) + "</span>" : "") + (raw ? what : esc(what)) + "</div></div>";
 }
 // What to say about sensors.extra: nothing when it is off (null) or loaded, a plain
@@ -302,6 +304,36 @@ export function schoolCard(v) {
   people.forEach(function (p) { schoolSections(v, p.name).foot.forEach(function (f) { foot.push('<span class="bad">' + esc(p.name + ": " + f) + "</span>"); }); });
   (v.config.schoolOrphans || []).forEach(function (o) { foot.push('<span class="bad">' + esc("sensors." + o.key + " (" + o.entity + ") belongs to schoolWho." + o.key + " = " + o.who +
     ", who is not in people. Set " + o.key + " on the child.") + "</span>"); });
+  html += '<div class="foot">' + foot.join(" ") + "</div>";
+  return { html: html, sum: sum };
+}
+
+// ── The workshop card ────────────────────────────────────────────────────────────
+// The print job as the printer reports it: name, percent, time left and when
+// that lands on the clock. Nothing fresh, and the card says so instead of
+// showing the last thing it saw.
+var PR_LABEL = { running: "Printing", pause: "Paused", finish: "Finished", failed: "Failed", idle: "Idle", prepare: "Getting ready",
+  slicing: "Slicing", init: "Starting up", offline: "Offline", unknown: "Unknown", missing: "Not reachable" };
+function mins(m) { return m >= 60 ? Math.floor(m / 60) + "h " + pad2(m % 60) + "m" : m + " min"; }
+export function shopCard(v) {
+  var PR = v.printer, live = v.state !== "empty", st = live ? PR.status : (PR.err ? "missing" : PR.status), html = "", sum;
+  var label = PR_LABEL[st] || st;
+  html += "<h2>The printer</h2>" + row("Status", label);
+  if (live && PR.name && st !== "idle") html += row("Job", PR.name);
+  if (st === "running" || st === "pause") {
+    html += row("Progress", Math.round(PR.progress) + "%");
+    if (PR.layer != null && PR.layers != null) html += row("Layer", PR.layer + " of " + PR.layers);
+    if (PR.remain != null) { var done = new Date(v.now.getTime() + PR.remain * 60000);
+      html += row("Time left", mins(PR.remain)) + row("Done at", pad2(done.getHours()) + ":" + pad2(done.getMinutes()) + (st === "pause" ? " once it resumes" : "")); }
+    sum = label + ", " + Math.round(PR.progress) + "%";
+  } else if (st === "finish") { html += row("Progress", "100%"); sum = "Finished" + (PR.name ? ": " + PR.name : ""); }
+  else if (st === "failed") sum = "The print failed";
+  else if (/^(prepare|slicing|init)$/.test(st)) sum = "A print is starting";
+  else if (st === "idle") sum = "Nothing printing";
+  else sum = live ? label : "Printer not reachable";
+  var foot = [];
+  if (PR.at) foot.push("Printer checked " + pad2(PR.at.getHours()) + ":" + pad2(PR.at.getMinutes()) + ".");
+  if (!live) foot.push('<span class="bad">' + (PR.err ? "Can't reach the printer sensors (" + esc(PR.err) + ")." : "No fresh reading from the printer.") + "</span>");
   html += '<div class="foot">' + foot.join(" ") + "</div>";
   return { html: html, sum: sum };
 }

@@ -267,6 +267,17 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   ok(mon.html.indexOf("Sky: ") < 0 && mon.html.indexOf("School info unreadable (schools is not a list).") >= 0, "schoolCard: the foot names the unreadable school info");
   eq([mon.sum, sch(bad, new Date(2026, 9, 31, 12)).sum], ["Can't tell who has school today", "Weekend"], "schoolCard: a weekday nobody can be placed on is not a day off, and Saturday is the weekend");
 }
+{
+  const at = new Date(2026, 9, 26, 12, 0), job = { status: "running", progress: 45.4, remain: 75, name: "Benchy <v2>", layer: 10, layers: 100, at: new Date(2026, 9, 26, 11, 58), err: null };
+  const run = m.shopCard({ printer: job, state: "running", now: at });
+  ok(run.sum === "Printing, 45%" && run.html.indexOf("Benchy &lt;v2&gt;") >= 0 && run.html.indexOf("1h 15m") >= 0 && run.html.indexOf("13:15") >= 0 && run.html.indexOf("10 of 100") >= 0,
+    "shopCard: a print running says how far, the job escaped, the time left and when it lands");
+  ok(m.shopCard({ printer: Object.assign({}, job, { status: "pause" }), state: "pause", now: at }).html.indexOf("13:15 once it resumes") >= 0, "shopCard: a paused print is done once it resumes");
+  const gone = m.shopCard({ printer: Object.assign({}, job, { err: "sensor.a1_print_status not found", at: null }), state: "empty", now: at });
+  ok(gone.sum === "Printer not reachable" && gone.html.indexOf("Can't reach the printer sensors (sensor.a1_print_status not found).") >= 0,
+    "shopCard: a printer that stopped answering says so, not its last status");
+  ok(m.shopCard({ printer: Object.assign({}, job, { at: null }), state: "empty", now: at }).html.indexOf("No fresh reading from the printer.") >= 0, "shopCard: a reading gone stale says so in the foot");
+}
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });

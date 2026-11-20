@@ -17,7 +17,7 @@
 //   crier.js          the town crier for a new announcement: config, what is new or late, its steps
 //   letters.js        per-person letters (the room panels' from|text), and the dedupe with the postie
 //   post.js           the post office's hours (the hint by the postbox) and the letter badge on a name tag
-//   popup.js          the popup cards' HTML (a person's card, the School card), built from the snapshot
+//   popup.js          the popup cards' HTML (a person's, the School's, the workshop's), built from the snapshot
 //   engine/engine.js  the world: creatures, the day, weather, parties, the cards
 //   engine/draw.js    canvas helpers shared by the engine, creatures and scenes
 //   creatures/*.js    one module per animal, listed in creatures/index.js
@@ -29,7 +29,7 @@ export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
 export { parseCalendarEvents, weekRange, calendarPath, calendarHealth } from "./calendar.js";
 export { readWeek, holidays, byStart, newLoader, schoolSources, schoolEntities, CAL_WAIT, statusLine, dayLabel,
   schoolParse, schoolDay } from "./data.js";
-export { personCard, schoolCard, postCleared } from "./popup.js";
+export { personCard, schoolCard, shopCard, postCleared } from "./popup.js";
 export { parseTimetable, parseLunch, lunchChoice, lessonsEnd, lessonsOver, readExtra } from "./school.js";
 export { parseAnnouncement, parseDue, dueForHud, tileState, thresholdText, parseThresholdText, TILE_ICONS, MAX_TILES } from "./extras.js";
 export { normCrier, parseAnnounce, annStep, newCrier, crierStep, crierShowing, holdFor, wrapWords, fitWords, CRIER_LATE, CRIER_TIMES } from "./crier.js";

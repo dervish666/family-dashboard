@@ -8,7 +8,7 @@ import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.j
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
 import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel as dayLabelAt, DAYS_LONG, schoolDay, weekday } from "../data.js";
-import { personCard, schoolCard, postCleared, row } from "../popup.js";
+import { personCard, schoolCard, shopCard, postCleared } from "../popup.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -3100,36 +3100,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     armClose();
   }
   // ── The workshop card ───────────────────────────────────────────────────────
-  // The print job as the printer reports it: name, percent, time left and when
-  // that lands on the clock. Nothing fresh, and the card says so instead of
-  // showing the last thing it saw.
+  // The print job as the printer reports it (popup.js shopCard).
   var SHOP_CARD = { happy: 0, wait: 0 };
-  var PR_LABEL = { running: "Printing", pause: "Paused", finish: "Finished", failed: "Failed", idle: "Idle", prepare: "Getting ready",
-    slicing: "Slicing", init: "Starting up", offline: "Offline", unknown: "Unknown", missing: "Not reachable" };
-  function mins(m) { return m >= 60 ? Math.floor(m / 60) + "h " + pad2(m % 60) + "m" : m + " min"; }
   function openShop() {
     settleLetter();
-    var ps = printerState(), live = ps !== "empty", st = live ? PR.status : (PR.err ? "missing" : PR.status), html = "", sum;
-    var label = PR_LABEL[st] || st;
-    html += "<h2>The printer</h2>" + row("Status", label);
-    if (live && PR.name && st !== "idle") html += row("Job", PR.name);
-    if (st === "running" || st === "pause") {
-      html += row("Progress", Math.round(PR.progress) + "%");
-      if (PR.layer != null && PR.layers != null) html += row("Layer", PR.layer + " of " + PR.layers);
-      if (PR.remain != null) { var done = new Date(now().getTime() + PR.remain * 60000);
-        html += row("Time left", mins(PR.remain)) + row("Done at", pad2(done.getHours()) + ":" + pad2(done.getMinutes()) + (st === "pause" ? " once it resumes" : "")); }
-      sum = label + ", " + Math.round(PR.progress) + "%";
-    } else if (st === "finish") { html += row("Progress", "100%"); sum = "Finished" + (PR.name ? ": " + PR.name : ""); }
-    else if (st === "failed") sum = "The print failed";
-    else if (/^(prepare|slicing|init)$/.test(st)) sum = "A print is starting";
-    else if (st === "idle") sum = "Nothing printing";
-    else sum = live ? label : "Printer not reachable";
-    var foot = [];
-    if (PR.at) foot.push("Printer checked " + pad2(PR.at.getHours()) + ":" + pad2(PR.at.getMinutes()) + ".");
-    if (!live) foot.push('<span class="bad">' + (PR.err ? "Can't reach the printer sensors (" + esc(PR.err) + ")." : "No fresh reading from the printer.") + "</span>");
-    html += '<div class="foot">' + foot.join(" ") + "</div>";
-    $("lists").innerHTML = html; $("lists").scrollTop = 0;
-    $("who").textContent = "Workshop"; $("sum").textContent = sum;
+    var c = shopCard({ printer: PR, state: printerState(), now: now() });
+    $("lists").innerHTML = c.html; $("lists").scrollTop = 0;
+    $("who").textContent = "Workshop"; $("sum").textContent = c.sum;
     $("face").style.background = "#DCE6F0";
     // portrait: the finished workshop, from its baked pieces
     var pc = $("portrait"), g = pc.getContext("2d"), k = pc.width / 130;

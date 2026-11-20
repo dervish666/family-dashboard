@@ -9,7 +9,8 @@
 # and v1.8.0's per-person letters: the from|text parser, the copy it matches against the
 # postie, the dedupe and their config, and v1.9.0's post hours, hint and badge, and the engine
 # booted through the card: failed, partial, hung and out-of-order loads, the stale flag,
-# escaping, the letters, the holidays, midnight, reduced motion, stop() and a new config). The breaks go in src/, not dist/, because dist/ is
+# escaping, the letters, the holidays, midnight, reduced motion, stop() and a new config, and the loads, the status line
+# and the popup cards on their own in data.js and popup.js). The breaks go in src/, not dist/, because dist/ is
 # minified and its names change with every build. Exits 1 if any broken copy passes. Needs
 # npm ci first.
 set -u
@@ -244,5 +245,6 @@ data.js|s/  else if (o.annErr) st = /  else if (false) st = /|an announcement th
 data.js|s/  if (inTerm) return true;/  if (inTerm) return null;/|a day in term reads as cannot tell, so nobody goes to school on term dates alone
 popup.js|s/sum = !weekday(d) ? "Weekend" :/sum = false ? "Weekend" :/|the School card counts who is at school at the weekend
 popup.js|s/"Letter from " + esc(l.from) + " cleared."/"Letter from " + l.from + " cleared."/|the cleared letter's line stops escaping who it was from
+popup.js|s/  else sum = live ? label : "Printer not reachable";/  else sum = label;/|a printer that stopped answering reads as its last status on the workshop card
 EOF
 echo "ok: all $n sabotaged copies failed the check"
