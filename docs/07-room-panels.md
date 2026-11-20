@@ -33,11 +33,23 @@ a `text` entity from another integration has the same ceiling. The script trims 
 which leaves about 230 characters of letter.
 
 **The sent time.** `input_datetime.letter_<slug>_sent` (date and time) is optional. The script
-sets it on every send. A panel's **Done** carries the value it saw, and the read automation
-only clears the letter when it still matches, so reading an old letter never deletes a new one.
-A **Done** that carries no sent time, or `unknown`, leaves the letter and writes why to the log:
-it cannot show which letter was read. Without the helper there is nothing to compare, and any
-**Done** for that child clears whatever letter is waiting. The daily expiry uses it, falling back to the helper's last change.
+sets it on every send, and the daily expiry uses it, falling back to the helper's last change.
+
+**Which letter a Done means.** A panel freezes the letter when it is opened, and its **Done**
+carries that letter's text (`letter`, the helper value as it was) beside a sent time (`sent`).
+The read automation clears the helper only while it holds that text, so a letter that arrives
+while another is on screen survives the **Done**. The sent time plays no part. The panel hears
+the text and the sent helper separately, so the time it holds can be the previous letter's.
+The same text sent twice counts as one letter, and a **Done** on either clears it. A **Done**
+on a letter that was replaced while it was on screen goes once, is refused, and the new
+letter's envelope stays.
+
+Panel firmware from before `letter` was sent is matched on the sent time alone. With the sent
+helper set, its **Done** with no sent time, `unknown` or a different one leaves the letter and
+writes why to the log; with no sent helper its **Done** clears whatever letter is waiting.
+Update the package and the kid panels together. A package from before this rule also matches
+current firmware on the sent time, and a time that lags the text leaves the letter waiting in
+Home Assistant while the panel hides it.
 
 **Sending.** `script.family_send_panel_letter`, fields `to`, `sender` and `text`. `to` is a slug
 (`kid_a`) or a name (`Kid A`); the script slugifies it. It stops, and writes an error to the
@@ -49,15 +61,17 @@ templates.)
 **Reading.** A letter is read once and gone everywhere. Whoever reads it first empties the
 helper:
 
-- a panel's **Done** fires `esphome.family_letter_read` with `child` and `sent`, and the
-  `family_panel_letter_read` automation empties the helper. Home Assistant accepts `esphome.*`
-  events from an adopted device without the "allow actions" option.
+- a panel's **Done** fires `esphome.family_letter_read` with `child`, `sent` and `letter`, and
+  the `family_panel_letter_read` automation empties the helper. Home Assistant accepts
+  `esphome.*` events from an adopted device without the "allow actions" option.
 - the wall card: **Got it** on that person's card, or closing the card, empties the helper, the
   same thing a panel's **Done** does. See [The wall card](#the-wall-card) below.
 
 **Offline.** The letter waits in the helper, which Home Assistant restores after a restart. A
 panel that was off shows it when it reconnects. A **Done** pressed while the panel was offline
-hides the letter on that panel and is sent again when the API reconnects.
+hides the letter on that panel and is sent again when the API reconnects, as long as the
+helper still holds that letter. If it was read elsewhere or replaced meanwhile, the panel drops
+the **Done** and shows whatever waits now.
 
 **Expiry.** `family_panel_letter_expire` clears unread letters older than `expire_days` (3) at
 03:30. Set `expire_days: 0` to keep them until read.
@@ -82,11 +96,12 @@ people:
   A letter that lands outside them waits; a pill by the postbox (meadow, winter village) or under
   the corner hint (the other scenes) says "Post goes at 07:09", or "... tomorrow" in the evening,
   until the post goes.
-- **Got it**, or closing the card (Done, a tap outside it, or the minute a wall card stays open),
-  empties the helper (`input_text.set_value` or `text.set_value`, value `""`), only if it still
-  holds the letter that was shown, so a newer letter that landed in the meantime stays. Until
-  v1.9.0 the card emptied it the moment it opened; it now waits so the letter can be read first.
-  Only a card opened with a tap writes: the demo, the test hooks and `?open=` never do.
+- **Got it**, or closing the card (Done, or a tap outside it), empties the helper
+  (`input_text.set_value` or `text.set_value`, value `""`), only if it still holds the letter
+  that was shown, so a newer letter that landed in the meantime stays. Until v1.9.0 the card
+  emptied it the moment it opened; it now waits so the letter can be read first. A card left
+  alone closes itself after a minute and empties nothing: the letter stays on the tag for the
+  next open. Only a card opened with a tap writes: the demo, the test hooks and `?open=` never do.
 - A helper emptied elsewhere (a panel's **Done**, the expiry) takes the letter back off the wall
   at the next poll, even if the postie is on the road with it. A new letter replaces an unread
   one in the same envelope.
@@ -208,7 +223,8 @@ The kitchen timers run on the panel. When one ends, the panel chimes and shows i
 its own, and fires `esphome.family_panel_timer_done` with `timer` (the name), `slot` and
 `panel`, once. A timer that ended while the panel was off fires nothing when it comes back
 (unless it ended in the last two minutes): the house speakers do not announce a timer from
-twenty minutes ago.
+twenty minutes ago. The panel keeps the end time it last announced in flash, so a restart
+inside those two minutes rings the timer again on the panel but does not announce it twice.
 
 The chime on the panel gets louder each time it repeats, from `timer_volume` to full scale 30
 seconds in, and the panel's **Test alarm** button in Home Assistant plays that climb without a
@@ -235,6 +251,14 @@ of their tokens, can run the script or type straight into a letter helper. So:
 - the panels never call Home Assistant actions. A kid panel can only say "read"; the kitchen can
   only send its presets, a light target from `light_targets`, and a timer name that is spoken
   only if it is in `timer_names`.
+
+**Trust.** Every ESPHome device you adopt holds an API key you gave it, and any of them can fire
+the `esphome.*` events these packages listen for. The automations check what an event asks for
+(a known child, a preset, a listed light target, a timer name), not which device sent it. A
+filter on the event's `device_id` would not help. Home Assistant's ESPHome integration
+spreads the device's own event fields over `device_id` (`async_on_service_call` in
+`components/esphome/manager.py`, checked in 2024.12.0 and 2026.10.0), so a device can send any
+`device_id` it likes. Only adopt devices you own.
 
 ## Testing it
 

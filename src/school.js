@@ -5,6 +5,7 @@
 //   parseLunch(state, date[, today])      what lunch a day holds
 //   lunchChoice(conf, date, live, fromData)  packed lunch or school dinner, and where it came from
 //   lessonsOver(day, at[, fallback])      whether a day's lessons have ended by the time at
+//   readExtra(attributes)                 sensors.extra's items, kit, flags and term dates, checked
 //
 // state is a Home Assistant state object ({ state, attributes }), or null when the entity is
 // missing. date is a Date or "YYYY-MM-DD". today is only read by the v1.1.0 flat shapes, which
@@ -266,4 +267,50 @@ export function lunchChoice(conf, date, live, fromData) {
   const fixed = conf && conf.days && d ? choiceText(conf.days[DAY_KEYS[d.getDay()]]) : conf && conf.value ? choiceText(conf.value) : "";
   if (fixed) return { text: fixed, from: "config", err: err };
   return err ? { text: "", from: "", err: err } : null;
+}
+
+// ── sensors.extra ─────────────────────────────────────────────────────────────
+// The family_extra sensor's attributes (docs/06-views.md, www/family-extra.example.json),
+// checked before the engine reads them: a list that is not a list, or an entry without the
+// fields the cards read, is left out and named in bad, so the cards can say "School info
+// unreadable" instead of a forEach on a string stopping the HUD. Anything else is kept as it came.
+const YMD = /^\d{4}-\d\d-\d\d/;
+function txt(v) { return typeof v === "string" || typeof v === "number" ? String(v) : null; }
+function ymdText(v) { return typeof v === "string" && YMD.test(v) ? v.slice(0, 10) : null; }
+export function readExtra(a) {
+  if (a == null) return { data: null, bad: [] };
+  if (!isObj(a)) return { data: null, bad: ["the attributes are not a mapping"] };
+  const out = Object.assign({}, a), bad = [];
+  // each(x) gives the entry to keep, or null to leave it out
+  function list(v, key, each) {
+    if (v == null) return [];
+    if (!Array.isArray(v)) { bad.push(key + " is not a list"); return []; }
+    const kept = v.map(each).filter(function (x) { return x != null; }), n = v.length - kept.length;
+    if (n) bad.push(n + (n === 1 ? " entry" : " entries") + " in " + key);
+    return kept;
+  }
+  function field(key, each) { if (a[key] != null) out[key] = list(a[key], key, each); }
+  if (a.checked_at != null && !(typeof a.checked_at === "string" && isFinite(Date.parse(a.checked_at)))) { bad.push("checked_at is not a time"); delete out.checked_at; }
+  if (a.sources != null) {
+    if (!isObj(a.sources)) { bad.push("sources is not a mapping"); delete out.sources; }
+    else out.sources = Object.assign({}, a.sources, { unavailable: list(a.sources.unavailable, "sources.unavailable", txt) });
+  }
+  field("items", function (i) {
+    const who = isObj(i) ? txt(i.who) : null, date = isObj(i) ? ymdText(i.date) : null, what = isObj(i) ? txt(i.what) : null;
+    return who != null && date && what != null ? { who: who, date: date, kind: txt(i.kind) || "", what: what } : null;
+  });
+  field("kit", function (k) { const who = isObj(k) ? txt(k.who) : null, what = isObj(k) ? txt(k.what) : null; return who != null && what != null ? { who: who, what: what } : null; });
+  field("flags", txt);
+  field("schools", function (sc) {
+    if (!isObj(sc) || txt(sc.who) == null) return null;
+    const terms = list(sc.terms, "terms of " + sc.who, function (t) {
+      if (!isObj(t)) return null;
+      const from = t.from == null ? null : ymdText(t.from), to = t.to == null ? null : ymdText(t.to);
+      if ((t.from != null && !from) || (t.to != null && !to)) return null;
+      return Object.assign({}, t, { label: txt(t.label) || "", from: from, to: to, note: txt(t.note) || "" });
+    });
+    const days = list(sc.days, "days of " + sc.who, function (d) { const date = isObj(d) ? ymdText(d.date) : null; return date ? { date: date, what: txt(d.what) || "" } : null; });
+    return Object.assign({}, sc, { who: txt(sc.who), terms: terms, days: days });
+  });
+  return { data: out, bad: bad };
 }

@@ -191,6 +191,18 @@ function lunchChoiceConf(v, name) {
   }
   throw cfgError(name + ": choice must be a word (packed, school), a weekday map or an entity id, got " + JSON.stringify(v));
 }
+// dates.birthdays: a name to "MM-DD", a day that exists in some year (02-29 does).
+const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function birthdaysConf(v) {
+  if (v == null) return {};
+  if (typeof v !== "object" || Array.isArray(v)) throw cfgError("dates.birthdays must be a mapping of names to MM-DD, like { Sam: \"03-14\" }, got " + JSON.stringify(v));
+  Object.keys(v).forEach(function (n) {
+    const md = typeof v[n] === "string" ? /^(\d\d)-(\d\d)$/.exec(v[n]) : null;
+    if (!md || +md[1] < 1 || +md[1] > 12 || +md[2] < 1 || +md[2] > MONTH_DAYS[+md[1] - 1])
+      throw cfgError("dates.birthdays: " + n + "'s birthday must be a month and day as MM-DD, like \"03-14\", got " + JSON.stringify(v[n]));
+  });
+  return v;
+}
 // normalize() runs on every keystroke in the editor, so each warning prints once.
 const WARNED = {};
 function warnOnce(msg) { if (WARNED[msg]) return; WARNED[msg] = 1; console.warn("family-dashboard-card: " + msg); }
@@ -236,9 +248,10 @@ export function normalize(raw) {
     s.week = null;
     out.sensors = Object.assign(s, raw.sensors || {});
     out.view = Object.assign({ home: null, music: null, printer: null, office: null }, raw.view || {});
-    if (!raw.dates) out.dates = { birthdays: {}, fixed: DEFAULTS.dates.fixed };
     if (!raw.anniversary) out.anniversary = names.slice(0, 2);
   }
+  // A cast with calendars has only the birthdays its config names, never the demo cast's.
+  out.dates = Object.assign({}, out.dates, { birthdays: birthdaysConf(calendarMode ? raw.dates && raw.dates.birthdays : out.dates.birthdays) });
   Object.keys(out.sensors).forEach(function (k) {
     const v = out.sensors[k];
     if (v === "" || v === undefined) out.sensors[k] = null;
@@ -285,27 +298,21 @@ export function normalize(raw) {
   return out;
 }
 
-// First install: the demo cast, with the calendars this Home Assistant has already
-// handed out. One calendar goes to the household. With more, family, home, holiday and
-// birthday calendars go to the household and the rest one per person in order, any
-// left over to the household. Turning demo off is then the only step.
+// First install: the demo cast. Calendars named for the whole house (family, home, house,
+// holiday, birthday) go to the household. Nobody else gets one. The setup login can see work
+// and partners' calendars that do not belong on a shared wall, so each person's calendar is
+// picked in the editor. With none handed out, week: null makes demo off ask for a calendar
+// rather than read the v1.0.0 template sensor.
 export function stubConfig(hass) {
   const states = hass && hass.states || {};
   const ids = Object.keys(states).sort();
   const cals = ids.filter(function (id) { return id.indexOf("calendar.") === 0; });
-  const shared = /family|home|house|holiday|birthday/;
-  const own = cals.filter(function (id) { return !shared.test(id); });
+  const shared = cals.filter(function (id) { return /family|home|house|holiday|birthday/.test(id); });
   const people = clone(DEFAULTS.people);
-  const last = people.length - 1;
-  function toHouse(id) { const h = people[last]; h.calendar = h.calendar ? [].concat(h.calendar, id) : id; }
-  if (cals.length === 1) toHouse(cals[0]);
-  else {
-    own.forEach(function (id, i) { if (i < last) people[i].calendar = id; else toHouse(id); });
-    cals.filter(function (id) { return shared.test(id); }).forEach(toHouse);
-  }
+  if (shared.length) people[people.length - 1].calendar = shared.length === 1 ? shared[0] : shared;
   const weather = states["weather.forecast_home"] ? "weather.forecast_home" : ids.filter(function (id) { return id.indexOf("weather.") === 0; })[0] || null;
   const cfg = { demo: true, people: people };
-  if (cals.length) cfg.sensors = { weather: weather };
+  if (cals.length) cfg.sensors = shared.length ? { weather: weather } : { weather: weather, week: null };
   return cfg;
 }
 

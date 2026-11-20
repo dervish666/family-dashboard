@@ -1,0 +1,63 @@
+name: Card in Home Assistant
+
+# The committed dist/family-dashboard.js in a real Home Assistant and a real browser, on the
+# oldest release hacs.json allows and on the newest. tests/check.mjs stubs both, so a broken
+# ha-form editor or a calendar API change would pass it. The Monday run catches a new stable.
+on:
+  push:
+    paths:
+      - "src/**"
+      - "dist/**"
+      - "hacs.json"
+      - "tests/ha-card/**"
+      - ".github/workflows/ha-card.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "dist/**"
+      - "hacs.json"
+      - "tests/ha-card/**"
+      - ".github/workflows/ha-card.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  PLAYWRIGHT_VERSION: "1.64.1"
+
+jobs:
+  card:
+    name: Card in a throwaway Home Assistant ${{ matrix.ha }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # hacs.json's "homeassistant" minimum, and the newest release. Move the first with it.
+        ha: ["2024.11.0", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Playwright and Chromium in a venv
+        run: |
+          python -m venv "$RUNNER_TEMP/pw"
+          "$RUNNER_TEMP/pw/bin/pip" install "playwright==$PLAYWRIGHT_VERSION"
+          "$RUNNER_TEMP/pw/bin/python" -m playwright install --with-deps chromium
+      - name: Dashboard, calendar, popup and editor against the real thing
+        env:
+          HA_IMAGE: ghcr.io/home-assistant/home-assistant:${{ matrix.ha }}
+          HA_CARD_SHOTS: ${{ runner.temp }}/ha-card
+        run: |
+          "$RUNNER_TEMP/pw/bin/python" tests/ha-card/ha_card.py
+      - name: Keep the screenshots and Home Assistant's log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ha-card-${{ matrix.ha }}
+          path: ${{ runner.temp }}/ha-card
+          if-no-files-found: warn

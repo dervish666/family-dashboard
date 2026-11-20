@@ -287,6 +287,19 @@ TIMER_STEP_CASES = [
     (1600 + H6, 1600, 120, 4, 0),
 ]
 
+# (phase, fired, said, end) -> (fired, announce). fired is the card shown this
+# boot, not kept in flash; said is the end Home Assistant last heard, kept in flash.
+TIMER_ALERT_CASES = [
+    (0, True, 1600, 0, False, False),
+    (1, True, 1600, 5000, False, False),
+    (2, False, 0, 1600, True, True),
+    (2, True, 0, 1600, True, False),
+    (2, False, 1600, 1600, True, False),   # restarted inside the ring window after saying it
+    (2, False, 1000, 1600, True, True),    # said an earlier timer in this slot, not this one
+    (3, False, 0, 1600, True, False),      # ended while the panel was off
+    (3, False, 1600, 1600, True, False),
+]
+
 # secs -> (full, brief)
 TIMER_FMT_CASES = [
     (0, "0:00", "0 min"),
@@ -466,36 +479,289 @@ def check_send_script(r: Report, ha: dict):
     r.check(any(render_bool(env, c, ctx) for c in reject_ifs), "send to kid_a with no helper: not refused")
 
 
-# A panel's Done against what the sent helper holds: (event data, helper state
-# or None for no helper, cleared?). A read that cannot be matched keeps the letter.
+# A panel's Done against what the helpers hold: (event data, sent helper state
+# or None for no helper, cleared?), with letter_kid_a holding LETTER_NOW. A
+# read that cannot be matched keeps the letter. An event with `letter` is
+# matched on that text alone, since the panel hears the sent helper separately
+# and its time can lag. Events with no `letter` are from firmware before it
+# sent one, and must work as they always did.
 SENT_NOW = "2026-11-01 10:00:00"
+SENT_OLD = "2026-10-31 09:00:00"
+LETTER_NOW = "Parent 1|Tea's at six"
+LETTER_OLD = "Parent 2|Bath at seven"
 READ_GUARD_CASES = [
     ({"child": "kid_a", "sent": SENT_NOW}, SENT_NOW, True),
-    ({"child": "kid_a", "sent": "2026-10-31 09:00:00"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_OLD}, SENT_NOW, False),
     ({"child": "kid_a", "sent": ""}, SENT_NOW, False),
     ({"child": "kid_a"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": "unavailable"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": "unknown"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": ""}, None, True),
     ({"child": "kid_a", "sent": SENT_NOW}, None, True),
+    # With the letter the panel showed.
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": LETTER_OLD}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_OLD, "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": SENT_OLD, "letter": LETTER_OLD}, SENT_OLD, False),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": ""}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": "unavailable"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": " " + LETTER_NOW}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_NOW}, None, True),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_OLD}, None, False),
+    ({"child": "kid_a", "sent": "", "letter": ""}, None, False),
 ]
+
+
+def read_guard(ha: dict):
+    """The read automation and the one `if` that stops it with 'Letter kept'."""
+    read = {a["id"]: a for a in ha["automation"]}["family_panel_letter_read"]
+    guards = [a["if"] for a in read["actions"] if isinstance(a, dict) and "if" in a and any(
+        isinstance(s, dict) and s.get("stop") == "Letter kept" for s in a.get("then", []))]
+    return read, guards
+
+
+def read_kept(env, read: dict, guard: str, data: dict, letter: str, held: str | None) -> bool:
+    """Would the read automation keep `letter` for this event? held is the sent
+    helper's state, None for no sent helper."""
+    st = {"input_text.letter_kid_a": letter}
+    if held is not None:
+        st["input_datetime.letter_kid_a_sent"] = held
+    ctx = render_vars(env, read["variables"], {"trigger": {"event": {"data": data}}, "states": FakeStates(st)})
+    return render_bool(env, guard, ctx)
 
 
 def check_read_guard(r: Report, ha: dict):
     env = ha_env()
-    read = {a["id"]: a for a in ha["automation"]}["family_panel_letter_read"]
-    guards = [a["if"] for a in read["actions"] if isinstance(a, dict) and "if" in a and any(
-        isinstance(s, dict) and s.get("stop") == "Letter kept" for s in a.get("then", []))]
+    read, guards = read_guard(ha)
     r.check(len(guards) == 1, "letter read: expected one guard that stops with 'Letter kept'")
     if len(guards) != 1:
         return
     for data, held, cleared in READ_GUARD_CASES:
-        st = {"input_text.letter_kid_a": "Parent 1|Tea's at six"}
-        if held is not None:
-            st["input_datetime.letter_kid_a_sent"] = held
-        ctx = render_vars(env, read["variables"], {"trigger": {"event": {"data": data}}, "states": FakeStates(st)})
-        kept = render_bool(env, guards[0], ctx)
+        kept = read_kept(env, read, guards[0], data, LETTER_NOW, held)
         r.check(kept != cleared, f"letter read {data} with sent helper {held!r}: cleared={not kept}, want {cleared}")
+
+
+# The kid panel's Done, then the read automation, for one letter on screen:
+# (shown, its sent time when opened, the helper now, its sent time now, the
+# panel's letter_kind now) -> (letter sent with Done, sent time sent, letter_kind
+# after). Home Assistant holds what the panel holds now; it must clear exactly
+# when the helper still holds the letter on screen, with or without the sent helper.
+S0, S1, S2 = "2026-11-01 09:00:00", "2026-11-01 10:00:00", "2026-11-01 10:05:00"
+A, B = "Parent 1|Tea's at six", "Parent 2|Bath at seven"
+LETTER_DONE_CASES = [
+    ("read A", (A, S1, A, S1, 2), (A, S1, 1)),
+    ("open A, receive B, Done", (A, S1, B, S2, 2), (A, S1, 2)),
+    ("open A, B's text lands before its time, Done", (A, S1, B, S1, 2), (A, S1, 2)),
+    ("A opened before its own time landed", (A, S0, A, S1, 2), (A, S1, 1)),
+    ("A opened before any time was heard", (A, "", A, S1, 2), (A, S1, 1)),
+    ("A emptied elsewhere while open", (A, S1, "", S1, 1), (A, S1, 1)),
+]
+
+
+def check_letter_done(r: Report, ha: dict, kid_src: str, cxx: str | None):
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the panel's Done was not checked")
+        return
+    block = cpp_block(kid_src, "letter-done")
+    calls = "\n  ".join("done(%s, %s, %s, %s, %d);" % (cstr(sh), cstr(osent), cstr(raw), cstr(sent), kind)
+                        for _, (sh, osent, raw, sent, kind), _ in LETTER_DONE_CASES)
+    src = f"""
+#include <cstdio>
+#include <string>
+static void done(const std::string &shown, const std::string &opened_sent, const std::string &raw,
+                 const std::string &sent, int kind) {{
+  std::string done_raw, done_sent;
+{block}
+  printf("%s\\x1f%s\\x1f%d\\x1e", done_raw.c_str(), done_sent.c_str(), kind);
+}}
+int main() {{
+  {calls}
+  return 0;
+}}
+"""
+    out = run_cpp(r, cxx, src, "panel Done C++")
+    if out is None:
+        return
+    rows = [row.split("\x1f") for row in out.split("\x1e")[:-1]]
+    r.check(len(rows) == len(LETTER_DONE_CASES), f"panel Done C++: {len(rows)} results for {len(LETTER_DONE_CASES)} cases")
+    env = ha_env()
+    read, guards = read_guard(ha)
+    for (what, (shown, _, raw, sent, _), want), got in zip(LETTER_DONE_CASES, rows):
+        got = (got[0], got[1], int(got[2]))
+        r.check(got == want, f"panel Done, {what}: sends ({got[0]!r}, {got[1]!r}), kind {got[2]}; want {want}")
+        if len(guards) != 1:
+            continue
+        data = {"child": "kid_a", "sent": got[1], "letter": got[0]}
+        for held in (sent, None):
+            kept = read_kept(env, read, guards[0], data, raw, held)
+            r.check(kept == (raw != shown),
+                    f"panel Done, {what}, sent helper {'set' if held else 'absent'}: Home Assistant "
+                    f"{'kept' if kept else 'cleared'} {raw!r}")
+
+
+# Letters through time, with the panel and Home Assistant each holding their
+# own values. Home Assistant steps: send (the script's two writes, text then
+# sent time), clear (read on the wall). Panel steps: text and sent (the panel
+# hears what Home Assistant holds now; the two arrive separately), open, done,
+# off and on (the API link), resend (the reconnect's resend, which runs once
+# the subscriptions have landed), lose (the next read the panel sends never
+# reaches Home Assistant). A read Home Assistant accepts empties the
+# helper, and a connected panel hears that at once. want: (what Home Assistant
+# holds, envelope showing, a read waiting). Each round ends with the number of
+# reads the panel sent.
+S3 = "2026-11-01 10:10:00"
+EARLIER = [("send", A, S0), ("text",), ("sent",), ("clear",), ("text",)]
+LETTER_ROUNDS = [
+    ("Done, both helpers heard", [("send", A, S1), ("text",), ("sent",), ("open",), ("done",),
+                                  ("want", "", False, False)], 1),
+    ("Done before the panel hears the new sent time", EARLIER + [
+        ("send", B, S1), ("text",), ("open",), ("done",), ("want", "", False, False), ("sent",),
+        ("want", "", False, False)], 1),
+    ("the same Done offline, sent on reconnect", EARLIER + [
+        ("send", B, S1), ("text",), ("off",), ("open",), ("done",), ("want", B, False, True),
+        ("on",), ("text",), ("sent",), ("want", B, False, True), ("resend",), ("want", "", False, False)], 1),
+    ("open A, B replaces it, Done", [
+        ("send", A, S1), ("text",), ("sent",), ("open",), ("send", B, S2), ("text",), ("done",),
+        ("want", B, True, False), ("off",), ("on",), ("text",), ("sent",), ("resend",), ("want", B, True, False)], 1),
+    ("then A's text again before B is read", [
+        ("send", A, S1), ("text",), ("sent",), ("open",), ("send", B, S2), ("text",), ("done",),
+        ("send", A, S3), ("text",), ("sent",), ("want", A, True, False)], 1),
+    ("Done offline, B replaces A meanwhile", [
+        ("send", A, S1), ("text",), ("sent",), ("off",), ("open",), ("done",), ("send", B, S2),
+        ("on",), ("text",), ("sent",), ("resend",), ("want", B, True, False)], 0),
+    ("Done offline, A read on the wall meanwhile", [
+        ("send", A, S1), ("text",), ("sent",), ("off",), ("open",), ("done",), ("clear",),
+        ("on",), ("text",), ("sent",), ("resend",), ("want", "", False, False)], 0),
+    ("Done as the link drops, sent again on reconnect", [
+        ("send", A, S1), ("text",), ("sent",), ("open",), ("lose",), ("done",), ("want", A, False, True),
+        ("off",), ("on",), ("text",), ("sent",), ("resend",), ("want", "", False, False)], 2),
+    ("Done offline, the same text sent again meanwhile", [
+        ("send", A, S1), ("text",), ("sent",), ("off",), ("open",), ("done",), ("send", A, S2),
+        ("on",), ("text",), ("sent",), ("want", A, False, True), ("resend",), ("want", "", False, False)], 1),
+]
+
+
+def check_letter_rounds(r: Report, ha: dict, kid_src: str, cxx: str | None):
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the letter rounds were not checked")
+        return
+    blocks = {n: cpp_block(kid_src, n) for n in ("letter-parse", "letter-heard", "letter-done", "letter-resent")}
+    # The globals and the glue around each block follow kid.yaml; check_consistency
+    # holds open_letter and letter_done to the lines copied here.
+    src = f"""
+#include <cstdio>
+#include <iostream>
+#include <string>
+static std::string raw_state, sent_state, read_raw_g, read_sent_g, shown_raw_g, shown_sent_g, ev_letter, ev_sent;
+static int letter_kind = 0;
+static bool read_pending_g = false, connected = true, ev = false;
+static void hear_text(const std::string &x) {{
+  raw_state = x;
+  std::string from, text;
+  int kind = 1;
+{blocks["letter-parse"]}
+  std::string read_letter = read_raw_g;
+  bool waiting = read_pending_g;
+{blocks["letter-heard"]}
+  read_raw_g = read_letter;
+  read_pending_g = waiting;
+  letter_kind = kind;
+}}
+static void resend() {{
+  if (!(connected && read_pending_g)) return;
+  ev = true; ev_letter = read_raw_g; ev_sent = read_sent_g;
+  std::string heard = raw_state, read_letter = read_raw_g;
+  bool waiting = read_pending_g;
+{blocks["letter-resent"]}
+  read_raw_g = read_letter;
+  read_pending_g = waiting;
+}}
+static void open_letter() {{
+  if (letter_kind == 2) {{ shown_raw_g = raw_state; shown_sent_g = sent_state; }}
+}}
+static void done() {{
+  std::string raw = raw_state, sent = sent_state;
+  std::string shown = shown_raw_g, opened_sent = shown_sent_g;
+  std::string done_raw, done_sent;
+  int kind = letter_kind;
+{blocks["letter-done"]}
+  read_raw_g = done_raw; read_sent_g = done_sent; read_pending_g = true; letter_kind = kind;
+  resend();
+}}
+int main() {{
+  std::string line;
+  while (std::getline(std::cin, line)) {{
+    ev = false;
+    char op = line.empty() ? '?' : line[0];
+    std::string arg = line.empty() ? "" : line.substr(1);
+    if (op == 'T') hear_text(arg);
+    else if (op == 'S') sent_state = arg;
+    else if (op == 'O') open_letter();
+    else if (op == 'D') done();
+    else if (op == 'R') resend();
+    else if (op == 'C') connected = arg == "1";
+    printf("%d\\x1f%d\\x1f%d\\x1f%s\\x1f%s\\n", letter_kind, read_pending_g ? 1 : 0, ev ? 1 : 0,
+           ev_letter.c_str(), ev_sent.c_str());
+    fflush(stdout);
+  }}
+  return 0;
+}}
+"""
+    env = ha_env()
+    read, guards = read_guard(ha)
+    if len(guards) != 1:
+        return
+    with tempfile.TemporaryDirectory() as d:
+        cpp, exe = os.path.join(d, "t.cpp"), os.path.join(d, "t")
+        Path(cpp).write_text(src, encoding="utf-8")
+        cc = subprocess.run([cxx, "-std=c++17", "-Wall", "-o", exe, cpp], capture_output=True, text=True)
+        if cc.returncode:
+            r.check(False, "letter rounds C++ did not compile:\n" + cc.stderr[-2000:])
+            return
+        for with_sent in (True, False):
+            for what, steps, want_events in LETTER_ROUNDS:
+                label = f"letter round, {what}, sent helper {'set' if with_sent else 'absent'}"
+                p = subprocess.Popen([exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+                ha_text, ha_sent, online, events, state, lose = "unknown", "unknown", True, 0, (0, 0), False
+
+                def panel(cmd):
+                    p.stdin.write(cmd + "\n")
+                    p.stdin.flush()
+                    kind, waiting, went, letter, sent = p.stdout.readline().rstrip("\n").split("\x1f")
+                    return int(kind), int(waiting), went == "1", {"child": "kid_a", "sent": sent, "letter": letter}
+
+                for n, step in enumerate(steps, 1):
+                    op = step[0]
+                    if op == "send":
+                        ha_text, ha_sent = step[1], step[2]
+                    elif op == "clear":
+                        ha_text = ""
+                    elif op == "lose":
+                        lose = True
+                    elif op == "want":
+                        got = (ha_text, state[0] == 2, state[1] == 1)
+                        r.check(got == step[1:], f"{label}: at step {n} got {got}, want {step[1:]}")
+                        continue
+                    else:
+                        cmd = {"text": "T" + ha_text, "sent": "S" + (ha_sent if with_sent else ""), "open": "O",
+                               "done": "D", "resend": "R", "off": "C0", "on": "C1"}[op]
+                        online = {"off": False, "on": True}.get(op, online)
+                        kind, waiting, went, data = panel(cmd)
+                        state = (kind, waiting)
+                        if went:
+                            events += 1
+                            if lose:
+                                lose = False
+                            elif not read_kept(env, read, guards[0], data, ha_text, ha_sent if with_sent else None):
+                                ha_text = ""
+                                if online:
+                                    kind, waiting, _, _ = panel("T")
+                                    state = (kind, waiting)
+                p.stdin.close()
+                p.wait()
+                r.check(events == want_events, f"{label}: the panel sent {events} reads, want {want_events}")
 
 
 def jinja_parse(env, auto_vars: dict, value: str, slug: str, recipients: dict):
@@ -720,6 +986,51 @@ int main() {{
         r.check(n == len(table), f"panel v2 C++ {name}: {n} results for {len(table)} cases")
 
 
+def check_timer_alert(r: Report, srcs: dict, cxx: str | None):
+    """A timer is announced once per end time, a restart included."""
+    timers = srcs["timers"]
+    doc = load_ha(timers)
+    g = {x["id"]: x for x in doc.get("globals", [])}
+    for i in (1, 2, 3):
+        said = g.get(f"timer_{i}_said", {})
+        r.check(said.get("type") == "uint32_t" and said.get("restore_value") is True,
+                f"timers.yaml: timer_{i}_said must be a uint32_t kept in flash")
+    scripts = {s["id"]: s for s in doc.get("script", []) if isinstance(s.get("id"), str)}
+    r.check("uint32_t saids[3] = {id(timer_1_said), id(timer_2_said), id(timer_3_said)};" in json.dumps(scripts.get("timer_tick")),
+            "timers.yaml: timer_tick must read each timer's said end")
+    announce = scripts.get("timer_announce", {})
+    sent_branch = json.dumps(((announce.get("then") or [{}])[0].get("if") or {}).get("then", []))
+    r.check("*saids[slot] = *ends[slot];" in sent_branch and "&id(timer_1_said), &id(timer_2_said), &id(timer_3_said)" in sent_branch
+            and "esphome.family_panel_timer_done" in sent_branch,
+            "timers.yaml: timer_announce must record the end it announced, in the branch that sends")
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the timer alert was not checked")
+        return
+    block = cpp_block(timers, "timer-alert")
+    calls = "\n  ".join(f"alert({p}, {str(f).lower()}, {s}u, {e}u);" for p, f, s, e, _, _ in TIMER_ALERT_CASES)
+    src = f"""
+#include <cstdint>
+#include <cstdio>
+static void alert(int phase, bool fired, uint32_t said, uint32_t end) {{
+  bool announce = false;
+{block}
+  printf("%d %d\\x1e", fired ? 1 : 0, announce ? 1 : 0);
+}}
+int main() {{
+  {calls}
+  return 0;
+}}
+"""
+    out = run_cpp(r, cxx, src, "timer alert C++")
+    if out is None:
+        return
+    got = out.split("\x1e")[:-1]
+    r.check(len(got) == len(TIMER_ALERT_CASES), f"timer alert C++: {len(got)} results for {len(TIMER_ALERT_CASES)} cases")
+    for (p, f, s, e, fired, ann), row in zip(TIMER_ALERT_CASES, got):
+        r.check(row == f"{int(fired)} {int(ann)}",
+                f"timer alert phase {p} fired {f} said {s} end {e}: got {row!r}, want fired {fired} announce {ann}")
+
+
 def check_kitchen_ha(r: Report, hak: dict):
     autos = {a["id"]: a for a in hak["automation"]}
     light = autos["family_panel_light"]
@@ -931,6 +1242,27 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
             "kid.yaml: the profile must not draw 'No letters' or 'Letters unavailable'")
     r.check(re.search(r"id: letter_button\n(?:.*\n){1,12}?\s+hidden: true", srcs["kid"]) is not None,
             "kid.yaml: the envelope button must start hidden")
+    # Done names the letter on screen: opening freezes it, letter-done reads
+    # the frozen copy, and the event carries it under the name the read
+    # automation compares.
+    kid_scripts = {s["id"]: json.dumps(s) for s in load_ha(srcs["kid"]).get("script", []) if isinstance(s.get("id"), str)}
+    opened = kid_scripts.get("open_letter", "")
+    r.check("id(shown_raw) = id(letter_raw).state;" in opened and "id(shown_sent) = id(letter_sent).state;" in opened,
+            "kid.yaml: open_letter must freeze the letter it shows (shown_raw, shown_sent)")
+    done = kid_scripts.get("letter_done", "")
+    r.check("shown = id(shown_raw)" in done and "opened_sent = id(shown_sent)" in done
+            and "id(read_raw) = done_raw;" in done and "id(read_sent) = done_sent;" in done,
+            "kid.yaml: letter_done must send the letter that was opened, not the helper's value now")
+    ev = re.search(r"event: esphome\.family_letter_read\n\s+data:\n((?:\s+\w+: .*\n)+)", srcs["kid"])
+    fields = dict(re.findall(r"(\w+): (.*)", ev.group(1))) if ev else {}
+    r.check(fields.get("sent") == "!lambda return id(read_sent);" and fields.get("letter") == "!lambda return id(read_raw);",
+            f"kid.yaml: Done must carry sent and letter, got {sorted(fields)}")
+    # The resend drops a read of a replaced letter only once it has gone.
+    resend = kid_scripts.get("resend_pending", "")
+    r.check(0 <= resend.find("homeassistant.event") < resend.find("BEGIN letter-resent"),
+            "kid.yaml: resend_pending must send the read before letter-resent can drop it")
+    guard = read_guard(ha)[1]
+    r.check(bool(guard) and "trigger.event.data.letter" in guard[0], "letter read: the guard must compare the letter the panel sent")
     g = esphome_subs(srcs["garden"])
     r.check(g.get("theme") == "garden", "garden.yaml: theme defaults to garden")
     r.check(all(f"fly_{c}_{k}" in srcs["garden"] for c in ("pink", "lilac", "peach", "blue") for k in range(3))
@@ -1169,8 +1501,11 @@ def run(srcs: dict, quiet=False) -> Report:
     cxx = shutil.which("c++")
     check_send_script(r, ha)
     check_read_guard(r, ha)
+    check_letter_done(r, ha, srcs["kid"], cxx)
+    check_letter_rounds(r, ha, srcs["kid"], cxx)
     check_parsers(r, ha, srcs["kid"], srcs["base"], cxx)
     check_panel_v2(r, srcs, cxx)
+    check_timer_alert(r, srcs, cxx)
     check_kitchen_ha(r, hak)
     check_mirrors(r, ha)
     check_consistency(r, ha, hak, srcs)
@@ -1195,8 +1530,33 @@ SABOTAGES = [
      'if (false) {\n              kind = 3;'),
     ("panel reads a never-set helper as a letter", "kid", 'if (s == "unknown") s = "";', ""),
     ("a Done with no sent time clears the letter", "ha",
-     "{{ states(sent_helper) not in ['unknown', 'unavailable']\n",
-     "{{ seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
+     "else (states(sent_helper) not in ['unknown', 'unavailable']\n",
+     "else (seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
+    ("read guard ignores the letter the panel showed", "ha",
+     "(trigger.event.data.letter | string != states(helper))\n             if 'letter' in trigger.event.data\n             else ", ""),
+    ("read guard refuses a panel too old to send the letter", "ha", "             if 'letter' in trigger.event.data\n",
+     "             if true\n"),
+    ("read guard still matches the sent time beside the letter", "ha",
+     "(trigger.event.data.letter | string != states(helper))\n",
+     "(trigger.event.data.letter | string != states(helper) or states(sent_helper) != seen_sent)\n"),
+    ("panel keeps a read waiting after its letter was replaced", "kid",
+     "            if (x != read_letter) {\n              waiting = false;\n              read_letter = \"\";\n            } else {\n              kind = 1;\n            }",
+     "            if (kind != 2) {\n              waiting = false;\n              read_letter = \"\";\n            } else if (x == read_letter) {\n              kind = 1;\n            }"),
+    ("panel shows the envelope of a letter it marked read", "kid",
+     "            } else {\n              kind = 1;\n            }\n          }\n          // END letter-heard",
+     "            }\n          }\n          // END letter-heard"),
+    ("a Done on a replaced letter is sent again on every reconnect", "kid",
+     "                  if (heard != read_letter) {", "                  if (false) {"),
+    ("a sent read is dropped while its letter still waits", "kid",
+     "                  if (heard != read_letter) {", "                  if (true) {"),
+    ("Done sends the helper's sent time, not the shown letter's", "kid", "done_sent = opened_sent;", "done_sent = sent;"),
+    ("Done names the helper's letter, not the one on screen", "kid", "done_raw = shown;", "done_raw = raw;"),
+    ("Done hides a letter that replaced the one read", "kid", "              done_sent = opened_sent;\n",
+     "              done_sent = opened_sent;\n              kind = 1;\n"),
+    ("opening a letter stops freezing it", "kid", "                id(shown_raw) = id(letter_raw).state;\n", ""),
+    ("Done reads the helper again instead of the frozen letter", "kid", "std::string shown = id(shown_raw),",
+     "std::string shown = id(letter_raw).state,"),
+    ("Done stops sending the letter it showed", "kid", "                  letter: !lambda return id(read_raw);\n", ""),
     ("script checks the helper's state, not that it exists", "ha",
      "helper not in states.input_text | map(attribute='entity_id') | list", "states(helper) in ['unknown', 'unavailable']"),
     ("announcement drops the sender", "base", 'from.empty() ? text : from + ": " + text', "text"),
@@ -1242,6 +1602,10 @@ SABOTAGES = [
     ("kitchen tile target not in light_targets", "ex_kitchen", "tile_3_target: hall", "tile_3_target: hallway"),
     ("broadcast fixed to one script", "ha", 'entity_id: "{{ announce_script }}"', "entity_id: script.family_announce"),
     ("timer event renamed on the panel", "timers", "event: esphome.family_panel_timer_done", "event: esphome.family_timer_done"),
+    ("a restart announces a timer again", "timers", "announce = phase == 2 && said != end;", "announce = phase == 2;"),
+    ("the announced end is lost on a restart", "timers", "  - id: timer_2_said\n    type: uint32_t\n    restore_value: true\n",
+     "  - id: timer_2_said\n    type: uint32_t\n    restore_value: false\n"),
+    ("an announcement forgets which end it said", "timers", "                *saids[slot] = *ends[slot];\n", ""),
     ("strip loses its lines attribute", "hak", "          lines: \"{{ strip_lines | join('\\n') }}\"", "          rows: \"{{ strip_lines | join('\\n') }}\""),
     ("Kid A back on a 24-hour clock", "ex_kid_a", 'clock_format: "12h"', 'clock_format: "24h"'),
     ("base default night turned dim", "base", '  night_mode: "off"', '  night_mode: "dim"'),

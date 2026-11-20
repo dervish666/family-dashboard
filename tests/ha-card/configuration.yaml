@@ -1,0 +1,20 @@
+# Throwaway Home Assistant config for tests/ha-card/ha_card.py. default_config, as a new
+# install has: the 2026 frontend asks for recorder/info on its home page and does not catch
+# the refusal when the recorder is missing, which reads as an uncaught page error. It also
+# brings the sun the card reads by default. The calendar comes from a local_calendar config
+# entry the test creates, the dashboard and its resource from the Lovelace websocket API, the
+# same way a person sets them up.
+homeassistant:
+  name: Card test
+  time_zone: Europe/London
+  country: GB
+  latitude: 51.5
+  longitude: -0.12
+  elevation: 10
+  unit_system: metric
+
+default_config:
+http:
+system_log:
+logger:
+  default: warning

@@ -21,6 +21,15 @@ const STYLE = `
   font-family: Fredoka, "Instrument Sans", Roboto, sans-serif; color: var(--ink);
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action: none; }
+/* A real button for each tap target on the canvas (the engine's refreshKeys), for a keyboard, a
+   switch or a screen reader. Out of sight until one has focus; then it rings its target. */
+#keys { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
+.key { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; background: none; color: transparent; pointer-events: none; }
+.key.on { z-index: 1; margin: 0; overflow: visible; clip: auto; box-sizing: border-box; border-radius: 22px; outline: none;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF; }
+.key.on.loose { left: 40px; top: auto; bottom: 30px; width: auto; height: auto; padding: 8px 18px; border-radius: 999px;
+  background: rgba(255, 255, 255, .96); color: #26352C; font: 600 20px Fredoka, sans-serif; }
 
 #hud { position: absolute; left: 40px; top: 22px; pointer-events: none; color: var(--hud); }
 #clock { font-size: 88px; font-weight: 600; line-height: 1; letter-spacing: -.02em; }
@@ -30,7 +39,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #next b { font-weight: 600; color: var(--hud); }
 #corner { position: absolute; right: 36px; top: 30px; text-align: right; pointer-events: none;
   font-size: 19px; color: var(--hud-soft); }
-#status { color: var(--warn); font-weight: 500; margin-top: 6px; }
+#status { color: var(--warn); font-weight: 500; margin-top: 6px; max-width: 300px; margin-left: auto; }   /* a long one wraps in the corner, clear of the countdowns */
 
 /* Countdowns: a row of tags in the sky between the clock and the corner hint, the
    same white pill with a coloured rim and a number badge as the name tags on the
@@ -54,35 +63,52 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
    when the entity cannot be read, like the old "no reading" tag. */
 #due { position: absolute; left: 390px; right: 340px; top: 80px; height: 40px; display: flex;
   align-items: flex-start; overflow: hidden; pointer-events: none; }
-.dchip.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #6E6E78; padding-right: 12px; }
-#announce { position: absolute; left: 390px; right: 340px; top: 80px; display: flex; justify-content: center; }
-.ann { display: flex; align-items: center; max-width: 100%; box-sizing: border-box; padding: 10px 22px 11px 14px;
-  border-radius: 20px; background: #FFF8EE; border: 2.5px solid #D9C6A5;
-  color: #26352C; animation: annin .5s cubic-bezier(.2, 1.3, .4, 1); cursor: pointer; }
+.dchip.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #55555E; padding-right: 12px; }
+#announce { position: absolute; left: 390px; right: 340px; top: 80px; display: flex; justify-content: center; pointer-events: none; }
+.ann { display: flex; align-items: center; max-width: 100%; box-sizing: border-box; margin: 0; padding: 10px 22px 11px 14px;
+  border-radius: 20px; background: #FFF8EE; border: 2.5px solid #D9C6A5; font: inherit; text-align: left;
+  color: #26352C; animation: annin .5s cubic-bezier(.2, 1.3, .4, 1); cursor: pointer; pointer-events: auto; }
+.ann .ab, .ann .at { display: block; }
 .ann .dic { width: 34px; height: 34px; flex: none; margin-right: 12px; animation: ring 1.1s ease-in-out 3; transform-origin: 50% 8%; }
 .ann .ab { min-width: 0; }
 .ann .at { font: 600 14px Fredoka, sans-serif; color: #B5583A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ann .ax { font: 600 24px/1.18 Fredoka, sans-serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.ann.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #6E6E78; padding: 6px 16px 6px 10px; cursor: default; animation: none; }
+.ann.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #55555E; padding: 6px 16px 6px 10px; cursor: default; animation: none; }
 .ann.na .dic { width: 22px; height: 22px; margin-right: 8px; animation: none; opacity: .6; }
 .ann.na .ax { font-size: 16px; }
 @keyframes annin { from { transform: translateY(-14px) scale(.94); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(16deg); } 45% { transform: rotate(-14deg); } 70% { transform: rotate(8deg); } }
 #tiles { display: flex; justify-content: flex-end; margin-top: 10px; pointer-events: auto; }
-.tile { width: 70px; margin-left: 7px; box-sizing: border-box; padding: 6px 3px 5px; border-radius: 16px; text-align: center;
-  background: rgba(255, 255, 255, .95); border: 2.5px solid #999; color: #26352C; cursor: pointer; transition: transform .15s; }
+.tile { width: 70px; margin: 0 0 0 7px; box-sizing: border-box; padding: 6px 1px 5px; border-radius: 16px; text-align: center;
+  background: rgba(255, 255, 255, .95); border: 2.5px solid #999; color: #26352C; cursor: pointer; transition: transform .15s; font: inherit; }
 .tile svg { display: block; margin: 0 auto 1px; }
-.tile .tv { font: 600 15px/18px Fredoka, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile .tl { font: 500 11px/14px Fredoka, sans-serif; color: #56675C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile.na { background: rgba(226, 226, 230, .95); border-style: dashed; color: #6E6E78; }
+.tile .tv { display: block; font: 600 15px/18px Fredoka, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .tl { display: block; font: 500 13px/16px Fredoka, sans-serif; color: #56675C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile.na { background: rgba(226, 226, 230, .95); border-style: dashed; color: #55555E; }
+.tile.na .tl { color: #55555E; }
 .tile.na .tv { font-size: 11px; }
 .tile.tap { transform: scale(.93); }
 .soft.late { color: var(--warn); }
+/* Under 1100 px wide (.compact, from the engine's size()) the gap between the clock and the
+   corner is too narrow for words: the countdowns, the due chips and the announcement become
+   full-width rows under both, and the engine's layHud sets each one's top. Under 700 px
+   (.narrow) the corner hint goes, the clock shrinks and the status and tiles move under it. */
+.fd.compact #dates, .fd.compact #due, .fd.compact #announce { left: 40px; right: 36px; }
+.fd.narrow #hud { left: 16px; top: 14px; }
+.fd.narrow #clock { font-size: clamp(56px, 16vw, 88px); }
+.fd.narrow #clock .temp { font-size: .39em; margin-left: .18em; vertical-align: .45em; }
+.fd.narrow #hint { display: none; }
+.fd.narrow #corner { left: 16px; right: 16px; text-align: left; }
+.fd.narrow #status { max-width: none; margin-left: 0; }
+.fd.narrow #tiles { justify-content: flex-start; margin-top: 6px; }
+.fd.narrow .tile { margin: 0 7px 0 0; }
+.fd.narrow #dates, .fd.narrow #due, .fd.narrow #announce { left: 16px; right: 16px; }
 
 #scrim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: var(--scrim);
-  display: flex; align-items: center; justify-content: center; opacity: 0;
-  pointer-events: none; transition: opacity .22s ease-out; }
-#scrim.open { opacity: 1; pointer-events: auto; }
+  display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden;
+  pointer-events: none; transition: opacity .22s ease-out, visibility 0s linear .22s; }
+#scrim.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .22s ease-out, visibility 0s; }
+#card:focus { outline: none; }
 #card { width: 1080px; max-width: calc(100% - 48px); height: 660px; max-height: calc(100% - 48px);
   background: var(--paper); border-radius: 32px; display: flex; overflow: hidden;
   box-shadow: 0 24px 60px rgba(20, 44, 30, .35);
@@ -96,7 +122,12 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #done { margin-top: auto; font: 600 24px Fredoka, sans-serif; color: #26352C;
   background: rgba(255, 255, 255, .78); border: 0; border-radius: 999px; padding: 16px 48px; }
 #done:active { transform: scale(.97); }
+#done:focus { outline: none; }
+#done:focus-visible { box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF; }
 #lists { flex: 1; overflow-y: auto; padding: 36px 44px 32px 40px; -webkit-overflow-scrolling: touch; }
+/* #lists takes focus so a keyboard can scroll a long card (arrows, Page Down): the key ring, inside its edge */
+#lists:focus { outline: none; }
+#lists:focus-visible { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 7px #1F5FBF; border-radius: 0 32px 32px 0; }
 #lists h2 { font-size: 20px; font-weight: 600; color: var(--ink-soft); margin: 26px 0 10px; }
 #lists h2:first-child { margin-top: 0; }
 .row { display: flex; align-items: baseline; padding: 7px 0; font-size: 24px; line-height: 1.25; }
@@ -173,6 +204,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .fd.narrow #sum { font-size: 15px; margin: 0; text-align: left; grid-column: 2; align-self: start; }
 .fd.narrow #done { margin: 0; padding: 10px 20px; font-size: 18px; grid-column: 3; grid-row: 1 / 3; }
 .fd.narrow #lists { padding: 16px 16px 20px; }
+.fd.narrow #lists:focus-visible { border-radius: 0 0 24px 24px; }
 .fd.narrow #lists h2 { font-size: 17px; margin: 20px 0 6px; }
 .fd.narrow .row { font-size: 19px; }
 .fd.narrow .when { width: 76px; font-size: 15px; }
@@ -186,14 +218,15 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 `;
 
 const MARKUP = `<div class="fd">
-<canvas id="world"></canvas>
+<canvas id="world" role="img" aria-label="The family as animals in an animated scene"></canvas>
+<div id="keys" role="group" aria-label="People and places"></div>
 <div id="hud"><div id="clock">--:--</div><div id="date"></div><div id="next"></div></div>
 <div id="dates"></div>
-<div id="corner"><div>Tap someone to see their week</div><div id="status"></div></div>
-<div id="scrim"><section id="card">
-  <div id="face"><canvas id="portrait" width="480" height="480"></canvas>
+<div id="corner"><div id="hint">Tap someone to see their week</div><div id="status" role="status"></div></div>
+<div id="scrim"><section id="card" role="dialog" aria-modal="true" aria-labelledby="who" tabindex="-1">
+  <div id="face"><canvas id="portrait" width="480" height="480" aria-hidden="true"></canvas>
     <h1 id="who"></h1><p id="sum"></p><button id="done">Done</button></div>
-  <div id="lists"></div>
+  <div id="lists" tabindex="0" role="region" aria-label="Details"></div>
 </section></div>
 </div>`;
 

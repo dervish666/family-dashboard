@@ -7,7 +7,10 @@
 # announcement, due-time and status-tile parsers and config, and v1.7.0's town crier: its
 # config, what counts as new or late, its steps, the scroll's words and each scene's walk,
 # and v1.8.0's per-person letters: the from|text parser, the copy it matches against the
-# postie, the dedupe and their config, and v1.9.0's post hours, hint and badge). The breaks go in src/, not dist/, because dist/ is
+# postie, the dedupe and their config, and v1.9.0's post hours, hint and badge, and the engine
+# booted through the card: failed, partial, hung and out-of-order loads, the stale flag,
+# escaping, the letters, the holidays, midnight, reduced motion, stop() and a new config, and the loads, the status line
+# and the popup cards on their own in data.js and popup.js). The breaks go in src/, not dist/, because dist/ is
 # minified and its names change with every build. Exits 1 if any broken copy passes. Needs
 # npm ci first.
 set -u
@@ -97,6 +100,7 @@ extras.js|s/\(if (!label .. !at) {\) bad++; return; }/\1 return; }/|due items th
 extras.js|s/return a.sort - b.sort/return b.sort - a.sort/|due items sort latest first
 extras.js|s/it.kind === "today" .. it.sort <= cap/true/|the row in the sky shows items days away
 extras.js|s/if (it.at <= t) {/if (it.at < t - 1e12) {/|an overdue item reads as due later
+extras.js|s/const x = Date.parse(s.replace(" ", "T"));/const x = Date.parse(s.replace(" ", "T").slice(0, 19));/|a due time's offset is dropped and its clock read as local
 extras.js|s/if (v >= th.from) color = th.color;/if (v > th.from) color = th.color;/|a value on a threshold does not take its colour
 extras.js|s/door ? (on ? "open" : "closed")/door ? (on ? "on" : "off")/|a door reads on and off
 extras.js|s/ .. s === "unknown"//|an unknown tile shows the word unknown
@@ -142,6 +146,20 @@ letters.js|s/if (p.kind === "unavailable") { out.bad.push/if (p.kind === "unavai
 config.js|s/  if (!\/^(input_text/  if (false \&\& !\/^(input_text/|a sensor is accepted as a letter helper
 config.js|s/if (twin) throw/if (false) throw/|two people share one letter helper
 config.js|s/if (p.letter .. p.letter === out.sensors.letter)/if (false)/|a person's helper can be the postie's
+config.js|s/birthdaysConf(calendarMode ? raw.dates .. raw.dates.birthdays :/birthdaysConf(calendarMode ? (raw.dates ? out.dates.birthdays : {}) :/|dates without birthdays brings the demo cast's to a cast with calendars
+config.js|s/if (!md .*MONTH_DAYS\[+md\[1\] - 1\])/if (false)/|a birthday with a year in it is accepted
+config.js|s/+md\[2\] > MONTH_DAYS\[+md\[1\] - 1\]/+md[2] > 31/|02-30 is accepted as a birthday
+config.js|s/birthday\/.test(id); });/birthday\/.test(id) + 1; });/|the first-run stub hands every calendar out
+config.js|s/{ weather: weather, week: null }/{ weather: weather }/|with no calendar handed out, demo off reads sensor.family_week
+editor.js|s/if (bd) c.dates = /if (false) c.dates = /|a birthday typed in the editor is never written
+editor.js|s/if (has(bdays, from)) {/if (false) {/|a rename in the editor orphans the birthday
+editor.js|s/if (ann .. ann.indexOf(from) >= 0)/if (false)/|a rename in the editor orphans the anniversary entry
+editor.js|s/shown.key = prev\[i\] .. people.some/shown.key = false \&\& people.some/|a name typed through another person's shows and carries their birthday
+editor.js|s/key = to !== from .. !taken(to) .. !taken(from) ? to : from/key = to !== from ? to : from/|a name typed through another person's takes their birthday
+editor.js|s/ : calendarCast(people) ? {} : DEFAULTS.dates.birthdays;/ : {};/|renaming a v1.0.0 default person orphans the demo birthday
+editor.js|s/, i === n - 1 .. n > 1), function (d)/, false), function (d)/|the household's row asks adult or kid, school and accessories
+editor.js|s/if ("accessories" in d) {/if (true) {/|an edit to the household drops the accessories YAML gave it
+editor.js|s/if ("role" in d) {/if (true) {/|an edit to the household drops the adult flag YAML gave it
 post.js|s/export const POST_GATE = 0.35;/export const POST_GATE = 0.3;/|the hint's gate drifts from the postie's
 post.js|s/  if (h < 7.5) return 7.5 - h;/  if (h < 7.5) return 7.4 - h;/|the morning curve moves and the post goes at 07:03
 post.js|s/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE); }/function open(m, bed) { return !(sleepCurve(clockAt(m), bed) > POST_GATE + 0.01); }/|the hint's gate is a hair looser than the postie's
@@ -159,5 +177,129 @@ engine/engine.js|s/if (postBadge(t.letter)) {/if (t.letter) {/|the tags draw the
 scenes/meadow.js|s/  postbox: function (S) { var p = S.lay.post; return { x: p.x + 57, y: S.lay.B - 32 }; },/  postbox: function (S) { return { x: S.W \/ 2, y: 20 }; },/|the meadow's hint points at the sky
 scenes/winter.js|s/  postbox: function () { var p = G.postbox; return { x: p.x, y: p.y - 36 }; },/  postbox: function () { var p = G.postbox; return { x: p.x, y: NaN }; },/|the winter postbox is nowhere
 scenes/winter.js|s/  postbox: function () {/  postbox: 3, xx: function () {/|a postbox that is not a function
+data.js|s/if (!ok.length) throw new Error("no calendar answered/if (false) throw new Error("no calendar answered/|every calendar failing reads as an empty week
+popup.js|s/: calHealth !== "ok" ? "Calendar unavailable" : "Free today";/: "Free today";/|a failed load's summary says Free today
+popup.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
+popup.js|s/if (data.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
+popup.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
+calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars down reads as a free day
+data.js|s/d - data.weekAt > WEEK_STALE) st = /d - data.weekAt > 10 * WEEK_STALE) st = /|a week hours old is not flagged stale
+popup.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
+engine/engine.js|s/esc(up\[0\].what)/up[0].what/|the Next line stops escaping titles
+engine/engine.js|s/if (s \&\& String(s.state) !== l.was) return;//|closing a card empties a shared letter that landed while it was up
+engine/engine.js|s/if (!s .. String(s.state) !== c.expect) return;/if (!s) return;/|closing a card empties a per-person letter that landed while it was up
+engine/engine.js|s/return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });/return;/|closing a card never empties the shared helper
+engine/engine.js|s/window.cancelAnimationFrame(RAF);//|stop() leaves the frame queued
+engine/engine.js|s/if (!STOPPED) RAF = window.requestAnimationFrame(f);/RAF = window.requestAnimationFrame(f);/|a frame that runs after stop() queues another
+engine/engine.js|s/TIMERS.forEach(function (id) { window.clearInterval(id); });//|stop() leaves the polls running
+data.js|s/else if (data.holidaysErr) st = /else if (false) st = /|a failed holiday fetch is not on the status line
+data.js|s/if (newest("hol", gen)) put({ holidaysErr: /if (newest("hol", gen)) put({ holidays: [], holidaysErr: /|a failed holiday fetch drops the last list
+data.js|s/    .then(function (evs) { return evs.filter(/    .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
+card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
+engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
+calendar.js|s/  if (!data .. !data.gotAt) return "loading";//|a card opened before the first load says Free today
+popup.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
+data.js|s/  else if (!data.gotAt \&\& !o.demo) st = "Loading the week";//|the status line never says the week is loading
+data.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
+data.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
+data.js|s/if (today() \&\& newest("week", gen)) put({ error: /if (today() \&\& newest("week", gen)) put({ events: [], error: /|a failed reload throws away the last good week
+data.js|s/calFailed: wk.failed, error: null, gotAt/calFailed: wk.failed, gotAt/|a good load after a failed one leaves "Can't load the week" up until the page reloads
+editor.js|s/else p.calendar = cal.length === 1 ? cal\[0\] : cal;/else p.calendar = cal[0];/|the editor writes only the first of two calendars
+engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  function setTimeoutX(f, ms) { var id = window.setTimeout(/|the engine's timeouts are not its own, so stop() cannot clear them
+engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });//|stop() leaves the auto-close and a tap's open waiting
+engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open
+engine/engine.js|s/      FETCHES.splice(0).forEach(function (ac) { ac.abort(); });//|stop() leaves the office fetch running with no deadline
+engine/engine.js|s/^    if (offline()) return;$//|disconnected, the polls read the cached states and stamp them fresh
+engine/engine.js|s/if (!off) { load(); loadLive(); loadMusic(); }/if (!off) {}/|back from a lost connection the card waits for the next poll
+data.js|s/  else if (o.offline) st = /  else if (false) st = /|a lost connection to Home Assistant is not on the status line
+engine/engine.js|s/function (patch, retag) { if (STOPPED) return; /function (patch, retag) { /|a calendar answer that lands after stop() is published into the stopped engine
+engine/engine.js|s/^      if (openThing .. openThing.person) openCard(openThing, false, true); });/      });/|a card opened while its week is loading says Loading the week after the week lands
+data.js|s/if (!today() .. !newest("week", gen)) return;/if (!newest("week", gen)) return;/|a week asked for before midnight that lands after it is shown as today's
+data.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function newest(k, gen) {/|a slow load that lands last replaces a newer week
+engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { /|midnight waits for the five-minute reload
+engine/engine.js|s/{ load(); if (openThing \&\& openThing.person) openCard(openThing, false, true); }/{ load(); }/|an open card keeps yesterday's Today after midnight
+engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) letter = READING.l; }/    if (false) {}/|the midnight redraw reads the letter again and clears it
+data.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
+engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
+engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
+data.js|s/". Showing " + (ymd(at) === ymd(d) ? "" : dayWord(ymd(at), d) + " ") +/". Showing " +/|an overnight outage's Showing time has no day
+data.js|s/return w === "Today" .. w === "Tomorrow" ? w.toLowerCase() : w;/return w.toLowerCase();/|the status line lower-cases a day: "Showing mon 26"
+engine/engine.js|s/^    update(dt);$//;s/if (!REDUCED .. ms - lastPaint >= REDUCED_PAINT) { lastPaint = ms; /&update(dt); /|reduced motion stops the world between paints, not just the picture
+engine/engine.js|s/REDUCED_PAINT = 10000;/REDUCED_PAINT = 4000;/|reduced motion repaints every four seconds
+engine/engine.js|s/REDUCE_MQ.addEventListener("change", readReduced)/REDUCE_MQ.addEventListener("change", function () {})/|turning reduced motion on or off needs a reload
+engine/engine.js|s/REDUCE_MQ.removeEventListener("change", readReduced)/REDUCE_MQ.removeEventListener("change", function () {})/|stop() keeps listening to the reduced motion preference
+engine/engine.js|s/else if (REDUCE_MQ.addListener) REDUCE_MQ.addListener(readReduced);//|Chrome 87 never hears the reduced motion preference change
+engine/engine.js|s/at = REDUCED \&\& t.seen ? t.seen : seenAt(t)/at = seenAt(t)/|under reduced motion a tap aims at where the creature is, not where it was painted
+engine/engine.js|s/      if (REDUCED) fam.forEach(function (t) { t.seen = seenAt(t); }); }/      }/|under reduced motion nothing records where a creature was painted
+engine/engine.js|s/    if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }//|the demo asks Home Assistant for a week it does not have
+engine/engine.js|s/closeTimer = setTimeout(autoClose, 60000)/closeTimer = setTimeout(closeCard, 60000)/|the card closing itself clears an unread letter
+engine/engine.js|s/  \$("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });//|a tap inside the card does not start its minute again
+engine/engine.js|s/  \$("card").addEventListener("keydown", function () { if (openThing) armClose(); });//|scrolling the card from the keyboard does not start its minute again
+card.js|s/<div id="lists" tabindex="0" /<div id="lists" /|the card's lists take no focus, so a keyboard cannot scroll a long card
+engine/engine.js|s/)) BOOK.live.push(r.l);/)) void 0;/|a letter kept by the auto-close is left out of the book, so a panel's Done cannot take it back
+engine/engine.js|s/      if (!stillHeld(r.l)) { r.t.letter = null; r.l.gone = true; }/      if (false) {}/|the card closing itself brings back a letter read on a panel while it was up
+engine/engine.js|s/String(s.state).trim() !== "";$/true;/|the card closing itself keeps a shared letter cleared elsewhere
+data.js|s/var xr = readExtra(s\[0\] ? s\[0\].attributes : null);/var xr = { data: s[0] ? s[0].attributes : null, bad: [] };/|the engine hands sensors.extra to the cards unchecked, and schools as a string stops the HUD
+popup.js|s/  if (data.extraBad \&\& data.extraBad.length) return "School info unreadable/  if (false) return "School info unreadable/|school info in the wrong shape is left out without a word on the cards
+school.js|s/const kept = v.map(each).filter(function (x) { return x != null; })/const kept = v.slice()/|an entry of sensors.extra in the wrong shape is kept
+school.js|s/if (!Array.isArray(v)) { bad.push(key + " is not a list"); return \[\]; }/if (!Array.isArray(v)) return [];/|a part of sensors.extra that is not a list is dropped without a word
+calendar.js|s/for (let day = sd < first ? first : sd; day <= ed /for (let day = sd < first ? first : sd; day <= (sd < first ? first : sd) /|an event is listed on its first day only
+calendar.js|s/(allDay .. MIDNIGHT.test(end))/(MIDNIGHT.test(end))/|an all-day event's end date counts as one of its days
+calendar.js|s/(allDay .. MIDNIGHT.test(end))/(allDay)/|a timed event ending at 00:00 covers the next day too
+calendar.js|s/at: "until " + end.slice(11, 16)/at: s.slice(11, 16)/|the morning after a night shift reads the time it started
+calendar.js|s/const until = !atMidnight \&\& /const until = /|a day covered to its end by an event ending at 00:00 reads until 00:00
+calendar.js|s/  if (evs.length \&\& !read) throw/  if (false) throw/|a calendar answer with no readable event reads as a free week
+popup.js|s/  if (calHealth === "ok" \&\& data.weekAt \&\& v.now - data.weekAt > WEEK_STALE) calHealth = "stale";//|a v1.0.0 week hours old reads Free today on an empty day
+popup.js|s/var flags = house ? /var flags = name === "House" ? /|a household not called House loses its flags
+popup.js|s/    return house .. v.config.sourceOwner/    return name === "House" ? true : v.config.sourceOwner/|a household not called House loses the sources that could not be checked
+engine/engine.js|s/esc(up\[0\].who === HOUSEHOLD ? ""/esc(up[0].who === "House" ? ""/|the Next line names a household not called House
+data.js|s/if (tt \&\& tt.status === "ok" \&\& tt.lessons.length) return true;/if (tt \&\& tt.status === "ok") return true;/|a timetable day with no lessons sends the child to school
+popup.js|s/    if (lunchFor(v, name, x).status !== "closed" .*$/    return x; }/|a Friday's next lunch is a closed Monday, not Tuesday's menu
+engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day after a late shift walks the creature out at the time it started
+engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
+engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day
+engine/engine.js|s#      if (e.cont) continue;  *// the second day of a trip#      // the second day of a trip#|the banner's next thing on is the second day of a trip
+data.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
+editor.js|s/: p.look .. LOOKS\[i % 6\],/: p.look ? p.look : "crow",/|an edit turns a look-less person into a crow
+popup.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
+data.js|s/  else if (L.clearErr) st = /  else if (false) st = /|a letter that could not be cleared is not on the status line
+data.js|s/  else if (o.annErr) st = /  else if (false) st = /|an announcement that could not be cleared is not on the status line
+data.js|s/  if (inTerm) return true;/  if (inTerm) return null;/|a day in term reads as cannot tell, so nobody goes to school on term dates alone
+popup.js|s/sum = !weekday(d) ? "Weekend" :/sum = false ? "Weekend" :/|the School card counts who is at school at the weekend
+popup.js|s/"Letter from " + esc(l.from) + " cleared."/"Letter from " + l.from + " cleared."/|the cleared letter's line stops escaping who it was from
+popup.js|s/  else sum = live ? label : "Printer not reachable";/  else sum = label;/|a printer that stopped answering reads as its last status on the workshop card
+engine/engine.js|s/    if (e.key === "Escape" .. e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }//|Escape does not close the card
+engine/engine.js|s/    if (e.key === "Escape" .. e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }/    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); $("scrim").classList.remove("open"); openThing = null; return; }/|Escape hides the card without clearing the letter as Done does
+engine/engine.js|s/^    \$("done").focus({ preventScroll: true });$//|opening a card leaves focus where it was, not on Done
+engine/engine.js|s/^    \$("done").focus({ preventScroll: true });          \/\/ Got it is about to go.*$//|Got it takes focus out of the dialog with it
+engine/engine.js|s/if (o .. o.isConnected !== false .. o.focus) o.focus({ preventScroll: true });/if (false) {}/|closing a card does not hand focus back to the button that opened it
+engine/engine.js|s/^    else if (a .. a.blur) a.blur();$//|closing a card opened by a tap leaves focus on a hidden Done
+card.js|s/opacity: 0; visibility: hidden;/opacity: 0;/|the closed popup is only see-through, so Tab lands on its Done
+card.js|s/<div id="status" role="status">/<div id="status">/|the status line is not spoken when it changes
+card.js|s/^#done:focus { outline: none; }$//|Done keeps the browser's blue ring after a tap
+engine/engine.js|s/    if (\$("status").textContent !== stl) \$("status").textContent = stl;/    $("status").textContent = stl;/|the status line is written every second, so a reader says it every second
+engine/engine.js|s/        b.addEventListener("click", function () { keyAct(w.k); });//|the key buttons do nothing
+engine/engine.js|s/ + (postBadge(t.letter) ? ", letter waiting" : "")//|a person's button does not say a letter is waiting
+engine/engine.js|s/label: t.person.name + onToday(todayFor(t.person.name).length)/label: t.person.name/|a person's button does not say how many things are on today
+engine/engine.js|s/if (h.robot ? ROBOT .. VIEW.office : VIEW\[id\])/if (h.robot ? ROBOT \&\& VIEW.office : false)/|a landmark with a view has no button
+engine/engine.js|s/      tl.addEventListener("click", function (e) { activity();/      tl.addEventListener("pointerdown", function (e) { activity();/|a status tile acts on pointerdown, so Enter on it does nothing
+engine/engine.js|s/      an.addEventListener("click", function () { activity();/      an.addEventListener("pointerdown", function () { activity();/|the banner acts on pointerdown, so Enter on it does nothing
+engine/engine.js|s/      an.setAttribute("role", "status");//|a new announcement is not read out
+engine/engine.js|s/return '<button type="button" class="tile'/return '<div class="tile'/|a status tile is a div that Tab never reaches
+card.js|s/border-style: dashed; color: #55555E; }/border-style: dashed; color: #6E6E78; }/|an unavailable tile's text is 3.9:1 on its grey
+card.js|s/.tile .tl { display: block; font: 500 13px\/16px/.tile .tl { display: block; font: 500 11px\/14px/|a tile's label stays at 11 px
+engine/engine.js|s/WRAP.classList.toggle("compact", W < 1100);/WRAP.classList.toggle("compact", false);/|under 1100 px the countdowns and the banner stay squeezed between the clock and the tiles
+engine/engine.js|s/ refreshKeys(); layHud();/ refreshKeys();/|nothing moves the rows under the clock on a narrow card
+engine/engine.js|s/^    CD_KEY = ""; XS.dueKey = null; .*$//|the countdown chips are fitted once a day, never on a resize
+engine/engine.js|s/if (SCENE.ambient) SCENE.ambient.setup(SV); hud(); },/if (SCENE.ambient) SCENE.ambient.setup(SV); },/|a resize leaves the HUD in the old layout until the next tick
+engine/engine.js|s/    cn.style.top = narrow ? foot(\$("hud")) + 6 + "px" : "";/    cn.style.top = "";/|on a phone the tiles stay on the clock
+engine/engine.js|s/    if (W < 700) WRAP.classList.add("narrow");/    if (W < 640) WRAP.classList.add("narrow");/|between 640 and 700 px the tiles stay beside a long date and run into it
+card.js|s/justify-content: center; pointer-events: none; }/justify-content: center; }/|the banner's whole row takes taps, so a tag beside the banner cannot be tapped
+data.js|s/  if (o.demoInHa) st = DEMO_IN_HA;/  if (false) st = DEMO_IN_HA;/|the demo in a real dashboard has a clear status line, so nothing says it is the demo
+popup.js|s/  if (v.demoInHa) foot.push(.*$/  if (false) {}/|the demo in a real dashboard says nothing about it on the cards
+popup.js|s/^  else {$/  {/|the demo in a real dashboard still says Calendars checked on a person's card
+popup.js|s/^  else if (ex.checked_at) foot.push(checkedAt(ex));$/  if (ex.checked_at) foot.push(checkedAt(ex));/|the demo in a real dashboard still says School info checked on the School card
+engine/engine.js|s/demoInHa: DEMO .. !!HA.hass()/demoInHa: DEMO/|the demo page with no Home Assistant says Demo data too, and the docs' screenshots change
+card.js|s/margin-top: 6px; max-width: 300px; margin-left: auto; }/margin-top: 6px; }/|a long status line runs left into the countdown chips
 EOF
 echo "ok: all $n sabotaged copies failed the check"

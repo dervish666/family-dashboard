@@ -1,8 +1,9 @@
 // Runnable check for the parts of the card that need no real pixels: config normalisation,
-// calendar parsing, the school timetable and lunch parsers, the announcement extras and the town crier's
+// calendar parsing, the loads from Home Assistant (data.js, on a fake hass) and the status line, the
+// popup cards' HTML (popup.js), the school timetable and lunch parsers, the announcement extras and the town crier's
 // rules, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
-// throwing). No dependencies.
+// throwing). Then the engine itself, booted from src/ by tests/engine.mjs. No dependencies.
 // Run: node tests/check.mjs [path/to/family-dashboard.js] [path/to/src]
 // Exits 1 on the first broken expectation. tests/falsify.sh proves that it can.
 import { pathToFileURL } from "node:url";
@@ -105,26 +106,306 @@ const rows = m.parseCalendarEvents([
   { summary: "Half term", start: { date: "2026-10-24" }, end: { date: "2026-11-01" } },
   { start: { dateTime: "2026-10-29T18:00:00+01:00" } },
   { summary: "broken", start: {} }, null], "Alex", range);
-eq(rows, [
-  { who: "Alex", what: "Dentist", day: "2026-10-27", all_day: false, start: "2026-10-27T10:15:00+00:00", at: "10:15" },
-  { who: "Alex", what: "Bin day", day: "2026-10-28", all_day: true, start: "2026-10-28", at: "" },
-  { who: "Alex", what: "Half term", day: "2026-10-26", all_day: true, start: "2026-10-26", at: "" },
-  { who: "Alex", what: "Busy", day: "2026-10-29", all_day: false, start: "2026-10-29T18:00:00+01:00", at: "18:00" }], "calendar events become week rows");
+eq(rows[0], { who: "Alex", what: "Dentist", day: "2026-10-27", all_day: false, start: "2026-10-27T10:15:00+00:00", at: "10:15", end: "2026-10-27T11:00:00+00:00" }, "a calendar event becomes a week row");
+const brief = function (rs) { return rs.map(function (r) { return r.day.slice(5) + " " + (r.all_day ? "all day" : r.at) + " " + r.what + (r.cont ? " (cont)" : ""); }); };
+eq(brief(rows), ["10-27 10:15 Dentist", "10-28 all day Bin day", "10-26 all day Half term (cont)", "10-27 all day Half term (cont)", "10-28 all day Half term (cont)",
+  "10-29 all day Half term (cont)", "10-30 all day Half term (cont)", "10-31 all day Half term (cont)", "10-29 18:00 Busy"], "calendar events become week rows, one per day they cover");
+// Multi-day and overnight: every day an event covers inside the week, once. An all-day end is
+// exclusive, a timed one ending at 00:00 stops the day before, and a day after the first says
+// until when, or all day in between.
+const span = function (start, end) { return { summary: "x", start: start.length > 10 ? { dateTime: start } : { date: start }, end: end.length > 10 ? { dateTime: end } : { date: end } }; };
+const cover = function (start, end) { return brief(m.parseCalendarEvents([span(start, end)], "Alex", range)).map(function (r) { return r.replace(" x", ""); }); };
+eq(cover("2026-10-27", "2026-10-30"), ["10-27 all day", "10-28 all day (cont)", "10-29 all day (cont)"], "a Tuesday to Thursday trip is on all three days");
+eq(cover("2026-10-25T22:00:00+00:00", "2026-10-26T06:00:00+00:00"), ["10-26 until 06:00 (cont)"], "last night's shift reads until 06:00 this morning, not 22:00");
+eq(cover("2026-10-26T22:00:00+00:00", "2026-10-27T06:00:00+00:00"), ["10-26 22:00", "10-27 until 06:00 (cont)"], "tonight's shift starts tonight and ends tomorrow");
+eq(cover("2026-10-27T20:00:00+00:00", "2026-10-28T00:00:00+00:00"), ["10-27 20:00"], "an evening ending at 00:00 does not cover the next day");
+eq(cover("2026-10-26T22:00:00+00:00", "2026-10-28T00:00:00+00:00"), ["10-26 22:00", "10-27 all day (cont)"], "a night cover ending at 00:00 two days on is all day on the day between, not until 00:00");
+eq(cover("2026-10-27T10:00:00+00:00", "2026-10-29T16:00:00+00:00"), ["10-27 10:00", "10-28 all day (cont)", "10-29 until 16:00 (cont)"], "a three-day course: its start, all day, until its end");
+eq(cover("2026-10-30", "2026-11-20"), ["10-30 all day", "10-31 all day (cont)", "11-01 all day (cont)"], "a long trip stops at the end of the week");
+eq([cover("2026-10-28", "2026-10-28"), cover("2026-10-28T09:00:00+00:00", "2026-10-27T09:00:00+00:00"), cover("2026-10-28T09:00:00+00:00", "")], [["10-28 all day"], ["10-28 09:00"], ["10-28 09:00"]],
+  "an end on, before or missing from its start is one day");
 throws(function () { m.parseCalendarEvents({ message: "Entity not found" }, "Alex", range); }, /not a list/, "an error answer is not an empty week");
+throws(function () { m.parseCalendarEvents([null, { summary: "Broken shift", start: {} }], "Alex", range); }, /^calendar answer unreadable \(2 entries, none with a start\)$/,
+  "an answer with entries but none readable is not an empty week");
+eq(m.parseCalendarEvents([], "Alex", range), [], "an empty answer is an empty week");
 // A person's card: a failed load, or one of their calendars down, is not a free day.
-eq([m.calendarHealth({ events: [], error: null, calFailed: [] }, "Alex"), m.calendarHealth({ events: [], error: "no calendar answered (calendar.alex)" }, "Alex"),
-  m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }] }, "Sky"), m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }] }, "Alex"),
+const gotAt = new Date(2026, 9, 26, 12);
+eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "Alex"), m.calendarHealth({ events: [], error: "no calendar answered (calendar.alex)" }, "Alex"),
+  m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }], gotAt: gotAt }, "Sky"), m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }], gotAt: gotAt }, "Alex"),
   m.calendarHealth({ events: [], extra: null, weekAt: null, error: null, gotAt: null }, "Alex")],
-  ["ok", "error", "failed", "ok", "ok"], "calendar health: total failure, one of theirs down, someone else's down, before any load");
+  ["ok", "error", "failed", "ok", "loading"], "calendar health: loaded and free, total failure, one of theirs down, someone else's down, before any load");
+
+// ── The loads (data.js), without the engine ───────────────────────────────────────
+// A fake hass whose callApi answers from a map (an answer, an Error, or HOLD to stay open),
+// and timers the case fires by hand.
+{
+  const HOLD = {}, logs = [], warnWas = console.warn, errorWas = console.error;
+  console.warn = console.error = function () { const l = [].slice.call(arguments).join(" "); if (/^FAIL /.test(l)) errorWas(l); else logs.push(l); };   // a FAIL still reaches the console
+  const tok = function (map) { return { states: {}, asked: [], callApi: function (method, p) { this.asked.push(p);
+    const id = (String(p).match(/^calendars\/([^?]+)\?/) || [])[1], a = map[id] === undefined ? [] : map[id];
+    return a === HOLD ? new Promise(function () {}) : a instanceof Error ? Promise.reject(a) : Promise.resolve(a); } }; };
+  const timers = { due: [], setTimeout: function (f, ms) { this.due.push([f, ms]); return this.due.length; }, clearTimeout: function (id) { if (this.due[id - 1]) this.due[id - 1][0] = null; } };
+  const at = new Date(2026, 9, 26, 12), cal = { calendarMode: true, sensors: {}, people: [{ name: "Alex", calendars: ["calendar.a", "calendar.b"] }, { name: "Sky", calendars: ["calendar.c"] }] };
+  const timedEv = function (what, hm) { return { summary: what, start: { dateTime: "2026-10-26T" + hm + ":00+00:00" }, end: { dateTime: "2026-10-26T" + hm + ":30+00:00" } }; };
+  const wk = await m.readWeek(tok({ "calendar.a": [timedEv("Dentist", "15:00")], "calendar.b": new Error("Calendar offline") }), cal, at, timers);
+  eq([wk.events.map(function (e) { return e.who + " " + e.what; }), wk.failed.map(function (f) { return [f.who, f.id, f.err]; })], [["Alex Dentist"], [["Alex", "calendar.b", "Calendar offline"]]],
+    "readWeek: the calendars that answered give the week, the one that failed is named with its owner");
+  const allDown = await m.readWeek(tok({ "calendar.a": new Error("x"), "calendar.b": new Error("x"), "calendar.c": new Error("x") }), cal, at, timers).then(function () { return "resolved"; }, function (e) { return e.message; });
+  eq(allDown, "no calendar answered (calendar.a, calendar.b, calendar.c)", "readWeek: every calendar failing is an error, not an empty week");
+  const junk = await m.readWeek(tok({ "calendar.a": [timedEv("Dentist", "15:00")], "calendar.b": [null, { start: {} }] }), cal, at, timers);
+  eq(junk.failed.map(function (f) { return [f.who, f.id, f.err]; }), [["Alex", "calendar.b", "calendar answer unreadable (2 entries, none with a start)"]],
+    "readWeek: a calendar whose answer has no readable event is named as failed, not read as free");
+  timers.due = [];
+  const hung = m.readWeek(tok({ "calendar.a": HOLD }), cal, at, timers);
+  eq(timers.due.map(function (t) { return t[1]; }), [m.CAL_WAIT, m.CAL_WAIT, m.CAL_WAIT], "readWeek: each calendar asked waits CAL_WAIT on the engine's timers");
+  eq(m.CAL_WAIT, 20000, "a calendar has 20 s to answer");
+  await new Promise(function (r) { setImmediate(r); });
+  timers.due.forEach(function (t) { if (t[0]) t[0](); });
+  eq((await hung).failed.map(function (f) { return f.id + ": " + f.err; }), ["calendar.a: no answer in 20 s"], "readWeek: a calendar that never answers fails when its wait runs out");
+  const v1 = { calendarMode: false, sensors: { week: "sensor.family_week" }, people: [] };
+  eq(await m.readWeek({ states: {} }, v1, at, timers).then(null, function (e) { return e.message; }), "sensor.family_week not found. Give people a calendar in the card editor, or set up that sensor",
+    "readWeek: v1.0.0 mode without its sensor says what to set up");
+  eq(await m.holidays(tok({ "calendar.trips": [allDayEv("Holidays: Cornwall", "2026-12-21"), allDayEv("Dentist", "2026-12-22"), allDayEv("Holiday", "2027-02-15")] }), "calendar.trips", at, timers),
+    [{ date: "2026-12-21", label: "Cornwall" }, { date: "2027-02-15", label: "Holiday" }], "holidays: only titles with holiday in them, labelled with the rest of the title");
+  eq(await m.holidays(tok({ "calendar.trips": new Error("Trips offline") }), "calendar.trips", at, timers).then(null, function (e) { return "failed: " + e.message; }), "failed: Trips offline",
+    "holidays: a failed fetch is a failure for the loader to report, not an empty list");
+  eq(m.byStart([{ day: "2026-10-27", start: "2026-10-27T09:00", at: "09:00" }, { day: "2026-10-26", start: "2026-10-26T18:00", at: "18:00" }, { day: "2026-10-26", start: "2026-10-25T22:00", at: "until 06:00", cont: true },
+    { day: "2026-10-26", start: "2026-10-26", all_day: true, at: "" }]).map(function (e) { return e.day.slice(8) + " " + (e.at || "all day"); }), ["26 all day", "26 until 06:00", "26 18:00", "27 09:00"],
+  "byStart: by day, then all day, then carried over, then start");
+  // Two loads in flight: the older one answering last is dropped, for the week and the holidays alike.
+  const held = [], puts = [];
+  const hass = { states: {}, callApi: function (method, p) { return new Promise(function (ok) { held.push({ p: p, ok: ok }); }); } };
+  const load = m.newLoader({ calendarMode: true, sensors: { trips: "calendar.trips" }, people: [{ name: "Alex", calendars: ["calendar.a"] }] }, function () { return at; }, timers);
+  load(hass, [], function (patch) { puts.push(patch); });
+  load(hass, [], function (patch) { puts.push(patch); });
+  await new Promise(function (r) { setImmediate(r); });
+  eq(held.length, 4, "newLoader: each load asks for the week and the holidays");
+  const answer = function (i, what) { held[i].ok(/trips/.test(held[i].p) ? [allDayEv("Holiday " + what, "2026-12-21")] : [timedEv(what, "15:00")]); };
+  answer(2, "new"); answer(3, "new"); await new Promise(function (r) { setImmediate(r); });
+  answer(0, "old"); answer(1, "old"); await new Promise(function (r) { setImmediate(r); });
+  eq(puts.filter(function (p) { return p.events || p.holidays; }).map(function (p) { return p.events ? "week " + p.events[0].what : "holidays " + p.holidays[0].label; }).sort(), ["holidays new", "week new"],
+    "newLoader: a slow older load landing last does not replace the newer week or holidays");
+  const noHass = [];
+  load(null, [], function (patch) { noHass.push(patch); });
+  await new Promise(function (r) { setImmediate(r); });
+  eq(noHass, [{ error: "no connection to Home Assistant yet" }], "newLoader: no hass yet is an error on the week, not a quiet empty one");
+  console.warn = warnWas; console.error = errorWas;
+  ok(logs.some(function (l) { return /^meadow: calendar\.b/.test(l); }), "readWeek logs the calendar that failed");
+}
+function allDayEv(summary, day) { return { summary: summary, start: { date: day }, end: { date: day } }; }
+
+// The status line (data.js statusLine): with everything wrong at once, each fix uncovers the
+// next thing down, so the order is the one the HUD shows them in.
+{
+  const at = new Date(2026, 9, 26, 12, 0);
+  const snap = { events: [], error: "no calendar answered (calendar.a)", gotAt: new Date(2026, 9, 25, 23, 50), weekAt: new Date(2026, 9, 25, 9, 0),
+    calFailed: [{ who: "Sky", id: "calendar.sky" }, { who: "Alex", id: "calendar.a" }], holidaysErr: "Trips offline", holidaysAt: new Date(2026, 9, 26, 11, 5) };
+  const o = { demo: false, letters: { bad: [{ who: "Alex" }], clearErr: "boom" }, weatherLive: false, annErr: "bang" };
+  const peel = [function () { snap.error = null; }, function () { snap.weekAt = new Date(2026, 9, 26, 11, 30); }, function () { snap.calFailed = []; },
+    function () { o.letters.bad = []; }, function () { snap.holidaysErr = null; }, function () { o.weatherLive = true; }, function () { o.letters.clearErr = null; }, function () { o.annErr = null; }];
+  const lines = [m.statusLine(snap, at, o)].concat(peel.map(function (f) { f(); return m.statusLine(snap, at, o); }));
+  eq(lines, ["Can't load the week (no calendar answered (calendar.a)). Showing Sun 25 23:50", "Calendars last checked Sun 25 09:00", "2 calendars unavailable: Sky, Alex",
+    "Letters unavailable: Alex", "Holidays unavailable (Trips offline). Showing the list from today 11:05", "Weather unavailable, showing made-up showers",
+    "Couldn't clear the letter in Home Assistant", "Couldn't clear the announcement in Home Assistant", ""], "statusLine: what is wrong, most urgent first, and nothing once all is well");
+  const quiet = { demo: false, letters: { bad: [] }, weatherLive: true };
+  eq([m.statusLine({ events: [], error: "x", gotAt: new Date(2026, 9, 26, 11, 20) }, at, quiet), m.statusLine({ events: [], error: "x", gotAt: null }, at, quiet)],
+    ["Can't load the week (x). Showing 11:20", "Can't load the week (x)"], "statusLine: a failed load says how old the week showing is, or nothing to show");
+  eq([m.statusLine(snap, at, Object.assign({}, quiet, { offline: { at: new Date(2026, 9, 25, 23, 58) } })), m.statusLine(snap, at, Object.assign({}, quiet, { offline: { at: null } }))],
+    ["No connection to Home Assistant. Showing Sun 25 23:58", "No connection to Home Assistant"], "statusLine: Home Assistant disconnected comes first, with the time of the last read");
+  eq([m.statusLine({ events: [], gotAt: null }, at, quiet), m.statusLine({ events: [], gotAt: null }, at, { demo: true, letters: { bad: [] }, weatherLive: false })],
+    ["Loading the week", ""], "statusLine: before the first load the week is loading, and the demo has nothing to load");
+  eq([39, 41].map(function (mins) { return m.statusLine({ events: [], gotAt: at, weekAt: new Date(at - mins * 60000) }, at, quiet); }), ["", "Calendars last checked today 11:19"],
+    "statusLine: a week checked over 40 minutes ago is stale");
+  eq(["2026-10-26", "2026-10-27", "2026-10-29", "2026-10-31", "2026-11-05"].map(function (ds) { return m.dayLabel(ds, at); }), ["Today", "Tomorrow", "Thu 29", "Sat 31", "Thu 5 Nov"],
+    "dayLabel: today, tomorrow, the day this week, and the month once a week or more on");
+}
+// Who has school (data.js schoolDay): the child's own timetable first, then the term dates.
+{
+  const src = m.schoolSources([{ name: "Sky", school: true, timetable: { entity: "sensor.sky_tt", attribute: "timetable" } }, { name: "Ann", school: true }, { name: "Home" }], false);
+  eq(src, { Sky: { timetable: { entity: "sensor.sky_tt", attribute: "timetable" }, lunch: undefined, choice: undefined } }, "schoolSources: only a child with a school entity has sources");
+  const tt = { weeks: ["A"], days: { A: { mon: ["Maths"], tue: ["Art"], wed: ["PE"], thu: ["Music"], fri: ["French"] } }, closed: ["2026-10-27"] };
+  const term = function (terms) { return { schools: [{ who: "Ann", terms: terms }] }; };
+  const snap = { events: [], school: { states: { "sensor.sky_tt": { state: "A", attributes: { timetable: tt } } } },
+    extra: term([{ label: "T1", from: "2026-09-01", to: "2026-10-23" }, { label: "T2", from: "2026-11-02", to: "2026-12-18" }]) };
+  const on = function (data, name, day) { return m.schoolDay(data, src, name, new Date(2026, 9, day, 12)); };
+  eq([on(snap, "Sky", 26), on(snap, "Sky", 27), on(snap, "Sky", 31), on({ events: [] }, "Sky", 26)], [true, false, false, null],
+    "schoolDay: a lesson day, a closed day, a Saturday, and nothing read yet");
+  eq([on(snap, "Ann", 26), m.schoolDay(snap, src, "Ann", new Date(2026, 10, 2, 12)), on({ events: [], extra: term([{ label: "T1", from: "2026-09-01", to: null }]) }, "Ann", 26), on(snap, "Home", 26)],
+    [false, true, null, null], "schoolDay: half term between two known terms, the first day back, an open-ended term, and no school data at all");
+  // A timetable day that is ok but has no lessons sends nobody to school: the lunch and terms decide.
+  const bare = { weeks: ["A"], days: { A: { mon: ["Maths"], tue: [], wed: ["PE"], thu: ["Music"], fri: ["French"] } } };
+  const sl = { "sensor.sky_tt": { state: "A", attributes: { timetable: bare } } };
+  const lsrc = m.schoolSources([{ name: "Sky", school: true, timetable: { entity: "sensor.sky_tt", attribute: "timetable" }, lunch: { entity: "sensor.sky_lunch", attribute: "menu" } }], false);
+  const withLunch = function (st) { return { events: [], school: { states: Object.assign({ "sensor.sky_lunch": { state: "ok", attributes: { menu: { "2026-10-27": { status: st } } } } }, sl) } }; };
+  eq([m.schoolDay({ events: [], school: { states: sl } }, src, "Sky", new Date(2026, 9, 27, 12)), m.schoolDay(withLunch("served"), lsrc, "Sky", new Date(2026, 9, 27, 12)),
+    m.schoolDay(withLunch("closed"), lsrc, "Sky", new Date(2026, 9, 27, 12))], [null, true, false],
+    "schoolDay: a timetable day with no lessons is no evidence of school; the lunch menu then decides");
+  const first = m.schoolParse(snap, src, "timetable", "Sky", new Date(2026, 9, 26, 12), new Date(2026, 9, 26, 12));
+  eq([first.status, first.lessons.map(function (l) { return l.subject; }), m.schoolParse({ events: [] }, src, "timetable", "Sky", new Date(2026, 9, 26, 12)).status],
+    ["ok", ["Maths"], "loading"], "schoolParse: the day's lessons once the sensors are read, loading before");
+  ok(m.schoolParse(snap, src, "timetable", "Sky", new Date(2026, 9, 26, 9), new Date()) === first, "schoolParse: a child's day is parsed once per snapshot");
+}
+
+// ── The popup cards (popup.js), from a snapshot alone ─────────────────────────────
+{
+  const at = new Date(2026, 9, 26, 12, 0), cfg = m.normalize({ people: [{ name: "Alex", calendar: "calendar.alex" }, { name: "Sky", role: "kid", school: true, calendar: "calendar.sky" },
+    { name: "Pat" }, { name: "House", calendar: "calendar.house" }], sensors: { extra: "sensor.family_extra" } });
+  const who = function (n) { return cfg.people.filter(function (p) { return p.name === n; })[0]; };
+  const card = function (name, data, more) {
+    return m.personCard(Object.assign({ data: data, now: at, config: cfg, src: {}, demo: false, person: who(name), letter: null, letters: { clearErr: null, bad: [] }, due: null }, more || {})); };
+  const loaded = { events: [], gotAt: at, weekAt: at, error: null, calFailed: [], extra: { items: [] }, othersAt: at };
+  const one = card("Alex", Object.assign({}, loaded, { calFailed: [{ who: "Alex", id: "calendar.alex" }] }));
+  eq(one.sum, "Calendar unavailable", "personCard: their calendar failed, so the summary is not Free today");
+  ok(one.html.indexOf("Calendar unavailable, so this card can't say what's on.") >= 0 && one.html.indexOf("Calendar unavailable: calendar.alex. This week may be missing events.") >= 0,
+    "personCard: Today says the calendar is unavailable, and the foot names which one");
+  eq(card("House", Object.assign({}, loaded, { calFailed: [{ who: "Alex", id: "calendar.alex" }] })).sum, "Free today", "personCard: someone else's calendar down leaves the House free");
+  const down = card("Alex", Object.assign({}, loaded, { error: "no calendar answered (calendar.alex)" }));
+  eq(down.sum, "Calendar unavailable", "personCard: a failed load is not a free day");
+  ok(/Can't load the week \(no calendar answered \(calendar\.alex\)\), so this is the last week that loaded\./.test(down.html), "personCard: the foot names the failed load, and that the week showing is the last one");
+  const loading = card("Alex", { events: [], gotAt: null, weekAt: null, error: null });
+  eq(loading.sum, "Loading the week", "personCard: before the first load the summary says the week is loading");
+  ok(loading.html.indexOf("Still loading the week, so this card can't say what's on yet.") >= 0 && loading.html.indexOf("Nothing on today") < 0, "personCard: and Today is not a free day");
+  eq([card("Pat", loaded).sum, card("Alex", loaded).sum], ["No calendar", "Free today"], "personCard: no calendar of their own is not a free day; an empty calendar is");
+  // A v1.0.0 week (sensor.family_week) that stopped updating: older than the stale limit, an empty day is not a free one.
+  const legacy = m.normalize({ people: [{ name: "Alex" }, { name: "House" }], sensors: { week: "sensor.family_week" } });
+  const aged = function (mins) { return m.personCard({ data: Object.assign({}, loaded, { weekAt: new Date(at - mins * 60000) }), now: at, config: legacy, src: {}, demo: false,
+    person: legacy.people[0], letter: null, letters: { clearErr: null, bad: [] }, due: null }); };
+  const old = aged(41);
+  eq([old.sum, aged(39).sum], ["Last checked today 11:19", "Free today"], "personCard: a week past the stale limit says when it was checked instead of Free today");
+  ok(old.html.indexOf("Calendars last checked today 11:19, so this card can't say what's on.") >= 0 && old.html.indexOf("Nothing on today") < 0, "personCard: and Today says so too");
+  const title = card("Alex", Object.assign({}, loaded, { events: [{ who: "Alex", what: "Dentist <b>x</b> & \"co\"", day: "2026-10-26", at: "15:00", all_day: false, start: "2026-10-26T15:00:00" },
+    { who: "Alex", what: "<i>Trip</i>", day: "2026-10-28", at: "", all_day: true, start: "2026-10-28" }] }),
+    { letter: { from: "<i>Mum</i>", text: "Tea <now>", at: new Date(2026, 9, 26, 11, 58) } });
+  ok(title.html.indexOf("Dentist &lt;b&gt;x&lt;/b&gt; &amp; &quot;co&quot;") >= 0 && title.html.indexOf("&lt;i&gt;Trip&lt;/i&gt;") >= 0 && !/<b>x<\/b>|<i>/.test(title.html),
+    "personCard: a title's markup comes out escaped, today and later in the week");
+  ok(/^<div class="post">.*Letter from <b>&lt;i&gt;Mum&lt;\/i&gt;<\/b> <span class="pt">11:58<\/span>.*Tea &lt;now&gt;/.test(title.html), "personCard: the letter comes first, its sender and words escaped");
+  eq(title.sum, "1 thing today", "personCard: today's events count in the summary");
+  eq(m.postCleared({ from: "<i>Mum</i>" }) + m.postCleared({ from: "" }), '<div class="post done">Letter from &lt;i&gt;Mum&lt;/i&gt; cleared.</div><div class="post done">Letter cleared.</div>',
+    "postCleared: the line a read letter leaves, its sender escaped");
+  const bad = Object.assign({}, loaded, { extra: { items: [{ who: "Sky", date: "2026-10-27", kind: "homework", what: "Maths <sheet>" }] }, extraBad: ["schools is not a list"] });
+  ok(card("Sky", bad).html.indexOf("School info unreadable (schools is not a list).") >= 0 && card("Sky", bad, { demo: true }).html.indexOf("School info") < 0,
+    "personCard: school info in the wrong shape is named in the foot, and the demo's never is");
+  // The household is the last person, whatever it is called: its flags, every source that could
+  // not be checked and its own Today line follow it to "Home".
+  const homeCfg = m.normalize({ people: [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home", calendar: "calendar.family" }], sensors: { extra: "sensor.family_extra" } });
+  const homeData = Object.assign({}, loaded, { extra: { items: [], flags: ["Half term starts in three weeks"], sources: { ok: [], unavailable: ["parent-mail"] } } });
+  const homeCard = function (i) { return m.personCard({ data: homeData, now: at, config: homeCfg, src: {}, demo: false, person: homeCfg.people[i], letter: null, letters: { clearErr: null, bad: [] }, due: null }).html; };
+  const hc = homeCard(1), sc = homeCard(0);
+  ok(/Heads up<\/span>Half term starts in three weeks/.test(hc) && /Couldn't check: parent-mail\./.test(hc) && /Nothing for the house today\./.test(hc),
+    "personCard: a household called Home has the flags, the sources that could not be checked and the house's Today");
+  ok(!/Half term starts/.test(sc) && !/parent-mail/.test(sc), "personCard: and the person before it has neither");
+  // Lunch on a Friday: the next school day skips Monday's INSET to Tuesday's menu.
+  const lunchSrc = { Sky: { lunch: { entity: "sensor.sky_lunch", attribute: "menu" } } }, fri = new Date(2026, 9, 30, 12);
+  const lunchData = Object.assign({}, loaded, { school: { states: { "sensor.sky_lunch": { state: "served", attributes: { menu: {
+    "2026-10-30": { status: "served", options: ["Friday pie"] }, "2026-11-02": { status: "closed", note: "INSET" }, "2026-11-03": { status: "served", options: ["Tuesday pasta"] } } } } } } });
+  const lunchRows = [...m.personCard({ data: lunchData, now: fri, config: cfg, src: lunchSrc, demo: false, person: who("Sky"), letter: null, letters: { clearErr: null, bad: [] }, due: null })
+    .html.split("<h2>Lunch</h2>")[1].matchAll(/<div class="when">([^<]*)<\/div><div class="what">(?:<[^>]*>)*([^<]*)/g)].map(function (x) { return x[1] + " " + x[2]; });
+  eq(lunchRows, ["Today Friday pie", "Tue 3 Tuesday pasta"], "personCard: on a Friday the next lunch skips a closed Monday to Tuesday's menu");
+  const sch = function (data, day, more) { return m.schoolCard(Object.assign({ data: data, now: day, config: cfg, src: {}, demo: false }, more || {})); };
+  const mon = sch(bad, at);
+  ok(mon.html.indexOf("Tomorrow</div><div class=\"what\"><span class=\"chip\">Sky</span>Homework: Maths &lt;sheet&gt;") >= 0, "schoolCard: a school item is coming up, escaped, under the child's name");
+  ok(mon.html.indexOf("Sky: ") < 0 && mon.html.indexOf("School info unreadable (schools is not a list).") >= 0, "schoolCard: the foot names the unreadable school info");
+  eq([mon.sum, sch(bad, new Date(2026, 9, 31, 12)).sum], ["Can't tell who has school today", "Weekend"], "schoolCard: a weekday nobody can be placed on is not a day off, and Saturday is the weekend");
+}
+{
+  const at = new Date(2026, 9, 26, 12, 0), job = { status: "running", progress: 45.4, remain: 75, name: "Benchy <v2>", layer: 10, layers: 100, at: new Date(2026, 9, 26, 11, 58), err: null };
+  const run = m.shopCard({ printer: job, state: "running", now: at });
+  ok(run.sum === "Printing, 45%" && run.html.indexOf("Benchy &lt;v2&gt;") >= 0 && run.html.indexOf("1h 15m") >= 0 && run.html.indexOf("13:15") >= 0 && run.html.indexOf("10 of 100") >= 0,
+    "shopCard: a print running says how far, the job escaped, the time left and when it lands");
+  ok(m.shopCard({ printer: Object.assign({}, job, { status: "pause" }), state: "pause", now: at }).html.indexOf("13:15 once it resumes") >= 0, "shopCard: a paused print is done once it resumes");
+  const gone = m.shopCard({ printer: Object.assign({}, job, { err: "sensor.a1_print_status not found", at: null }), state: "empty", now: at });
+  ok(gone.sum === "Printer not reachable" && gone.html.indexOf("Can't reach the printer sensors (sensor.a1_print_status not found).") >= 0,
+    "shopCard: a printer that stopped answering says so, not its last status");
+  ok(m.shopCard({ printer: Object.assign({}, job, { at: null }), state: "empty", now: at }).html.indexOf("No fresh reading from the printer.") >= 0, "shopCard: a reading gone stale says so in the foot");
+}
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
 eq([one.demo, one.people.length, one.people[5].calendar, one.sensors.weather], [true, 6, "calendar.home", "weather.forecast_home"], "one calendar goes to the household");
 const many = m.stubConfig({ states: { "calendar.a": {}, "calendar.b": {}, "calendar.c": {}, "calendar.d": {}, "calendar.e": {}, "calendar.family": {}, "calendar.f": {}, "calendar.g": {} } });
-eq(many.people.map(function (p) { return p.calendar; }), ["calendar.a", "calendar.b", "calendar.c", "calendar.d", "calendar.e", ["calendar.f", "calendar.g", "calendar.family"]], "several calendars go one per person, shared and left over ones to the household");
+eq(many.people.map(function (p) { return p.calendar || null; }), [null, null, null, null, null, "calendar.family"], "of several calendars only the shared one is handed out, to the household");
 eq(m.normalize(Object.assign({}, many, { demo: false })).calendarMode, true, "the stub with demo off reads the calendars");
 const none = m.stubConfig(null);
 eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
+
+// ── Birthdays, the first-run stub and the editor ─────────────────────────────────
+// A real cast's birthdays are its own. dates without birthdays used to merge the demo
+// cast's in, and the sky counted down to Kid 1 and Parent 1 in a two-person house.
+const realCast = [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home" }];
+eq(m.normalize({ people: realCast, dates: { fixed: [] } }).dates, { birthdays: {}, fixed: [] }, "dates without birthdays brings none of the demo cast's to a cast with calendars");
+const ownBd = m.normalize({ people: realCast, dates: { birthdays: { Sam: "02-29" } } }).dates;
+eq([ownBd.birthdays, ownBd.fixed.length], [{ Sam: "02-29" }, 4], "a cast's own birthdays, and the fixed days still default");
+eq(m.normalize({ people: realCast, dates: { birthdays: null } }).dates.birthdays, {}, "an empty birthdays: in YAML is no birthdays");
+eq([m.normalize({}).dates.birthdays["Kid 1"], m.normalize({ sensors: { week: "sensor.family_week" }, people: [{ name: "Kid 1" }], dates: { fixed: [] } }).dates.birthdays["Parent 1"]],
+  ["01-22", "03-14"], "a v1.0.0 config keeps the demo birthdays, as it always merged them");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: "1985-03-14" } } }); }, /Sam's birthday must be a month and day as MM-DD, like "03-14", got "1985-03-14"/, "a birthday with a year names the person and the value");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: "02-30" } } }); }, /Sam's birthday .*"02-30"/, "a day the month does not have");
+["13-01", "00-10", "3-14", "03-14 "].forEach(function (v) { throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: v } } }); }, /Sam's birthday/, "birthday " + JSON.stringify(v)); });
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: 314 } } }); }, /Sam's birthday .*got 314/, "a birthday that is a number");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: ["03-14"] } }); }, /dates.birthdays must be a mapping/, "birthdays as a list");
+throws(function () { m.normalize({ sensors: { week: "sensor.family_week" }, dates: { birthdays: { "Kid 1": "22-01" } } }); }, /Kid 1's birthday/, "a v1.0.0 config's birthdays are checked too");
+
+// First run: only a calendar named for the whole house is handed out. A work or partner's
+// calendar the setup login can see stays off the wall until someone picks it.
+const priv = m.stubConfig({ states: { "calendar.sam_work": {}, "calendar.partner": {}, "calendar.family": {}, "calendar.holidays_uk": {} } });
+eq(priv.people.map(function (p) { return p.calendar || null; }), [null, null, null, null, null, ["calendar.family", "calendar.holidays_uk"]], "personal calendars are not handed to the demo cast");
+const solo = m.stubConfig({ states: { "calendar.sam_work": {}, "weather.home": {} } });
+eq([solo.people.some(function (p) { return p.calendar; }), solo.sensors], [false, { weather: "weather.home", week: null }], "a lone personal calendar goes to nobody");
+throws(function () { m.normalize(Object.assign({}, solo, { demo: false })); }, /give at least one person a calendar/, "and demo off then asks for a calendar instead of reading sensor.family_week");
+
+// The editor, on its plain-input fallback (no ha-form here), with just enough DOM to build.
+function fakeEl(tag) {
+  return { tag: tag, kids: [], style: {}, on: {}, q: {}, value: "", checked: false, textContent: "",
+    appendChild: function (c) { this.kids.push(c); return c; }, setAttribute: function () {},
+    addEventListener: function (t, f) { this.on[t] = f; }, querySelector: function (s) { return this.q[s] || (this.q[s] = fakeEl(s)); } };
+}
+const domWas = { create: document.createElement, text: document.createTextNode };
+let Editor = null, sent = [];
+document.createElement = fakeEl; document.createTextNode = function (t) { return { text: t }; };
+globalThis.HTMLElement.prototype.attachShadow = function () { return (this.shadowRoot = fakeEl("shadow")); };
+globalThis.HTMLElement.prototype.dispatchEvent = function (e) { sent.push(e.detail.config); return true; };
+const defineWas = customElements.define;
+customElements.define = function (name, cls) { if (name === "family-dashboard-card-editor") Editor = cls; };
+await import(pathToFileURL(path.join(src, "editor.js")).href);
+customElements.define = defineWas;
+ok(typeof Editor === "function", "src/editor.js defines the editor element");
+function editor(cfg) { const ed = new Editor(); ed.setConfig(cfg); sent = []; return ed; }
+function field(ed, i, label) { const row = ed._forms.people[i].el.kids.filter(function (r) { return r.kids[0] && r.kids[0].textContent === label; })[0]; return row && row.kids[1]; }
+function type(ed, i, label, v) { const el = field(ed, i, label); el.value = v; el.on.change(); return sent[sent.length - 1]; }
+const BD = "Birthday (MM-DD)";
+const edCfg = { people: [{ name: "Sam", calendar: "calendar.sam", adult: true }, { name: "Ann", adult: true }, { name: "Home", calendar: "calendar.family", adult: true, glasses: true }],
+  dates: { birthdays: { Sam: "03-14", Ann: "06-02" }, fixed: [] }, anniversary: ["Sam", "Ann"] };
+const ed = editor(edCfg);
+eq([field(ed, 0, BD).value, field(ed, 1, BD).value], ["03-14", "06-02"], "editor: each person's birthday field shows dates.birthdays");
+eq(type(ed, 1, BD, " 07-04 ").dates, { birthdays: { Sam: "03-14", Ann: "07-04" }, fixed: [] }, "editor: a typed birthday is written under the name, the other dates keys kept");
+eq(type(ed, 1, BD, "").dates.birthdays, { Sam: "03-14" }, "editor: an emptied birthday field removes it");
+// Two calendars for one person go out as a list, and come back into the field as they went in.
+const two = type(ed, 0, "Calendar", "calendar.sam, calendar.sam_work");
+eq(two.people[0].calendar, ["calendar.sam", "calendar.sam_work"], "editor: two calendars typed for one person are written as a list");
+eq(field(editor(two), 0, "Calendar").value, "calendar.sam, calendar.sam_work", "editor: and the field shows both when the config comes back");
+const ren = type(ed, 0, "Name", "Samira");
+eq([ren.dates.birthdays, ren.anniversary], [{ Samira: "03-14" }, ["Samira", "Ann"]], "editor: a rename carries the birthday and the anniversary entry");
+// Typed key by key, a new name can pass through someone else's: Tobias to Tommy via Tom.
+const ty = editor({ people: [{ name: "Tom", calendar: "calendar.tom" }, { name: "Tobias" }, { name: "Home" }], dates: { birthdays: { Tom: "01-01", Tobias: "05-05" } }, anniversary: ["Tom", "Ann"] });
+let last = null;
+["T", "To", "Tom", "Tomm", "Tommy"].forEach(function (v) { last = type(ty, 1, "Name", v); });
+eq([last.dates.birthdays, last.anniversary, field(ty, 0, BD).value, field(ty, 1, BD).value], [{ Tom: "01-01", Tommy: "05-05" }, ["Tom", "Ann"], "01-01", "05-05"],
+  "editor: a name typed through another person's takes nothing of theirs and keeps its own");
+// A v1.0.0 cast with no dates goes by the demo birthdays and anniversary, so those follow a rename too.
+const v1r = type(editor({ sensors: { week: "sensor.family_week" } }), 0, "Name", "Pat"), v1b = (v1r.dates || {}).birthdays || {};
+eq([v1b.Pat, "Parent 1" in v1b, v1b["Kid 1"], v1r.anniversary], ["03-14", false, "01-22", ["Pat", "Parent 2"]], "editor: renaming a v1.0.0 default person carries the default birthday and anniversary");
+// The household's row asks nothing a household does not have, and an edit keeps YAML's flags.
+const rowLabels = function (e, i) { return e._forms.people[i].el.kids.map(function (r) { return r.kids[0] && r.kids[0].textContent; }); };
+eq(["Role", BD, "Accessories", "Goes to school"].map(function (l) { return [rowLabels(ed, 0).indexOf(l) >= 0, rowLabels(ed, 2).indexOf(l) >= 0]; }),
+  [[true, false], [true, false], [true, false], [true, false]], "editor: the household's row has no role, birthday, accessories or school");
+const house = type(ed, 2, "Name", "Our house").people[2];
+eq([house.name, house.adult, house.glasses], ["Our house", true, true], "editor: editing the household keeps its YAML role and accessories");
+// A person with no look in YAML is drawn as the card's own pick; an edit keeps that, not a crow.
+const noLook = { people: [{ name: "Ann", calendar: "calendar.ann" }, { name: "Bo" }, { name: "Home", calendar: "calendar.family" }] };
+const nl = type(editor(noLook), 2, "Name", "Our home").people[2];
+eq(nl.look == null ? m.normalize(noLook).people[2].look : nl.look, m.normalize(noLook).people[2].look, "editor: an edit keeps a look-less person's drawn animal");
+document.createElement = domWas.create; document.createTextNode = domWas.text;
+delete globalThis.HTMLElement.prototype.attachShadow; delete globalThis.HTMLElement.prototype.dispatchEvent;
 
 // ── School data per child (v1.2.0) ──────────────────────────────────────────────
 // Config: people[].timetable / .lunch / .choice, and v1.1.0's sensors + schoolWho mapped on.
@@ -254,6 +535,21 @@ eq(m.lunchChoice({ entity: "input_select.k" }, monday, { state: "School dinner" 
 eq(m.lunchChoice({ entity: "input_select.k" }, monday, { state: "unavailable" }, "school"), { text: "School dinner", from: "menu", err: "input_select.k is unavailable" }, "an unavailable entity falls back and says so");
 eq(m.lunchChoice({ value: "packed" }, monday, null, "Jacket potato").text, "Jacket potato", "the menu's day choice beats the config");
 eq(m.lunchChoice(null, monday, null, ""), null, "nothing says, nothing shown");
+
+// readExtra: sensors.extra's attributes, checked. The documented example reads clean; a part in
+// the wrong shape is left out and named, and the rest is kept.
+const exJson = JSON.parse(fs.readFileSync(new URL("../homeassistant/www/family-extra.example.json", import.meta.url), "utf8"));
+const exOk = m.readExtra(exJson);
+eq([exOk.bad, exOk.data.items.length, exOk.data.schools.map(function (s) { return s.terms[0].to; }), exOk.data.sources.unavailable, exOk.data.needs_human],
+  [[], 6, ["2026-10-23", "2026-10-23"], ["second-mailbox"], 1], "the documented sensors.extra reads clean, other keys kept");
+const exBad = m.readExtra({ checked_at: "yesterday", sources: { unavailable: "mailbox" }, items: [{ who: "Sky", date: "2026-10-27", what: "PE kit" }, "Swimming", { who: "Sky", date: "soon", what: "x" }],
+  kit: { who: "Sky" }, flags: ["Heads up", { text: "x" }], schools: [{ who: "Sky", terms: "Term 1", days: [{ date: "2026-11-02", what: "INSET" }] }, { school: "No one" },
+    { who: "Ash", terms: [{ label: "Term 1", from: "2026-09-01", to: "2026-10-23" }, { label: "Bad", to: 23 }] }] });
+eq(exBad.bad, ["checked_at is not a time", "sources.unavailable is not a list", "2 entries in items", "kit is not a list", "1 entry in flags", "terms of Sky is not a list",
+  "1 entry in terms of Ash", "1 entry in schools"], "each part in the wrong shape is named");
+eq([exBad.data.checked_at, exBad.data.sources.unavailable, exBad.data.items, exBad.data.kit, exBad.data.flags, exBad.data.schools.map(function (s) { return [s.who, s.terms.length, s.days.length]; })],
+  [undefined, [], [{ who: "Sky", date: "2026-10-27", kind: "", what: "PE kit" }], [], ["Heads up"], [["Sky", 0, 1], ["Ash", 1, 0]]], "and left out, with the rest kept");
+eq([m.readExtra(null), m.readExtra("x").bad, m.readExtra({ schools: "Example" }).data.schools], [{ data: null, bad: [] }, ["the attributes are not a mapping"], []], "no attributes, a string, a string list");
 
 // ── Announcement, due times, status tiles (v1.6.0) ─────────────────────────────────
 // Config: absent means off, so a v1.5.1 config normalises to exactly what it did, plus three empty keys.
@@ -406,7 +702,12 @@ eq(D1.items.map(function (i) { return i.label + "|" + i.kind + "|" + i.rel + "|"
   "Trip form|later|due Thu|Thu|Thu|"], "sorted soonest first, worded");
 eq(pd([{ label: "x", due: "13:05" }]).items[0].rel, "due in 1h 5m", "hours and minutes");
 eq(pd([{ label: "x", due: "2026-11-10" }]).items[0].when, "Tue 10 Nov", "more than a week away gets a date");
-eq(pd([{ label: "x", due: "2026-10-26T09:00:00Z" }]).items[0].kind, "overdue", "an offset is honoured");
+// An hour before NOW, written in a zone three hours ahead of this one: its clock reads 14:00,
+// so only a parser that honours the offset calls it overdue. Built from the local offset, so
+// it holds in any TZ.
+const offAhead = 180 - NOW.getTimezoneOffset(), offWall = new Date(NOW.getTime() - 3600e3 + offAhead * 60000).toISOString().slice(0, 19);
+const offStr = offWall + (offAhead < 0 ? "-" : "+") + String(Math.floor(Math.abs(offAhead) / 60)).padStart(2, "0") + ":" + String(Math.abs(offAhead) % 60).padStart(2, "0");
+eq([offStr.slice(11, 16), pd([{ label: "x", due: offStr }]).items[0].kind], ["14:00", "overdue"], "an offset is honoured");
 eq(m.dueForHud(D1, NOW).map(function (i) { return i.label; }), ["Old", "Homework", "Dentist"], "the row in the sky takes three, soonest first");
 eq(m.dueForHud(D1, NOW, 9).map(function (i) { return i.label; }), ["Old", "Homework", "Dentist", "Library books", "Bins", "Today thing"], "and nothing more than 18 hours off");
 eq(m.parseDue({ state: "1", attributes: { items: JSON.stringify([{ label: "j", due: "13:00" }]) } }, "items", NOW).items.length, 1, "a JSON string attribute parses");
@@ -519,25 +820,6 @@ eq([m.postHint(pat(0, 0), 20.5, 2), m.postHint(pat(5, 0), 20.5, 1), m.postHint(p
 eq([m.postHint(pat(20, 50), 21.5, 1), m.postHint(pat(20, 51), 21.5, 1)], ["", "Post goes at 07:09 tomorrow"], "a party night keeps the post an hour longer");
 // The engine's own gate, read out of the source, is the one the hours use.
 const engSrc = fs.readFileSync(path.join(src, "engine", "engine.js"), "utf8");
-ok(/var calHealth = calendarHealth\(DATA, name\);/.test(engSrc) && /calHealth !== "ok" \? "Calendar unavailable, so this card can't say what's on\."/.test(engSrc)
-  && /: calHealth !== "ok" \? "Calendar unavailable" : "Free today";/.test(engSrc) && /if \(DATA\.error\) foot\.push\(/.test(engSrc),
-  "a person's card reads calendarHealth for its empty line and summary, and names a failed load in its foot");
-// The holidays: a failed fetch keeps the last list, and the status line says so and how old it is.
-const holFn = engSrc.slice(engSrc.indexOf("function holidays(tok)"), engSrc.indexOf("function readWeek("));
-ok(holFn.length > 0 && holFn.indexOf(".catch(") < 0, "holidays() does not swallow its own failure");
-ok(/holidays\(tok\)\.catch\(function \(e\) \{ console\.warn\("meadow: holidays", e\); holErr = /.test(engSrc)
-  && /holidaysErr: holErr, holidaysAt: s\[7\] \? new Date\(\) : DATA\.holidaysAt \|\| null/.test(engSrc)
-  && /else if \(DATA\.holidaysErr\) st = "Holidays unavailable \("/.test(engSrc), "a failed holiday fetch reaches the status line with the age of the list it kept");
-// Reduced motion: the world (and the data it shows) runs every frame, the canvas repaints every REDUCED_PAINT ms,
-// a tap aims at what was painted, and turning the preference on or off takes effect without a reload.
-const frameFn = engSrc.slice(engSrc.indexOf("function frame(ms)"), engSrc.indexOf("function start()"));
-ok(/\n    update\(dt\);\n    if \(!REDUCED \|\| ms - lastPaint >= REDUCED_PAINT\) \{ lastPaint = ms; draw\(/.test(frameFn) && (frameFn.match(/draw\(/g) || []).length === 1,
-  "reduced motion: frame() updates every tick and draws only when the repaint is due");
-ok(/REDUCED_PAINT = (\d+)/.test(engSrc) && +engSrc.match(/REDUCED_PAINT = (\d+)/)[1] >= 5000, "reduced motion: the scene repaints at most every five seconds");
-ok(/REDUCE_MQ\.addEventListener\("change", readReduced\)/.test(engSrc) && /REDUCE_MQ\.removeEventListener\("change", readReduced\)/.test(engSrc)
-  && /REDUCE_MQ\.addListener\(readReduced\)/.test(engSrc), "reduced motion: the preference is followed live, on Chrome 87's listener too, and let go on stop");
-ok(/at = REDUCED && t\.seen \? t\.seen : seenAt\(t\)/.test(engSrc) && /if \(REDUCED\) fam\.forEach\(function \(t\) \{ t\.seen = seenAt\(t\); \}\);/.test(frameFn),
-  "reduced motion: a tap on a creature hits where it was painted");
 ok(/import \{[^}]*\bsleepCurve\b[^}]*\} from "\.\.\/post\.js"/.test(engSrc) && !/function sleepCurve/.test(engSrc), "the engine sleeps on post.js's curve, not a copy of it");
 ok(engSrc.indexOf("if (!LETTER.queue.length || asleep || nightness > 0.35 || POSTIE.busy) return;") >= 0 && engSrc.indexOf("if (!LETTER.queue.length || nightness > 0.35) return;") >= 0,
   "the postie's letter run and the airmail stop at the same 0.35 the hint reads");
@@ -734,4 +1016,8 @@ SL.forEach(function (sc) {
       ["under", "back", "front", "light"].forEach(function (k) { if (sc.ambient[k]) sc.ambient[k](g, 4, S); }); });
   }
 });
+// The engine itself, booted through the card on a fake page with a fake Home Assistant: the
+// week's loads and failures, escaping, the letters, the holidays, midnight, reduced motion and
+// stop(). tests/engine.mjs has the cases.
+await (await import("./engine.mjs")).engineChecks(src, { eq: eq, ok: ok });
 console.log("ok: " + n + " checks passed");

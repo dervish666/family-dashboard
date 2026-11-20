@@ -19,6 +19,13 @@ weather entity, goes to sleep at night and throws a party on birthdays and the b
 
 Every screenshot is the built-in demo cast. No real household data is in this repo.
 
+Contents: [Install](#install-with-hacs), [Configure](#configure), [Scenes](#scenes),
+[Animals](#animals), [School data](#school-data-per-child),
+[Announcements and tiles](#announcements-due-times-and-status-tiles), [Options](#options),
+[Wall panel](#the-rest-of-the-wall-panel), [Room panels](#room-panels-optional),
+[Demo](#try-it-without-home-assistant), [Troubleshooting](#troubleshooting),
+[Working on the card](#working-on-the-card), [Known limits](#known-limits).
+
 ## Install with HACS
 
 The card needs Home Assistant 2024.11 or later. The optional
@@ -41,9 +48,11 @@ Manual install: copy `dist/` to `config/www/family-dashboard/` and add
 ## Configure
 
 Add the card from the dashboard editor (**Add card**, then **Family Dashboard**). It starts on
-the demo cast and hands out the calendars your Home Assistant already has: a family, home,
-holiday or birthday calendar goes to the household, the rest one per person. Turn **Demo
-cast** off and the creatures show your calendars. No template sensors and no YAML.
+the demo cast and hands the household the shared calendars your Home Assistant already has
+(any whose id has family, home, house, holiday or birthday in it). Personal calendars go to
+nobody, because the setup login can see work and partners' calendars that do not belong on a
+wall. Turn **Demo cast** off and each person's card says "No calendar picked" until you choose
+theirs in the editor. No template sensors and no YAML.
 
 | The cast | The optional sensors |
 |---|---|
@@ -54,13 +63,14 @@ The editor covers:
 - **People**: add, remove and reorder. Each has a name, adult or kid, an animal (see
   [Animals](#animals)), a colour,
   accessories (glasses, headphones, a daisy, the bee), whether they go to school, and one or
-  more calendars, and their own letter helper for [room panel](#room-panels-optional) letters.
-  A child who goes to school also gets a timetable and a lunch menu sensor. The last person is
-  the household.
-- **Sensors**: weather, music speaker, letter helper, trips calendar, 3D printer, and the
-  school data and kit sensors. All optional. Empty means that part of the scene stays off.
-- **Scene**: the meadow, the seaside, the winter village or the forest camp, from a
-  drop-down. Under it the editor lists the animals that suit the scene you picked. See
+  more calendars, a birthday (`MM-DD`, or the card shows a config error) and their own letter
+  helper for [room panel](#room-panels-optional) letters. A child who goes to school also gets
+  a timetable and a lunch menu sensor. A rename carries the birthday and anniversary along. The
+  last person is the household.
+- **Sensors**: weather, music speaker, letter helper, trips calendar, 3D printer, the school
+  notes sensor and school kit. All optional. Empty means that part of the scene stays off.
+- **Scene**: the meadow, the seaside, the winter village, the forest camp or the space
+  station, from a drop-down. Under it the editor lists the animals that suit the scene you picked. See
   [Scenes](#scenes).
 - **Announcements and due times**: the announcement entity and its heading, and the due-times
   sensor. See [Announcements, due times and status tiles](#announcements-due-times-and-status-tiles).
@@ -80,10 +90,14 @@ sensors:
   weather: weather.forecast_home
 ```
 
-The card reads each calendar through Home Assistant's calendar API every five minutes. A
-calendar that does not answer is named on its owner's card and in the corner, so a missing
-calendar never reads as a free day. The school data sensor (`sensors.extra`) works the same
-way: off when empty, "School info unavailable" when it is set but missing.
+The card reads each calendar through Home Assistant's calendar API every five minutes. An
+event over several days is on each of them, and a night shift that ends at 06:00 reads "until
+06:00" the next morning, not the time it started. A calendar that does not answer, or takes more than 20 seconds, is named on its owner's card and
+in the corner, so a missing calendar never reads as a free day. Until the first answer the card
+says the week is still loading. The school data sensor (`sensors.extra`) works the same
+way: off when empty, "School info unavailable" when it is set but missing, and "School info
+unreadable" when part of it is in the wrong shape (`schools` as a string, say). That part is left
+out and named; the rest still shows.
 
 It looks best alone in a `panel` view.
 
@@ -137,7 +151,8 @@ the kit bag by the cottage, the house party and the office robot.
 ([Room panels](#room-panels-optional)), is carried to its person, and their name tag wears a red
 envelope badge until their card is opened. The card opens on a striped airmail sheet: who it is
 from, the words in large type, and **Got it**. Got it, or closing the card, clears the letter
-(before v1.9.0 opening the card cleared it). The post only goes while the family is up, from
+(before v1.9.0 opening the card cleared it). A card left alone closes itself after a minute and
+keeps the letter, so the next open shows it again. The post only goes while the family is up, from
 07:09 to 19:50 (20:50 on a party night). A letter sent outside those hours waits, and a pill by
 the postbox says when it goes, "Post goes at 07:09" or "... tomorrow"; the seaside, the forest
 and the station have no postbox, so theirs sits under the corner hint.
@@ -239,169 +254,19 @@ thing it wears or grows, so the family still reads by colour.
 
 Each child can have a lesson timetable and a school lunch menu, each read from a sensor
 attribute. Tap the child and their card shows today's lessons (the next school day's once
-today's last lesson has ended, or when there is no school), the week's grid folded under them,
-and lunch today and on the next school day with the options, their allergens and whether the
-child takes a packed lunch. Tap the school and every child's week sits in one grid, one lane
-each, with today's lunches below.
-
-| A child's card | The School card |
-|---|---|
-| ![Kid 2's card: lessons, then lunch with allergens and the choice](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/school-child.png) | ![The School card: each child's week in one grid, then lunch](https://raw.githubusercontent.com/dervish666/family-dashboard/main/docs/img/school-card.png) |
+today's last lesson has ended), the week's grid, and lunch with allergens and the packed or
+school choice. Tap the school and every child's week sits in one grid.
 
 ```yaml
 people:
   - { name: Kid 1, school: true, calendar: calendar.kid_1, timetable: sensor.kid_1_timetable }
-  - name: Kid 2
-    school: true
-    timetable: sensor.kid_2_timetable
-    lunch: sensor.kid_2_lunch
-    choice: { fri: packed }               # or packed, school, or input_select.kid_2_lunch
-  - { name: Kid 3, school: true, lunch: { entity: sensor.kid_3_school, attribute: lunch } }
+  - { name: Kid 2, school: true, timetable: sensor.kid_2_timetable, lunch: sensor.kid_2_lunch }
 ```
 
-`timetable` and `lunch` are sensor ids. The card reads the `timetable` and `menu` attributes,
-or the one you name with `{ entity, attribute }`. An attribute may also be a JSON string.
-Leave one out and that section is not on the card. Set one that is missing and the card says
-`Timetable unavailable (sensor.kid_1_timetable)` and why in its footer, rather than showing a
-day with no lessons.
-
-### The timetable attribute
-
-```json
-{
-  "weeks": ["A", "B"],
-  "anchor": "2026-09-07",
-  "week_of": { "2026-11-02": "B", "2026-12-21": null },
-  "periods": [
-    { "p": 1, "start": "08:50", "end": "09:50" },
-    { "p": 2, "start": "09:50", "end": "10:50" },
-    { "p": "Reg", "start": "13:20" }
-  ],
-  "days": {
-    "A": { "mon": [{ "p": 1, "subject": "Maths", "room": "M1" }, { "p": 2, "subject": "Art" }] },
-    "B": { "mon": [{ "p": 1, "subject": "French", "room": "L2" }], "tue": ["History|H2", "Science"] }
-  },
-  "closed": ["2026-10-28", { "date": "2026-12-18", "note": "INSET" }]
-}
-```
-
-- `weeks` names the rotation in order. A one-week timetable is `["A"]` and needs nothing else.
-- `anchor` is any day in the first week. The card counts whole weeks from it, so with the
-  anchor above, the week of 19 October is A and the week of 26 October is B.
-- `week_of` names the week that starts on a Monday, and the count carries on from there. Use
-  it when the school breaks the pattern, for example after a half term that does not count.
-  `null` is a week off the timetable. Any day of the week works as the key.
-- `periods` sets the rows and their times. There can be any number. A lesson whose `p` is not
-  listed still shows, after the listed ones.
-- `days` maps each week to `mon` to `fri` (full names work too). A lesson is
-  `{ p, subject, room }`, with its own `start` and `end` if it does not match its period, or a
-  `"Subject|Room"` string, numbered by position.
-- `closed` lists days with no school, plain or with a note. The card says
-  `No school today (INSET)` and shows the next school day.
-- The `end` times decide when a child's card moves on to the next school day: at the end of
-  that child's last lesson today, to the minute. A day where no lesson has an end time (a
-  period listed without `end`, or a v1.1.0 sensor) moves on at 15:30.
-
-Saturdays and Sundays are always the weekend. A rotation of two or more weeks with no
-`anchor` and no `week_of` cannot say which week it is, and the card says so.
-
-### The lunch attributes
-
-```json
-{
-  "menu": {
-    "2026-10-26": {
-      "status": "served",
-      "options": [
-        { "name": "Pasta bake", "kind": "main", "allergens": ["Gluten", "Milk"] },
-        { "name": "Bean chilli", "kind": "vegan", "allergens": [] },
-        "Jacket potato"
-      ],
-      "pudding": { "name": "Apple crumble", "allergens": ["Gluten", "Milk"] },
-      "choice": "Bean chilli",
-      "note": "Harvest lunch"
-    },
-    "2026-10-27": { "status": "closed", "note": "INSET" },
-    "2026-11-02": { "status": "no_menu" }
-  },
-  "menu_ends": "2026-12-18"
-}
-```
-
-These are two attributes on the sensor, `menu` and `menu_ends`, or both inside one attribute
-named with `{ entity, attribute }`. `status` is `served`, `closed` or `no_menu`; an entry with
-options and no status is served. `kind` and `allergens` are shown as given, so use the words
-your school prints. A weekday that is not in `menu` reads `Menu not published for this week`,
-or `Menu ran out after Fri 18 Dec` once it is past `menu_ends`.
-
-**The choice.** `choice` on the person says packed lunch or school dinner: `packed` or
-`school` every day, a weekday map such as `{ mon: school, fri: packed }`, or an entity whose
-state says it (an `input_select` with `Packed lunch` and `School dinner` works). A `choice` on
-a menu day overrides the config for that day; when it names one of the options, that option
-is marked as chosen. A choice entity wins over both, and when it is unavailable the card falls
-back and says so in the footer.
-
-### Feeding the sensors
-
-The card does not care how the attributes are made. Four ways that work:
-
-- **A JSON file and a `command_line` sensor.** The simplest for a timetable, which changes
-  once a year. Keep the file out of `/config/www/`, which is public.
-
-  ```yaml
-  command_line:
-    - sensor:
-        name: Kid 1 Timetable
-        unique_id: kid_1_timetable
-        command: "cat /config/school/kid_1_timetable.json"
-        value_template: "{{ value_json.timetable.weeks | join(',') }}"
-        json_attributes: [timetable]
-        scan_interval: 3600
-  ```
-
-  The file holds `{ "timetable": { ... } }`. `rest` takes the same `json_attributes` list when
-  the file is served from another machine. `scrape` returns one value per sensor, so turn a
-  school's web page into the JSON above with a script first.
-- **A template sensor that writes the next 14 days.** For a menu printed as a rotation of
-  weeks. `homeassistant/configuration.example.yaml` has the whole sensor; the heart of it:
-
-  ```jinja
-  {% set ns = namespace(m={}) %}
-  {% for i in range(14) %}
-    {% set d = now().date() + timedelta(days=i) %}
-    {% set key = d.isoformat() %}
-    {% if d.weekday() < 5 and key in closed %}
-      {% set ns.m = dict(ns.m, **{key: {'status': 'closed', 'note': closed[key]}}) %}
-    {% elif d.weekday() < 5 %}
-      {% set w = ((d - start).days // 7) % rota | length %}
-      {% set ns.m = dict(ns.m, **{key: dict(rota[w][d.weekday()], status='served')}) %}
-    {% endif %}
-  {% endfor %}
-  {{ ns.m }}
-  ```
-- **An override helper.** When the school swaps a week, type the letter into an
-  `input_text` and have the timetable template add `week_of` for this Monday from it. The
-  example config shows the three lines. The lunch `choice` can point straight at an
-  `input_select`.
-- **Keep large sensors out of the recorder.** Home Assistant does not record attributes over
-  16 KB and logs a warning each time. A full two-week timetable or a term of menus can pass
-  that, and the history is useless anyway:
-
-  ```yaml
-  recorder:
-    exclude:
-      entities: [sensor.kid_1_timetable, sensor.kid_2_lunch]
-  ```
-
-### Coming from v1.1.0
-
-v1.1.0 put one child's timetable and lunch in `sensors.timetable` and `sensors.lunch`, with
-`schoolWho` naming the child. Those configs keep working: the card copies each sensor onto
-the child `schoolWho` names, and the flat v1.1.0 shapes (`lessons_today` with
-`"Subject|Room"` strings, `grid`, `main_today`, `status_today`) still parse. A child's own
-`timetable` or `lunch` wins over the copied one. If `schoolWho` names someone who is not in
-`people`, the console warns and the School card says which sensor has no owner. To move over,
-set `timetable` and `lunch` on the child and delete the two sensors and `schoolWho`.
+Leave a source out and that section is not on the card. Set one that is missing and the card
+says `Timetable unavailable (sensor.kid_1_timetable)` rather than showing a day with no
+lessons. The attribute shapes, the packed lunch choice, four ways to feed the sensors and the
+move from v1.1.0 are in [docs/08-school-data.md](docs/08-school-data.md).
 
 ### Coming from v1.0.0
 
@@ -538,8 +403,8 @@ a grey dashed "Announcements unavailable", "Due times unavailable" or a tile tha
 | Option | Default | What it does |
 |---|---|---|
 | `people` | a demo cast of six | one creature each: `name`, `calendar` (one or a list), `col`, `look`, `role` (`adult` or `kid`), `r`, `tg`, the school sources `timetable`, `lunch` and `choice`, their own letter helper `letter` (an `input_text` or `text` entity holding `from\|text`, see [Room panels](#room-panels-optional)), plus flags `adult`, `school`, `glasses`, `phones`, `daisy`, `bee`. The last entry is the household |
-| `sensors` | with calendars: `sun` and `weather` only. Without: `sensor.family_week` and friends | entity ids: `week`, `extra`, `kit`, `sun`, `weather`, `printer`, `letter`, `music`, `rain`, `trips`. `timetable` and `lunch` are the v1.1.0 way, see above |
-| `dates` | demo birthdays, Halloween to New Year's Eve | `birthdays` (name to `MM-DD`) and `fixed` days, shown as countdowns in the sky |
+| `sensors` | with calendars: `sun` and `weather` only. Without: `sensor.family_week` and friends | entity ids: `week`, `extra`, `kit`, `sun`, `weather`, `printer`, `letter`, `music`, `rain`, `trips`. `timetable` and `lunch` are the v1.1.0 way, see [docs/08](docs/08-school-data.md#coming-from-v110) |
+| `dates` | with calendars: no birthdays, just the fixed days from Halloween to New Year's Eve. A v1.0.0 config keeps the demo birthdays | `birthdays` (name to `MM-DD`) and `fixed` days, shown as countdowns in the sky |
 | `view` | with calendars: all `null`. Without: `/wall-panel/...` paths | which view a tap on a landmark opens: `home`, `music`, `printer` and `office`, see [Scenes](#scenes). `null` leaves that landmark as scenery |
 | `anniversary` | the first two people | who gets the party on an "Anniversary" event |
 | `schoolWho`, `schoolLine`, `sourceOwner`, `rainStates` | demo values | who owns the kit sensor (and the v1.1.0 timetable and lunch), queue order at the school door, missing-source owners, rain sensor states |
@@ -576,6 +441,7 @@ hand and needs [card-mod](https://github.com/thomasloven/lovelace-card-mod) and
 | [05 Theme and glass](docs/05-theme-and-glass.md) | The glass look without blur, wallpaper, column and row maths |
 | [06 Views](docs/06-views.md) | Each view, the card's options, adding people and views |
 | [07 Room panels](docs/07-room-panels.md) | The optional ESPHome panels: letters, presets, the contracts |
+| [08 School data](docs/08-school-data.md) | The timetable and lunch attributes, and four ways to feed them |
 
 ## Room panels (optional)
 
@@ -597,8 +463,8 @@ kitchen panel shows today, lunch and kit, what is due, and four preset announcem
 
 The wall card reads the same helpers. Give each child `letter: input_text.letter_kid_a` in the
 card's `people` (or fill in **Own letter helper** in the editor) and their letters reach them on
-the wall like the postie's do; **Got it** on their card (or closing it) empties the helper, so the
-panel drops it too.
+the wall like the postie's do; **Got it** on their card (or closing it, but not the card timing itself out)
+empties the helper, so the panel drops it too.
 A missing or unavailable helper says "Letters unavailable" in the corner and on their card. The
 package's copy to the postie (`input_text.family_letter`) is now optional: the card shows each
 letter once, copy or not. Setup, hardware and flashing: [esphome/README.md](esphome/README.md).
@@ -612,7 +478,7 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000/demo/`. The page's query string goes to the card as test
 hooks, so `/demo/?hour=21.5&weather=snow` shows a snowy night, and `/demo/?scene=seaside`
-shows the seaside (`scene=winter` and `scene=forest` the other two). Add `extras` for the
+shows the seaside (`scene=winter`, `scene=forest` and `scene=station` the others). Add `extras` for the
 announcement, due times and status tiles on made-up states: `/demo/?extras&scene=station`.
 `announce=` sends the town crier out with a message two and a half seconds after load:
 `/demo/?scene=winter&announce=45%7CParent%202%7CDinner%27s%20at%20six` (`%7C` is `|`).
@@ -631,6 +497,12 @@ npm run build
 node tests/check.mjs && sh tests/falsify.sh
 ```
 
+Two checks run the built card in Chromium, and CI runs both. `tests/demo/smoke.py` opens
+`/demo/` at 1280x800, 1024x768, 800x1280 and 400x800 and fails if the HUD's boxes overlap, if
+the keyboard cannot open and close a card, or if the page logs an error.
+`tests/ha-card/ha_card.py` loads the card into a throwaway Home Assistant in Docker. Each needs
+Playwright in a venv: `pip install playwright`, then `python -m playwright install chromium`.
+
 `dist/` is minified, so stack traces from it name nothing useful. `npm run build:debug` writes
 an unminified copy with a source map to `build/` (ignored by git); point a test page at that
 one when you need to read a trace. Nothing in `build/` ships.
@@ -641,28 +513,53 @@ module in `src/creatures/` plus one line in `src/creatures/index.js`; a new scen
 and if a scene leaves any landmark unmapped: every scene needs a tappable `school`, `home`,
 `music`, `printer` and `office` (the comment in `src/scenes/index.js` has the shape).
 
+## Troubleshooting
+
+- **The card is not in the picker, or says "Custom element doesn't exist".** The JavaScript
+  resource is not registered (Settings, Dashboards, Resources should list
+  `/hacsfiles/family-dashboard/family-dashboard.js`) or the browser has the old page cached.
+  Reload with the cache cleared, or restart the companion app.
+- **It still shows the demo cast.** **Demo cast** is on, which is the default for a new card.
+  The status line says "Demo data" while it is. Turn it off in the editor.
+- **"Calendar unavailable" on a card and in the corner.** The calendar entity is missing, or
+  the calendar took more than 20 seconds to answer. Check the id in the editor, then open the
+  calendar in Home Assistant. A card never reads this as a free day.
+- **"No calendar picked".** That person has no calendar. Choose one in the editor.
+- **"Loading the week" and nothing else.** The card has no answer yet. If it never goes
+  away, the browser has lost its connection to Home Assistant; reload the page.
+- **"No connection to Home Assistant. Showing 21:40".** The browser has lost Home Assistant.
+  The card shows what it last read, at that time, and reads everything again as soon as the
+  connection is back.
+
 ## Known limits
 
 - Built and tuned for 1280x800. Other sizes work but every scene was laid out for that one.
-  At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
-  the space station's wall most of all; use a wide card there. A card under 640 px wide stacks
-  the person's face over their lists (v1.9.0), so a letter and the week can be read on a phone.
+  Under 1100 px wide (an iPad, or the 1280 panel with Home Assistant's sidebar open) the
+  countdowns, due chips and announcement move from the sky to rows under the clock and tiles,
+  where they cover the back of the scene and the name tags there. A tap beside them still
+  reaches the scene.
+- At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
+  the space station's wall most of all; use a wide card there. Under 700 px the corner hint
+  goes, the clock shrinks and the tiles move under it, so the HUD covers about the top half of
+  the scene. A card that narrow stacks the person's face over their lists (v1.9.0), so a
+  letter and the week can be read on a phone.
 - With `prefers-reduced-motion` set, the scene is redrawn every 10 seconds instead of moving. The
   creatures still go about their day between redraws, so each one can land somewhere new; the
   clock, the lists and the status line update as usual.
 - On a v1.0.0 setup that reads `sensor.family_week`, names must match `people` exactly,
   since the template sensor tags each event with its owner's name. Calendars set on people
   have no such rule.
-- Birthday parties need `dates.birthdays` in YAML. The editor does not edit dates yet.
-- The editor sets a child's timetable and lunch sensor ids. `choice`, and an attribute other
-  than `timetable` or `menu`, are YAML only.
+- Event times follow Home Assistant's time zone. Set the panel browser's time zone to match
+  it, or the times on the card are off by the difference.
+- An event over several days shows on each day, and a timed one's last day reads "until
+  06:00". A v1.0.0 template-sensor setup cannot do this, because its rows have no end.
+- The editor sets a child's timetable and lunch sensor ids. `choice`, an attribute other
+  than `timetable` or `menu`, and `dates.fixed` are YAML only.
 - Without `announcement_clear: true`, a tap on the announcement or the crier's scroll hides it
   on that screen only. Phones and other panels keep showing it until the text changes, is
   cleared or runs out.
 - The crier's scroll is drawn on the canvas, under the HTML clock and corner. Each scene hangs
   it below them at 1280x800; on a much shorter card the clock can sit over its top.
-- The HUD (clock, countdowns, announcement, due times, tiles) is laid out in fixed pixels for
-  1280x800. On a narrow card the announcement and the tiles can overlap.
 - The 3D printer workshop speaks the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)'s
   sensor names only.
 

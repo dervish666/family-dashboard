@@ -1,27 +1,35 @@
-import { weekRange, calendarPath, parseCalendarEvents, calendarHealth } from "../calendar.js";
-import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat, prng } from "./draw.js";
+import { mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, prng } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
-import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
+import { addDays, mondayOf } from "../school.js";
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
+import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel, DAYS_LONG, schoolDay, weekday } from "../data.js";
+import { personCard, schoolCard, shopCard, postCleared } from "../popup.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
 export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   "use strict";
-  var PEOPLE = CONFIG.people, ANNIVERSARY = CONFIG.anniversary, SENSORS = CONFIG.sensors,
-    SCHOOL_WHO = CONFIG.schoolWho, SOURCE_OWNER = CONFIG.sourceOwner, SCHOOL_LINE = CONFIG.schoolLine,
+  var PEOPLE = CONFIG.people, ANNIVERSARY = CONFIG.anniversary, SENSORS = CONFIG.sensors, SCHOOL_LINE = CONFIG.schoolLine,
     RAIN_STATES = CONFIG.rainStates, DATES = CONFIG.dates, VIEW = CONFIG.view, OFFICE_URL = CONFIG.officeUrl;
+  var HOUSEHOLD = PEOPLE[PEOPLE.length - 1].name;     // the last person is the household, whatever its name
 
   var Q = HOOKS ? "?" + String(HOOKS).replace(/^\?/, "") : "";
   var DEMO = CONFIG.demo === true || /[?&]demo\b/.test(Q);
-  // Timers and the frame loop belong to this card: stop() clears them when it leaves the page.
-  var TIMERS = [], STOPPED = false, STARTED = false, RAF = 0;
-  function setInterval(f, ms) { var id = window.setInterval(f, ms); TIMERS.push(id); return id; }
+  // Timers and the frame loop belong to this card: stop() clears them when it leaves the page,
+  // and one already on its way runs nothing. The card reuses its shadow root, so an old engine's
+  // timeout would otherwise reach the new engine's popup through ROOT.getElementById.
+  var TIMERS = [], TOUTS = [], STOPPED = false, STARTED = false, RAF = 0, FETCHES = [];   // FETCHES: the AbortControllers of fetches still out
+  function setInterval(f, ms) { var id = window.setInterval(function () { if (!STOPPED) f(); }, ms); TIMERS.push(id); return id; }
+  function setTimeout(f, ms) { var id = window.setTimeout(function () { clearTimeout(id); if (!STOPPED) f(); }, ms); TOUTS.push(id); return id; }
+  function clearTimeout(id) { var i = TOUTS.indexOf(id); if (i >= 0) TOUTS.splice(i, 1); window.clearTimeout(id); }
+  // A history kept for ?dbg checks (writes, taps, clears, views asked for): the last 20, so a
+  // panel left running for months does not grow it.
+  function note(list, v) { list.push(v); if (list.length > 20) list.splice(0, list.length - 20); }
   function requestAnimationFrame(f) { if (!STOPPED) RAF = window.requestAnimationFrame(f); return RAF; }
   var HOUR = (Q.match(/[?&]hour=([\d.]+)/) || [])[1];          // test hook: fake the clock
   var DATE = (Q.match(/[?&]date=(\d{4}-\d\d-\d\d)/) || [])[1];  // test hook: fake the day (countdowns, parties, school days); pair with hour=
@@ -37,22 +45,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var OFORCE = (Q.match(/[?&]office=([^&]+)/) || [])[1];         // test hook: off (unreachable) | quiet | ask:Name | Name:what it is doing (url-encoded), overrides the office poll
   var WARM = +(Q.match(/[?&]warm=([\d.]+)/) || [])[1] || 0;      // test hook: run this many seconds of the sim before the first frame (headless screenshots see fades finished, guests arrived)
 
-  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  var DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   function now() {
     var d = new Date();
     if (DATE) d.setFullYear(+DATE.slice(0, 4), +DATE.slice(5, 7) - 1, +DATE.slice(8, 10));
     if (HOUR) { var h = parseFloat(HOUR); d.setHours(h | 0, Math.round((h % 1) * 60), 0, 0); }
     return d;
-  }
-  function dayLabel(ds) {
-    var t = now(), today = ymd(t), tm = new Date(t.getTime() + 864e5);
-    if (ds === today) return "Today";
-    if (ds === ymd(tm)) return "Tomorrow";
-    var d = new Date(ds + "T12:00:00"), days = (d - t) / 864e5;
-    return DAYS[d.getDay()] + " " + d.getDate() + (days > 6 ? " " + MONTHS[d.getMonth()] : "");
   }
 
   function foodSprite(berry) {
@@ -320,36 +318,6 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // are mostly notes ("Bin day"). No data, or data that cannot say, is no duty: they
   // stay in the meadow rather than act out a guess.
   var SCHOOL_OUT = false;                       // the village school's break, set by its scene
-  function weekday(d) { return d.getDay() >= 1 && d.getDay() <= 5; }
-  // true = school day, false = no school, null = cannot tell.
-  function schoolDay(name, d) {
-    if (!weekday(d)) return false;
-    var td = ymd(d);
-    // The child's own timetable and lunch sensors answer first (people[].timetable, .lunch).
-    var tt = ttFor(name, d);
-    if (tt && tt.status === "ok") return true;
-    if (tt && (tt.status === "closed" || tt.status === "weekend")) return false;
-    var ln = lunchFor(name, d);
-    if (ln && ln.status === "served") return true;
-    if (ln && ln.status === "closed") return false;
-    // Otherwise the term dates in SENSORS.extra.
-    var sc = ((DATA.extra || {}).schools || []).filter(function (s) { return s.who === name; })[0];
-    if (!sc || !sc.terms) return null;
-    if ((sc.days || []).some(function (x) { return x.date === td; })) return false;
-    // In term needs a known end still ahead; out of term needs a known gap either
-    // side. Some schools publish half their dates, and an open-ended term is an
-    // unknown, not a yes: Christmas must not show anyone at school.
-    var prevEnd = null, nextStart = null, inTerm = false, open = false;
-    sc.terms.forEach(function (t) {
-      if (t.to && t.to >= td && (!t.from || t.from <= td)) inTerm = true;
-      if (t.from && t.from <= td && !t.to) open = true;
-      if (t.to && t.to < td && (!prevEnd || t.to > prevEnd)) prevEnd = t.to;
-      if (t.from && t.from > td && (!nextStart || t.from < nextStart)) nextStart = t.from;
-    });
-    if (inTerm) return true;
-    if (!open && prevEnd && nextStart) return false;
-    return null;
-  }
   var PLACE = [[/swim/i, "pond"], [/football|rugby|match|training/i, "pitch"], [/\bband\b|drama|music|choir|cubs|scouts|beavers|club|rehears/i, "band"]];
   function placeFor(what) {
     if (/book club/i.test(what)) return "away";                      // at someone's house, not the bandstand
@@ -358,9 +326,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function dutyFor(t) {
     var name = t.person.name, d = now(), m = d.getHours() * 60 + d.getMinutes(), td = ymd(d);
-    if (KIDS.indexOf(name) >= 0 && m >= 8 * 60 + 35 && m < 15 * 60 + 15 && schoolDay(name, d) === true) return { where: "school", what: "School" };
+    if (KIDS.indexOf(name) >= 0 && m >= 8 * 60 + 35 && m < 15 * 60 + 15 && schoolDay(DATA, SRC, name, d) === true) return { where: "school", what: "School" };
     for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i];
-      if (e.who !== name || e.day !== td || e.all_day || !e.start) continue;
+      if (e.who !== name || e.day !== td || e.all_day || e.cont || !e.start) continue;     // a night shift's morning after is not a walk out
       var s = new Date(e.start), em = s.getHours() * 60 + s.getMinutes();
       if (!isNaN(em) && m >= em - 20 && m < em + 60) return { where: placeFor(e.what), what: e.what };
     }
@@ -1664,7 +1632,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function partyFor(title) {
     var t = String(title).trim(), all = PEOPLE.map(function (p) { return p.name; });
     if (/birthday|\bbday\b/i.test(t) && !/king/i.test(t)) {
-      var p = PEOPLE.filter(function (q) { return q.name !== "House" && [q.name].concat(q.aliases || []).some(function (a) {
+      var p = PEOPLE.filter(function (q) { return (PEOPLE.length < 2 || q.name !== HOUSEHOLD) && [q.name].concat(q.aliases || []).some(function (a) {
         return new RegExp("\\b" + a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t); }); })[0];
       return p ? { who: [p.name], label: "Happy birthday " + p.name + "!" } : null;
     }
@@ -1701,7 +1669,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function findParty() {
     if (PFORCE) return forcedParty("rave");
     var td = ymd(now());
-    for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td) continue;
+    for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td || e.cont) continue;     // a party is on the day it starts
       var P = partyFor(e.what); if (P) { P.start = startOf(e); return P; } }
     // no calendar entry needed: the countdown list knows the family's own days
     for (i = 0; i < CD.length; i++) if (CD[i].days === 0 && CD[i].rave) { P = partyFor(CD[i].rave); if (P) { P.start = 17; return P; } }
@@ -1713,7 +1681,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // day outranks a friend's birthday for the card over the chimney
     for (var i = 0; i < CD.length; i++) if (CD[i].days === 0) return { who: [], label: CD[i].party, start: 17 };
     var td = ymd(now());
-    for (i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td) continue;
+    for (i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td || e.cont) continue;
       var P = friendParty(e.what); if (P) { P.start = startOf(e); return P; } }
     return null;
   }
@@ -2221,116 +2189,25 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   //   kit, flags, term dates, which sources it could and could not check).
   var DATA = { events: [], extra: null, weekAt: null, error: null, gotAt: null };
 
-  // Each child's school sources from people[].timetable, .lunch and .choice (v1.1.0's
-  // sensors.timetable and .lunch arrive here too, copied onto their owner by normalize()).
-  // The demo hands its made-up sensors to the first three school kids instead.
-  var SRC = {};
-  PEOPLE.forEach(function (p) { if (p.timetable || p.lunch || p.choice) SRC[p.name] = { timetable: p.timetable, lunch: p.lunch, choice: p.choice }; });
-  if (DEMO) {
-    SRC = {};
-    var DK = PEOPLE.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
-    var dsrc = function (id, a) { return { entity: id, attribute: a }; };
-    if (DK[0]) SRC[DK[0]] = { timetable: dsrc("sensor.demo_timetable_1", "timetable") };
-    if (DK[1]) SRC[DK[1]] = { timetable: dsrc("sensor.demo_timetable_2", "timetable"), lunch: dsrc("sensor.demo_lunch_2", "menu"), choice: { days: { fri: "packed" } } };
-    if (DK[2]) SRC[DK[2]] = { lunch: dsrc("sensor.demo_lunch_3", "menu"), choice: { value: "school" } };
-  }
-  function schoolEntities() {
-    var ids = [];
-    Object.keys(SRC).forEach(function (n) { var s = SRC[n];
-      [s.timetable && s.timetable.entity, s.lunch && s.lunch.entity, s.choice && s.choice.entity].forEach(function (id) { if (id && ids.indexOf(id) < 0) ids.push(id); }); });
-    return ids;
-  }
-  // Parsed once per child and day until the next load: schoolDay() asks every frame.
-  // { status: "loading" } until the first load has read the sensors.
-  function schoolParse(kind, name, d) {
-    var src = SRC[name] && SRC[name][kind];
-    if (!src) return null;
-    if (!DATA.school) return { status: "loading", lessons: [], options: [] };
-    var C = DATA.pc || (DATA.pc = {}), k = kind + "|" + name + "|" + ymd(d);
-    if (!(k in C)) { var st = DATA.school.states ? DATA.school.states[src.entity] : null;
-      C[k] = (kind === "timetable" ? parseTimetable : parseLunch)(st || null, d, now(), src.attribute); }
-    return C[k];
-  }
-  function ttFor(name, d) { return schoolParse("timetable", name, d); }
-  function lunchFor(name, d) { return schoolParse("lunch", name, d); }
-  function choiceFor(name, d, fromData) {
-    var c = SRC[name] && SRC[name].choice, S = DATA.school || {};
-    return lunchChoice(c || null, d, c && c.entity && S.states ? S.states[c.entity] : null, fromData);
-  }
-
-  // Home Assistant hands the card its hass object, so there is no token to find:
-  // hassToken() just waits for the first hass and resolves with it.
-  function hassToken() {
-    var h = HA.hass();
-    return h ? Promise.resolve(h) : Promise.reject(new Error("no connection to Home Assistant yet"));
-  }
-  function getState(id, h) {
-    var s = h.states[id];
-    return s ? Promise.resolve(s) : Promise.reject(new Error(id + " not found"));
-  }
-  // Trips from the family calendar, a year ahead. The REST calendar endpoint gives
-  // all-day events as {date} and timed ones as {dateTime}; either way the day is the
-  // first ten characters. load() catches a failure: the last good list stays, and the
-  // status line says it is unavailable and how old the list is.
-  function holidays(tok) {
-    if (!SENSORS.trips) return Promise.resolve([]);
-    var td = ymd(now()), end = (+td.slice(0, 4) + 1) + td.slice(4);
-    return tok.callApi("GET", "calendars/" + SENSORS.trips + "?start=" + td + "T00:00:00&end=" + end + "T00:00:00")
-      .then(function (evs) { return evs.filter(function (e) { return /\bholidays?\b/i.test(e.summary || ""); }).map(function (e) {
-        return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); });
-  }
-  // The week, two ways. Calendar mode (a calendar on any person): ask Home Assistant's
-  // calendar API for each one, so no template sensor is needed. v1.0.0 mode: read the
-  // family_week template sensor. A calendar that fails is named on its owner's card
-  // and its events are left out; the rest of the week still draws.
-  function readWeek(tok) {
-    if (!CONFIG.calendarMode) return getState(SENSORS.week, tok).catch(function () {
-      throw new Error(SENSORS.week + " not found. Give people a calendar in the card editor, or set up that sensor");
-    }).then(function (s) {
-      var wk = s.attributes || {};
-      if (!Array.isArray(wk.events)) throw new Error(SENSORS.week + " has no events list (state " + s.state + ")");
-      return { events: wk.events, at: wk.checked_at ? new Date(wk.checked_at) : null, failed: [] };
-    });
-    var range = weekRange(now()), jobs = [];
-    PEOPLE.forEach(function (p) { (p.calendars || []).forEach(function (id) {
-      jobs.push(tok.callApi("GET", calendarPath(id, range)).then(function (evs) { return { ok: true, rows: parseCalendarEvents(evs, p.name, range) }; })
-        .catch(function (e) { console.warn("meadow: " + id, e); return { ok: false, who: p.name, id: id, err: (e && (e.message || e.body && e.body.message)) || String(e) }; }));
-    }); });
-    return Promise.all(jobs).then(function (rs) {
-      var ok = rs.filter(function (r) { return r.ok; }), failed = rs.filter(function (r) { return !r.ok; });
-      if (!ok.length) throw new Error("no calendar answered (" + failed.map(function (f) { return f.id; }).join(", ") + ")");
-      return { events: [].concat.apply([], ok.map(function (r) { return r.rows; })), at: new Date(), failed: failed };
-    });
-  }
+  // Each child's school sources from people[].timetable, .lunch and .choice (data.js schoolSources).
+  var SRC = schoolSources(PEOPLE, DEMO);
+  // The card's hass, for the polls and writes that are the engine's own (data.js hassReady).
+  function hassToken() { return hassReady(HA.hass()); }
+  // hass.connected is false while the browser has lost Home Assistant. Its states are then the last
+  // it had, and reading them would stamp old values fresh (a printer "running", read just now). So
+  // the polls read nothing while it is down, the status line says so with the time of the last
+  // read (CONN.at), and hud() reads everything again the moment it is back.
+  var CONN = { off: false, at: null };
+  function offline() { var h = HA.hass(); return !!h && h.connected === false; }
+  // The loads themselves are in data.js (newLoader): the week, the holidays and the sensors each
+  // land on their own, and put() merges each answer into DATA here, unless the engine has stopped
+  // since. The demo makes its data up.
+  var LOAD = newLoader(CONFIG, now, { setTimeout: setTimeout, clearTimeout: clearTimeout });
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null, extraErr = null, holErr = null;
-    hassToken().then(function (tok) {
-      // the school sensors are optional: a missing one blanks its part of the School card, nothing else
-      function opt(id) { if (!id) return Promise.resolve(null);
-        return getState(id, tok).catch(function (e) { console.warn("meadow: " + id, e); schoolErr = e.message || String(e); return null; }); }
-      // sensors.extra is optional too, but a configured one that is missing says so on every card
-      var extra = !SENSORS.extra ? Promise.resolve(null) : getState(SENSORS.extra, tok)
-        .then(function (s) { if (/^(unavailable|unknown)$/.test(s.state) && !(s.attributes || {}).checked_at) throw new Error(SENSORS.extra + " is " + s.state); return s; })
-        .catch(function (e) { console.warn("meadow: extra", e); extraErr = e.message || String(e); return null; });
-      // each child's timetable, lunch and choice entities: a missing one is null, and its card says so
-      var ids = schoolEntities(), states = {};
-      var school = Promise.all(ids.map(function (id) { return getState(id, tok).then(function (s) { states[id] = s; })
-        .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
-      return Promise.all([readWeek(tok), extra,
-        school, opt(SENSORS.kit), null,                  // null: the slot v1.1.0 used for sensors.lunch
-        opt(SENSORS.sun), opt(SENSORS.weather),
-        holidays(tok).catch(function (e) { console.warn("meadow: holidays", e); holErr = (e && (e.message || e.body && e.body.message)) || String(e); return null; })]); })
-      .then(function (s) {
-        var wk = s[0];
-        DATA = { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, extra: s[1] ? s[1].attributes || null : null, extraErr: extraErr, error: null, gotAt: new Date(),
-          school: { states: s[2], kit: s[3] && s[3].attributes, err: schoolErr },
-          sun: s[5] && s[5].attributes, weather: s[6] ? { state: s[6].state, attributes: s[6].attributes } : null,
-          holidays: s[7] || (DATA.holidays || []),                                  // a failed fetch keeps the last good list
-          holidaysErr: holErr, holidaysAt: s[7] ? new Date() : DATA.holidaysAt || null };
-        refreshTags();
-      })
-      .catch(function (e) { console.error("meadow: load failed", e); DATA.error = e.message || String(e); });
+    if (offline()) return;
+    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { if (STOPPED) return; DATA = Object.assign({}, DATA, patch); CONN.at = new Date(); if (retag) refreshTags();
+      if (openThing && openThing.person) openCard(openThing, false, true); });     // a person's card that is up shows what landed, in place
   }
   function demoData() {
     var d = function (n) { return ymd(new Date(now().getTime() + n * 864e5)); };
@@ -2399,12 +2276,10 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return { "sensor.demo_timetable_1": { state: "A", attributes: { timetable: tt1 } }, "sensor.demo_timetable_2": { state: "A", attributes: { timetable: tt2 } },
       "sensor.demo_lunch_2": { state: "served", attributes: l2 }, "sensor.demo_lunch_3": { state: "served", attributes: l3 } };
   }
-  function byStart(ev) { return ev.slice().sort(function (a, b) { return new Date(a.start) - new Date(b.start); }); }
   function todayFor(name) { var td = ymd(now()); return DATA.events.filter(function (e) { return e.who === name && e.day === td; }); }
   function refreshTags() {
     PEOPLE.forEach(function (p) { TAGS[p.name] = bakeTag(p, todayFor(p.name).length); });
-    var td = ymd(now()), n = ((DATA.extra || {}).items || []).filter(function (i) { return i.date === td && KIDS.indexOf(i.who) >= 0; }).length;
-    TAGS.School = bakeTag({ name: "School", col: "#C9594A" }, n);
+    TAGS.School = bakeTag({ name: "School", col: "#C9594A" }, schoolToday());
   }
   // The workshop's fence board: "45%" while printing or paused, a tick when done,
   // baked again only when the words change. Nothing while the plot is empty.
@@ -2422,7 +2297,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     }
     return BOARD;
   }
-  // The kit bag by the cottage door (SCHOOL_WHO.kit's kit): mornings before school when the kit sensor
+  // The kit bag by the cottage door (schoolWho.kit's kit): mornings before school when the kit sensor
   // names kit for today, evenings when it names kit for tomorrow. The live sensor
   // only has kit_today so far; kit_tomorrow is read in case it grows one. No sensor,
   // no bag.
@@ -2502,17 +2377,18 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (m) { var nm = m[1].toLowerCase();
       who = PEOPLE.filter(function (p) { return [p.name].concat(p.aliases || []).some(function (a) { return a.toLowerCase() === nm; }); })[0]; if (who) body = m[2]; }
     if (!who) who = PEOPLE[PEOPLE.length - 1];
-    var l = { to: who.name, text: String(body).trim() || String(text), at: new Date(), key: key };
+    var l = { to: who.name, text: String(body).trim() || String(text), at: new Date(), key: key, was: String(text) };
     LETTER.queue.push(l);
     if (OWNERS.length) letterShared(BOOK, l, text);
   }
-  // The shared helper's letter, v1.7.0's way: empty the helper. was is what it held when the card
-  // opened: if it holds something else now, a newer letter landed while the card was up, so leave it.
-  function clearLetter(l, was) {
+  // The shared helper's letter, v1.7.0's way: empty the helper. l.was is what it held when this
+  // letter arrived: if it holds something else now, a newer letter has landed since (before the
+  // card opened or while it was up), so leave it.
+  function clearLetter(l) {
     if (DEMO || l.key === "hook" || !SENSORS.letter) return;
     hassToken().then(function (h) {
       var s = h && h.states && h.states[SENSORS.letter];
-      if (was != null && s && String(s.state) !== was) return;
+      if (s && String(s.state) !== l.was) return;
       return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });
     }).then(function () { LETTER.clearErr = null; })
       .catch(function (e) { console.warn("meadow: could not clear the letter", e); LETTER.clearErr = e.message || String(e); });
@@ -2527,7 +2403,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     w.forEach(function (c) {
       var s = h.states && h.states[c.entity];
       if (!s || String(s.state) !== c.expect) return;
-      LETTER.writes.push(c.entity);
+      note(LETTER.writes, c.entity);
       Promise.resolve().then(function () { return h.callService(c.entity.split(".")[0], "set_value", { entity_id: c.entity, value: "" }); })
         .then(function () { LETTER.clearErr = null; })
         .catch(function (e) { console.warn("meadow: could not clear " + c.entity, e); LETTER.clearErr = e.message || String(e); });
@@ -2560,7 +2436,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (MFORCE) { var mt = (Q.match(/[?&]mtitle=([^&]+)/) || [])[1], ma = (Q.match(/[?&]martist=([^&]+)/) || [])[1];   // ?mtitle= / ?martist= with ?music=on
       MUSIC.on = MFORCE === "on"; MUSIC.title = MUSIC.on ? (mt ? decodeURIComponent(mt.replace(/\+/g, " ")) : "Hit Me Like a Drum") : null;
       MUSIC.artist = MUSIC.on ? (ma ? decodeURIComponent(ma.replace(/\+/g, " ")) : mt ? null : "Parov Stelar feat. Timothy Auld") : null; return; }
-    if (DEMO || !MUSIC_ID) return;
+    if (DEMO || !MUSIC_ID || offline()) return;
     hassToken().then(function (tok) { return getState(MUSIC_ID, tok); }).then(function (s) {
       MUSIC.on = isMusic(s); MUSIC.title = MUSIC.on ? s.attributes.media_title || null : null; MUSIC.artist = MUSIC.on ? s.attributes.media_artist || null : null;
       MUSIC.at = new Date(); MUSIC.err = null;
@@ -2571,12 +2447,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (DEMO) { PR = demoPrinter();
       if (PLFORCE) demoPersonLetter(decodeURIComponent(PLFORCE.replace(/\+/g, " ")));
       if (LFORCE) letterArrived(decodeURIComponent(LFORCE.replace(/\+/g, " ")), "hook"); return; }
+    if (offline()) return;
     hassToken().then(function (tok) {
       function opt(id) { if (!id) return Promise.resolve(null); return getState(id, tok).catch(function (e) { console.warn("meadow: " + id, e); return null; }); }
       return Promise.all(PR_KEYS.map(function (k) { return opt(PR_ID && PR_ID + k); }).concat([opt(SENSORS.letter), opt(SENSORS.rain)],
         OWNERS.map(function (o) { return opt(o.entity); })));
     }).then(function (s) {
-      setPrinter(s);
+      setPrinter(s); CONN.at = new Date();
       var l = s[6], txt = l && l.state, r = s[7] && s[7].state;
       if (OWNERS.length) { var ps = {}; OWNERS.forEach(function (o, i) { ps[o.entity] = s[8 + i]; }); personLetters(ps); }
       if (txt && !/^(unknown|unavailable)$/.test(txt) && txt.trim()) letterArrived(txt, txt + "|" + l.last_changed);
@@ -2595,7 +2472,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var NAVS = [];                                     // what a tap asked for, for ?dbg checks
   function goView(path) {
     if (!path) return false;
-    NAVS.push({ path: path, at: Date.now() });
+    note(NAVS, { path: path, at: Date.now() });
     try { return HA.navigate(path); }
     catch (e) { console.warn("meadow: could not open " + path, e); say("oops", W / 2, H / 2); return false; }
   }
@@ -2639,13 +2516,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       OFFICE.line = f === "off" || f === "quiet" || !m ? null : m[1] === "ask" ? { name: m[2], text: "needs you", kind: "ask", key: "hook", at: Date.now() } : { name: m[1], text: m[2], kind: "work", key: "hook", at: Date.now() };
       return; }
     if (DEMO || !OFFICE_URL) return;
+    // stop() clears the six-second deadline with the other timeouts, so it aborts the fetch itself (FETCHES)
     var ac = window.AbortController ? new AbortController() : null, tm = ac ? setTimeout(function () { ac.abort(); }, 6000) : 0;
+    if (ac) FETCHES.push(ac);
     fetch(OFFICE_URL, { cache: "no-store", signal: ac ? ac.signal : undefined })
       .then(function (r) { if (!r.ok) throw new Error("office returned " + r.status); return r.json(); })
       .then(function (all) { OFFICE.ok = true; OFFICE.err = null; OFFICE.at = new Date(); var was = OFFICE.line, ln = officeLine(all);
         if (ln && (!was || ln.key !== was.key || ln.text !== was.text) && ROBOT) { ROBOT.hop = 0.5; ROBOT.flash = 1.2; } })
       .catch(function (e) { if (OFFICE.ok !== false) console.warn("meadow: office poll failed", e); OFFICE.ok = false; OFFICE.err = e.message || String(e); OFFICE.line = null; })
-      .then(function () { clearTimeout(tm); });
+      .then(function () { clearTimeout(tm); FETCHES = FETCHES.filter(function (x) { return x !== ac; }); });
   }
   // Body and head baked once (screen lit and dark); legs and the antenna light live.
   function bakeRobot(lit) {
@@ -2754,7 +2633,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     clock: '<circle cx="12" cy="12.5" r="9.5" fill="#FFF4E8" stroke="#8A5A3C" stroke-width="1.8"/><path d="M12 7v5.8l3.6 2.2" fill="none" stroke="#26352C" stroke-width="2" stroke-linecap="round"/>',
     bell: '<path d="M12 3.2c3.6 0 6 2.8 6 6.6v4.4l2 3.2H4l2-3.2V9.8c0-3.8 2.4-6.6 6-6.6z" fill="#E8A93C"/><path d="M8.6 7.4q1.4-2 3.4-2" fill="none" stroke="#FFF4C8" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="19.6" r="2.3" fill="#8A5A3C"/><rect x="11" y="1" width="2" height="2.8" rx="1" fill="#8A5A3C"/>'
   };
-  function xIcon(k) { return '<svg class="dic" viewBox="0 0 24 24">' + XICON[k] + "</svg>"; }
+  function xIcon(k) { return '<svg class="dic" viewBox="0 0 24 24" aria-hidden="true">' + XICON[k] + "</svg>"; }
   // A tile's icon, 32x40: the liquid, mercury or light takes the reading's colour and level.
   function tileSvg(kind, col, level, na, uid) {
     var ink = na ? "#8A8A94" : "#26352C", glass = "#F4F7FA", y = function (top, bot) { return (bot - (bot - top) * level).toFixed(1); }, s = "";
@@ -2785,7 +2664,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
         '<path d="M8 10h16v9a8 8 0 01-16 0z" fill="' + (on ? col : glass) + '" stroke="' + ink + '" stroke-width="1.8" stroke-linejoin="round"/>' +
         (on ? '<path d="M17 14l-3.5 5h3l-1.5 4.5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>' : "");
     }
-    return '<svg viewBox="0 0 32 40" width="32" height="40">' + s + "</svg>";
+    return '<svg viewBox="0 0 32 40" width="32" height="40" aria-hidden="true">' + s + "</svg>";
   }
   // The demo's made-up states, one per configured entity, worded from the demo clock.
   function demoExtra(id) {
@@ -2814,12 +2693,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var before = $("scrim");
     function el(id, parent) { var e = document.createElement("div"); e.id = id; if (parent) parent.appendChild(e); else WRAP.insertBefore(e, before); return e; }
     if (DUE_CONF) el("due");
+    // The banner and the tiles are buttons, so they act on click: a tap, Enter or Space. #announce
+    // is a live region, so a new announcement is read out.
     if (ANN_CONF) { var an = el("announce"); if (DUE_CONF) an.style.top = "124px";
-      an.addEventListener("pointerdown", function () { activity(); var a = XS.ann; if (a && a.status === "show") annTap(a.key); }); }
+      an.setAttribute("role", "status");
+      an.addEventListener("click", function () { activity(); var a = XS.ann; if (a && a.status === "show") annTap(a.key); }); }
     if (TILE_CONF.length) { var tl = el("tiles", $("corner"));
-      tl.addEventListener("pointerdown", function (e) { activity();
+      tl.addEventListener("click", function (e) { activity();
         var t = e.target && e.target.closest ? e.target.closest(".tile") : null, k = t ? +t.getAttribute("data-i") : -1;
-        if (k >= 0 && TILE_CONF[k]) { XS.taps.push(TILE_CONF[k].entity); t.classList.add("tap"); setTimeout(function () { t.classList.remove("tap"); }, 260);
+        if (k >= 0 && TILE_CONF[k]) { note(XS.taps, TILE_CONF[k].entity); t.classList.add("tap"); setTimeout(function () { t.classList.remove("tap"); }, 260);
           if (!DEMO) HA.moreInfo(TILE_CONF[k].entity); } }); }
   }
   function extrasHud(d) {
@@ -2837,7 +2719,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (key === XS.annKey) return; XS.annKey = key;
     var el = $("announce"), head = (ANN_CONF.title || "") + (a.from ? (ANN_CONF.title ? ", from " : "From ") + a.from : "");
     if (a.status === "unavailable") el.innerHTML = '<div class="ann na">' + xIcon("bell") + '<div class="ax">' + esc((ANN_CONF.title || "Announcements") + " unavailable") + "</div></div>";
-    else if (key !== "-" && key.charAt(0) !== "c") el.innerHTML = '<div class="ann">' + xIcon("bell") + '<div class="ab">' + (head ? '<div class="at">' + esc(head) + "</div>" : "") + '<div class="ax">' + esc(a.text) + "</div></div></div>";
+    else if (key !== "-" && key.charAt(0) !== "c") el.innerHTML = '<button type="button" class="ann">' + xIcon("bell") + '<span class="ab">' + (head ? '<span class="at">' + esc(head) + "</span>" : "") + '<span class="ax">' + esc(a.text) + "</span></span></button>";
     else el.innerHTML = "";
   }
   function dueCol(it) { var p = PEOPLE.filter(function (q) { return q.name === it.person; })[0] || PEOPLE[PEOPLE.length - 1]; return p.col; }
@@ -2872,19 +2754,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     $("tiles").innerHTML = TILE_CONF.map(function (t, i) {
       var s = out[i]; if (!s) return "";
       var st = xState(t.entity), na = s.status !== "ok", label = t.label || (st && st.attributes && st.attributes.friendly_name) || t.entity.split(".")[1].replace(/_/g, " ");
-      return '<div class="tile' + (na ? " na" : "") + '" data-i="' + i + '" style="border-color:' + (na ? "#8A8A94" : shade(s.color, 0.85)) + '">' +
-        tileSvg(t.icon, na ? "#C9C9D0" : s.color, na ? 0 : s.level, na, "fdt" + i) + '<div class="tv">' + esc(s.text) + '</div><div class="tl">' + esc(label) + "</div></div>";
+      return '<button type="button" class="tile' + (na ? " na" : "") + '" data-i="' + i + '" style="border-color:' + (na ? "#8A8A94" : shade(s.color, 0.85)) + '">' +
+        tileSvg(t.icon, na ? "#C9C9D0" : s.color, na ? 0 : s.level, na, "fdt" + i) + '<span class="tv">' + esc(s.text) + '</span><span class="tl">' + esc(label) + "</span></button>";
     }).join("");
-  }
-  // This person's due items on their card (no person: the household's), and the unavailable foot.
-  function dueSection(name) {
-    if (!DUE_CONF) return { html: "", foot: "" };
-    var due = readDue(now()); if (!due) return { html: "", foot: "" };
-    if (due.status !== "ok") return { html: "", foot: "Due times unavailable (" + DUE_CONF.entity + " " + due.reason + ")." };
-    var house = PEOPLE[PEOPLE.length - 1].name, mine = due.items.filter(function (it) { return (it.person || house) === name; });
-    var html = mine.length ? "<h2>Due</h2>" + mine.map(function (it) {
-      return row(it.when, esc(it.label) + ' <span class="soft' + (it.kind === "overdue" ? " late" : "") + '">' + esc(it.rel) + "</span>", "", true); }).join("") : "";
-    return { html: html, foot: due.bad ? due.bad + (due.bad === 1 ? " due item" : " due items") + " in " + DUE_CONF.entity + " could not be read." : "" };
   }
   // ── The town crier (v1.7.0) ─────────────────────────────────────────────────
   // With announcement set and announcement_crier not false, a new message brings a crier out of
@@ -3082,7 +2954,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // announcement_clear says so.
   function annTap(key) {
     if (!key) return;
-    XS.hidden = key; XS.annKey = null; CWANT = null; XS.dismissed.push(key);
+    XS.hidden = key; XS.annKey = null; CWANT = null; note(XS.dismissed, key);
     if (CRIER) CRIER.v.happy = 2;
     clearAnnouncement(key);
     extrasHud(now());
@@ -3091,7 +2963,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (!CRY || !CRY.clear || DEMO || XS.hook) return;
     var h = HA.hass(), id = ANN_CONF.entity, s = h && h.states && h.states[id];
     if (!s || String(s.state == null ? "" : s.state).trim() + "|" + (s.last_changed || "") !== key) return;   // a newer one has landed: leave it be
-    XS.clears.push(id);
+    note(XS.clears, id);
     Promise.resolve().then(function () { return h.callService(id.split(".")[0], "set_value", { entity_id: id, value: "" }); })
       .then(function () { XS.clearErr = null; })
       .catch(function (e) { console.warn("family-dashboard-card: could not clear " + id, e); XS.clearErr = e && e.message || String(e); });
@@ -3117,31 +2989,45 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
   // ── HUD ─────────────────────────────────────────────────────────────────────
   var $ = function (id) { return ROOT.getElementById(id); };
+  // At local midnight the week moves on: load the new seven days, and redraw an open person's
+  // card for the new today, letter and all (it is not read again, so nothing is cleared).
+  var HUD_DAY = null;
   function hud() {
-    var d = now();
+    var d = now(), off = offline();
+    if (off !== CONN.off) { CONN.off = off; if (!off) { load(); loadLive(); loadMusic(); } }       // back: read it all now, not in five minutes
+    if (HUD_DAY && HUD_DAY !== ymd(d)) { load(); if (openThing && openThing.person) openCard(openThing, false, true); }
+    HUD_DAY = ymd(d);
     CD = countdowns(); PARTY = findParty(); HOUSE = findHouseParty(); renderDates();
     $("clock").innerHTML = pad2(d.getHours()) + ":" + pad2(d.getMinutes()) +
       (WX.live && WX.temp != null ? '<span class="temp">' + Math.round(WX.temp) + "\u00b0</span>" : "");
     $("date").textContent = DAYS_LONG[d.getDay()] + " " + d.getDate() + " " + MONTHS_LONG[d.getMonth()];
     var td = ymd(d), up = DATA.events.filter(function (e) { return e.day === td && !e.all_day && new Date(e.start) > d; });
-    $("next").innerHTML = up.length ? "Next: <b>" + esc(up[0].at) + "</b> " + esc(up[0].who === "House" ? "" : up[0].who + ", ") + esc(up[0].what)
+    $("next").innerHTML = up.length ? "Next: <b>" + esc(up[0].at) + "</b> " + esc(up[0].who === HOUSEHOLD ? "" : up[0].who + ", ") + esc(up[0].what)
       : DATA.events.length ? "Nothing else on today" : "";
-    // Say out loud when the picture is old. A stale week must not read as a quiet one.
-    var st = "";
-    if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
-    else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
-    else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
-    else if (LETTER.bad.length) st = "Letters unavailable: " + LETTER.bad.map(function (b) { return b.who; }).join(", ");
-    else if (DATA.holidaysErr) st = "Holidays unavailable (" + DATA.holidaysErr + ")" + (DATA.holidaysAt ? ". Showing the list from " + dayLabel(ymd(DATA.holidaysAt)).toLowerCase() + " " + pad2(DATA.holidaysAt.getHours()) + ":" + pad2(DATA.holidaysAt.getMinutes()) : "");
-    else if (!DATA.gotAt && !DEMO) st = "Loading the week";
-    else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
-    else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
-    else if (XS.clearErr) st = "Couldn't clear the announcement in Home Assistant";
-    $("status").textContent = st;
+    // Say out loud when the picture is old (data.js statusLine).
+    // Written only when the words change: it is a live region, and a reader would say it every second.
+    var stl = statusLine(DATA, d, { demo: DEMO, demoInHa: DEMO && !!HA.hass(), offline: off ? { at: CONN.at } : null, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
+    if ($("status").textContent !== stl) $("status").textContent = stl;
     $("next").style.opacity = FLIGHT ? 0 : 1;
-    extrasHud(d); postHud(d);
+    extrasHud(d); postHud(d); refreshKeys(); layHud();
     WRAP.classList.toggle("night", DARK > 0.5);
     if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
+  }
+  // Under 1100 px (.compact) the countdowns, due chips and announcement are rows under the clock
+  // and the tiles, each below the last one that has something in it; under 700 (.narrow) the
+  // corner goes under the clock first. Measured each tick: the status line, the tiles and the
+  // post hint come and go. Wide, they keep card.js's places.
+  function layHud() {
+    var cn = $("corner"), narrow = WRAP.classList.contains("narrow"), compact = WRAP.classList.contains("compact");
+    var foot = function (e) { return (e.offsetTop || 0) + (e.offsetHeight || 0); };
+    cn.style.top = narrow ? foot($("hud")) + 6 + "px" : "";
+    var top = Math.max(foot($("hud")), foot(cn)) + 12;
+    [$("dates"), $("due"), $("announce")].forEach(function (e) {
+      if (!e) return;
+      if (!compact) { e.style.top = e.id === "announce" && DUE_CONF ? "124px" : ""; return; }
+      e.style.top = top + "px";
+      if (e.children.length) top += e.offsetHeight + 8;
+    });
   }
 
   // v1.9.0: letters waiting for the post overnight say when it goes (post.js reads the hours off
@@ -3166,17 +3052,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
   // ── The card ────────────────────────────────────────────────────────────────
   var openThing = null, closeTimer = null;
-  var KIND = { homework: "Homework", kit: "Kit", "term-date": "School", "inset-day": "No school", deadline: "Deadline", event: "School" };
-  function row(when, what, chip, raw) {
-    return '<div class="row"><div class="when">' + esc(when) + '</div><div class="what">' + (chip ? '<span class="chip">' + esc(chip) + "</span>" : "") + (raw ? what : esc(what)) + "</div></div>";
-  }
-  // What to say about sensors.extra: nothing when it is off (null) or loaded, and a
-  // plain "unavailable" when it is configured but did not answer.
-  function extraState() {
-    if (!SENSORS.extra || DATA.extra) return "";
-    if (DATA.extraErr) return "School info unavailable (" + DATA.extraErr + ").";
-    return DATA.gotAt ? "School info unavailable." : "";
-  }
+  // What the cards are built from (popup.js): the snapshot, the clock and the config.
+  function view(d) { return { data: DATA, now: d, config: CONFIG, src: SRC, demo: DEMO, demoInHa: DEMO && !!HA.hass() }; }
   // A letter opened on someone's card (v1.9.0). It stays theirs while the card is up, so it can
   // be read: Got it, or closing the card, clears it. What to empty is worked out when the card
   // opens (letterRead, as v1.8.0 did on open) and written then, each helper only while it still
@@ -3184,79 +3061,44 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var READING = null;
   function readLetter(t, tap) {
     var l = t.letter, h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
-    READING = { t: t, l: l, tap: tap, plan: l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null, was: sh && sh.state != null ? String(sh.state) : null };
+    var inBook = BOOK.live.indexOf(l) >= 0;
+    var plan = letterRead(BOOK, l, SENSORS.letter, sh);          // out of the book either way, so a read letter is never matched again
+    READING = { t: t, l: l, tap: tap, plan: l.src ? plan : null, inBook: inBook };
   }
   function settleLetter() {
     var r = READING; if (!r) return false;
     READING = null;
     if (r.t.letter === r.l) r.t.letter = null;
-    if (r.plan) clearPersonLetter(r.l, r.tap, r.plan); else clearLetter(r.l, r.was);
+    if (r.plan) clearPersonLetter(r.l, r.tap, r.plan); else clearLetter(r.l);
     return true;
   }
-  function postBlock(l) {
-    var long = String(l.text).length > 90 ? " long" : "";
-    return '<div class="post"><div class="pin"><div class="ph">' + POST_SVG + '<div><div class="pk">You\'ve got post</div>' +
-      '<div class="pf">' + (l.from ? "Letter from <b>" + esc(l.from) + "</b>" : "A letter") + ' <span class="pt">' + pad2(l.at.getHours()) + ":" + pad2(l.at.getMinutes()) + "</span></div></div></div>" +
-      '<div class="px' + long + '">' + esc(l.text) + "</div>" +
-      '<div class="pg"><button class="pgot" type="button">Got it</button><span>Got it clears the letter. So does closing this card.</span></div></div></div>';
-  }
-  var POST_SVG = '<svg class="pe" viewBox="0 0 48 36" width="56" height="42" aria-hidden="true"><rect x="2" y="2" width="44" height="32" rx="4" fill="#fff" stroke="#B5583A" stroke-width="2.5"/>' +
-    '<path d="M3 4l21 16L45 4" fill="none" stroke="#B5583A" stroke-width="2.5" stroke-linejoin="round"/><rect x="34" y="7" width="8" height="9" rx="1" fill="#D9433A"/></svg>';
   function gotIt() {
     var r = READING; if (!settleLetter()) return;
     var b = $("lists").querySelector(".post");
-    if (b) b.outerHTML = '<div class="post done">' + (r.l.from ? "Letter from " + esc(r.l.from) + " cleared." : "Letter cleared.") + "</div>";
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+    $("done").focus({ preventScroll: true });          // Got it is about to go, and focus with it: keep it in the dialog
+    if (b) b.outerHTML = postCleared(r.l);
+    armClose();
   }
-  function openCard(t, tap) {
-    var p = t.person, name = p.name, td = ymd(now()), html = "";
-    var mine = DATA.events.filter(function (e) { return e.who === name; });
-    var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
-    var calHealth = calendarHealth(DATA, name);
-    settleLetter();
-    if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); }     // the postie's letter, read once
-    html += "<h2>Today</h2>";
-    html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
-      : '<div class="empty">' + (calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
-        : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
-    if (later.length) {
-      html += "<h2>This week</h2>";
-      later.forEach(function (e) { html += row(dayLabel(e.day) + (e.all_day ? "" : " " + e.at), e.what); });
+  // again: redraw the card already open (midnight, a load landing) without reading its letter
+  // again, and keep where its reader was: the scroll, an unfolded week grid, and focus, which
+  // goes to Done if the button it was on is rebuilt, so it never drops out of the dialog.
+  function openCard(t, tap, again) {
+    var p = t.person, name = p.name, d = now(), letter = null;
+    if (again) { if (READING && READING.t === t) letter = READING.l; }
+    else { settleLetter(); if (t.letter) { readLetter(t, tap); letter = t.letter; } }     // the postie's letter, read once
+    var c = personCard(Object.assign(view(d), { person: p, letter: letter, letters: LETTER, due: DUE_CONF ? readDue(d) : null }));
+    var L = $("lists"), top = L.scrollTop, a = ROOT.activeElement, lost = again && a && a !== L && L.contains && L.contains(a);
+    var folds = again && L.querySelectorAll ? [].map.call(L.querySelectorAll("details"), function (x) { return x.open; }) : [];
+    L.innerHTML = c.html;
+    $("sum").textContent = c.sum;
+    if (again) {
+      if (folds.length) [].forEach.call(L.querySelectorAll("details"), function (x, i) { if (folds[i]) x.open = true; });
+      L.scrollTop = top;
+      if (lost) $("done").focus({ preventScroll: true });
+      return;
     }
-    // This child's lessons and lunch (people[].timetable, .lunch), with what went wrong for the foot.
-    var dueS = dueSection(name);
-    html += dueS.html;
-    var sch = schoolSections(name);
-    html += sch.html;
-    var ex = DATA.extra || {}, items = (ex.items || []).filter(function (i) { return i.who === name && i.date >= td; })
-      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-    var kit = (ex.kit || []).filter(function (k) { return k.who === name; });
-    var flags = name === "House" ? (ex.flags || []) : [];
-    if (items.length || kit.length || flags.length) {
-      html += "<h2>Good to know</h2>";
-      items.forEach(function (i) { html += row(dayLabel(i.date), i.what, KIND[i.kind] || i.kind); });
-      kit.forEach(function (k) { html += row("Every week", k.what, "Kit"); });
-      flags.forEach(function (f) { html += row("", f, "Heads up"); });
-    }
-    var foot = [];
-    if (DATA.weekAt) foot.push("Calendars checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes()) + ".");
-    if (ex.checked_at) { var xc = new Date(ex.checked_at); foot.push("School info checked " + DAYS[xc.getDay()] + " " + xc.getDate() + " " + MONTHS[xc.getMonth()] + "."); }
-    var missing = ((ex.sources || {}).unavailable || []).filter(function (s) {
-      return name === "House" || SOURCE_OWNER.some(function (m) { return m[0].test(s) && m[1] === name; }); });
-    if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
-    var calBad = (DATA.calFailed || []).filter(function (f) { return f.who === name; });
-    sch.foot.forEach(function (f) { foot.push('<span class="bad">' + esc(f) + "</span>"); });
-    if (DATA.error) foot.push('<span class="bad">Can\'t load the week (' + esc(DATA.error) + ")" + (DATA.weekAt ? ", so this is the last week that loaded." : ".") + "</span>");
-    if (calBad.length) foot.push('<span class="bad">Calendar unavailable: ' + calBad.map(function (f) { return esc(f.id); }).join(", ") + ". This week may be missing events.</span>");
-    if (!DEMO) { var xs = extraState(); if (xs) foot.push('<span class="bad">' + esc(xs) + "</span>"); }
-    if (dueS.foot) foot.push('<span class="bad">' + esc(dueS.foot) + "</span>");
-    if (LETTER.clearErr) foot.push('<span class="bad">Couldn\'t clear the letter in Home Assistant (' + esc(LETTER.clearErr) + ').</span>');
-    LETTER.bad.filter(function (b) { return b.who === name; }).forEach(function (b) { foot.push('<span class="bad">Letters unavailable (' + esc(b.entity) + " " + esc(b.reason) + "), so this card can't say if one is waiting.</span>"); });
-    html += '<div class="foot">' + foot.join(" ") + "</div>";
-
-    $("lists").innerHTML = html; $("lists").scrollTop = 0;
+    L.scrollTop = 0;
     $("who").textContent = name;
-    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");
     // portrait: the same creature, redrawn large rather than scaled up blurry
@@ -3264,248 +3106,82 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     g.clearRect(0, 0, pc.width, pc.height);
     var fit = Math.min(pc.width / bs.c.width, pc.height / bs.c.height) * 0.98;
     g.drawImage(bs.c, (pc.width - bs.c.width * fit) / 2, pc.height - 20 - bs.ay * fit, bs.c.width * fit, bs.c.height * fit);
-    openThing = t; t.happy = 99;
+    t.happy = 99;
+    showCard(t);
+  }
+  // The popup is a dialog: Done takes focus, and closing hands it back to whatever had it (a key
+  // button, see refreshKeys), or lets go of it so it does not sit on a hidden Done.
+  var OPENER = null;
+  function showCard(thing) {
+    if (!openThing) OPENER = ROOT.activeElement || null;
+    openThing = thing;
     $("scrim").classList.add("open");
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);      // a wall panel forgets
+    armClose();                                                             // a wall panel forgets
+    $("done").focus({ preventScroll: true });
+  }
+  function giveFocusBack() {
+    var o = OPENER, a = ROOT.activeElement; OPENER = null;
+    if (o && o.isConnected !== false && o.focus) o.focus({ preventScroll: true });
+    else if (a && a.blur) a.blur();
+  }
+  function armClose() { clearTimeout(closeTimer); closeTimer = setTimeout(autoClose, 60000); }
+  // Closing on its own is not someone closing the card: an unread letter stays on its creature,
+  // and in the book, so the next open shows it again and a panel's Done still takes it back. One
+  // its helper no longer holds was read elsewhere while the card was up (Done on a panel, the
+  // expiry): it goes quietly, and nothing is written.
+  function autoClose() {
+    var r = READING; READING = null;
+    if (r && r.t.letter === r.l) {
+      if (!stillHeld(r.l)) { r.t.letter = null; r.l.gone = true; }
+      else if (r.inBook && !BOOK.live.some(function (x) { return x.src && x.src === r.l.src; })) BOOK.live.push(r.l);
+    }
+    closeCard();
+  }
+  // A per-person helper still holds this letter's exact value; the shared one still holds a letter
+  // (a newer one there is not this one read). A helper that cannot be read keeps it.
+  function stillHeld(l) {
+    var h = HA.hass(), id = l.src || SENSORS.letter, s = !DEMO && !l.hook && l.key !== "hook" && id && h && h.states ? h.states[id] : null;
+    if (!s || /^(unknown|unavailable)$/.test(String(s.state))) return true;
+    return l.src ? String(s.state) === l.raw : String(s.state).trim() !== "";
   }
   function closeCard() {
     settleLetter();
     $("scrim").classList.remove("open");
     if (openThing) { openThing.happy = 0; openThing.wait = 1; }
     openThing = null; clearTimeout(closeTimer);
+    giveFocusBack();
   }
   // ── The school card ─────────────────────────────────────────────────────────
-  // Tapping the school opens everything school-shaped in one place. Sources, all
-  // through Home Assistant: each child's lessons and lunch from people[].timetable and .lunch,
-  // kit from SENSORS.kit, and term dates plus school items from SENSORS.extra.
-  // KIDS are the PEOPLE with school: true; only their items count here.
+  // Everything school-shaped in one place (popup.js schoolCard). KIDS are the PEOPLE with
+  // school: true.
   var SCHOOL_CARD = { happy: 0, wait: 0 }, KIDS = PEOPLE.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
-  function soft(s) { return ' <span class="soft">' + esc(s) + "</span>"; }
-  // ── School data per child ────────────────────────────────────────────────────
-  // Lessons and lunch from people[].timetable and .lunch, parsed by school.js. Every empty
-  // state says which one it is: a sensor that is set but missing says unavailable and names
-  // itself, never a blank that reads as a day off.
-  // A card shows the next school day once today's last lesson has ended (lessonsOver in
-  // school.js), or after half past three when the timetable gives no end times.
-  function empty(t) { return '<div class="empty">' + esc(t) + "</div>"; }
-  function weekName(w) { return /^week\b/i.test(w) ? w : "Week " + w; }      // "A" reads "Week A", "Week 1" stays
-  function shortDate(ds) { var x = new Date(ds + "T12:00:00"); return DAYS[x.getDay()] + " " + x.getDate() + " " + MONTHS[x.getMonth()]; }
-  function lessonRows(list) {
-    return list.map(function (l) {
-      return '<div class="row lesson"><div class="when">' + esc(l.start || "Period " + l.p) + '</div><div class="what">' + esc(l.subject) + (l.room ? soft(l.room) : "") + "</div></div>"; }).join("");
-  }
-  // Mon to Fri of one child's week: periods down the side, today's column lit, and the day the
-  // card is showing outlined when that is not today. Closed days say so in their header.
-  function weekGrid(g, td, shown) {
-    var h = '<table class="tt"><tr><th></th>';
-    g.days.forEach(function (d) {
-      var cls = d.date === td ? "now" : d.date === shown ? "next" : "";
-      h += '<th class="' + cls + '">' + DAYS_LONG[new Date(d.date + "T12:00:00").getDay()].slice(0, 3) + "<small>" + (d.closed ? esc(d.note || "No school") : new Date(d.date + "T12:00:00").getDate()) + "</small></th>"; });
-    h += "</tr>";
-    g.rows.forEach(function (r) {
-      h += "<tr><th>" + esc(r.p) + (r.start ? "<small>" + esc(r.start) + "</small>" : "") + "</th>";
-      r.cells.forEach(function (c, i) { var d = g.days[i];
-        var cls = (d.date === td ? "now" : d.date === shown ? "next" : "") + (d.closed ? " off" : "");
-        h += '<td class="' + cls + '">' + (c ? esc(c.subject) + (c.room ? "<small>" + esc(c.room) + "</small>" : "") : "") + "</td>"; });
-      h += "</tr>";
-    });
-    return h + "</table>";
-  }
-  // The next day the timetable has lessons, up to a fortnight ahead.
-  function nextLessonDay(name, from) {
-    for (var i = 1; i <= 14; i++) { var d = addDays(from, i), t = ttFor(name, d);
-      if (t.status === "ok" || t.status === "unavailable" || t.status === "no_week") return { d: d, t: t, i: i }; }
-    return null;
-  }
-  function dishHtml(o, picked) {
-    return '<div class="dish' + (picked ? " picked" : "") + '">' + (picked ? '<span class="chip pick">Chosen</span>' : "") + esc(o.name) + (o.kind ? soft(o.kind) : "") +
-      o.allergens.map(function (a) { return ' <span class="alg">' + esc(a) + "</span>"; }).join("") + "</div>";
-  }
-  // One day's lunch as a row's content: the choice, the options with allergens, the pudding.
-  // A school day without a menu says which kind of without it is.
-  function lunchHtml(name, d, l, today) {
-    var ch = l.status === "served" || l.status === "no_menu" || l.status === "ended" ? choiceFor(name, d, l.choice) : null;
-    // A choice that names one of the options marks that option, and the chip says school dinner.
-    var pick = ch && ch.text ? ch.text.toLowerCase() : "", named = l.options.some(function (o) { return o.name.toLowerCase() === pick; });
-    var head = ch && ch.text ? '<span class="chip choice">' + esc(named ? "School dinner" : ch.text) + "</span>" : "";
-    if (l.status === "served") {
-      var opts = l.options.map(function (o) { return dishHtml(o, o.name.toLowerCase() === pick); }).join("");
-      return head + (opts || esc("Served, options not listed")) + (l.pudding ? '<div class="dish"><span class="soft">Pudding</span> ' + esc(l.pudding.name) +
-        l.pudding.allergens.map(function (a) { return ' <span class="alg">' + esc(a) + "</span>"; }).join("") + "</div>" : "") + (l.note ? '<div class="dish soft">' + esc(l.note) + "</div>" : "");
-    }
-    if (l.status === "closed") return esc("No school lunch" + (today ? " today" : "") + (l.note ? " (" + l.note + ")" : ""));
-    if (l.status === "weekend") return esc("No school, it's the weekend");
-    if (l.status === "ended") return head + esc("Menu ran out after " + shortDate(l.menuEnds));
-    if (l.status === "loading") return esc("Loading the menu");
-    return head + esc("Menu not published for this week");
-  }
-  // The child's card: lessons today (or the next school day), the week grid folded away, then
-  // lunch today and on the next school day. html for the card, foot for what could not be read.
-  function schoolSections(name) {
-    var out = { html: "", foot: [] }, src = SRC[name];
-    if (!src) return out;
-    var d = now(), td = ymd(d);
-    if (src.timetable) {
-      var t = ttFor(name, d), shown = null, sh = null, head;
-      if (t.status === "unavailable") { out.html += "<h2>Lessons</h2>" + empty("Timetable unavailable (" + src.timetable.entity + ")");
-        out.foot.push("Timetable " + src.timetable.entity + " " + (t.reason || "unavailable") + "."); }
-      else if (t.status === "loading") out.html += "<h2>Lessons</h2>" + empty("Loading the timetable.");
-      else if (t.status === "no_week") { out.html += "<h2>Lessons</h2>" + empty("Timetable can't tell which week this is");
-        out.foot.push("Timetable " + src.timetable.entity + ": " + t.reason + ". Add anchor or week_of."); }
-      else {
-        if (t.status === "ok" && !lessonsOver(t, d)) { shown = td; sh = t; head = "Lessons today"; }
-        else {
-          if (t.status !== "ok") out.html += "<h2>Lessons today</h2>" + empty("No school today" + (t.note && t.status === "closed" ? " (" + t.note + ")" : ""));
-          var nx = nextLessonDay(name, d);
-          if (nx && nx.t.status === "ok") { shown = ymd(nx.d); sh = nx.t; head = "Lessons " + (nx.i === 1 ? "tomorrow" : nx.i < 7 ? DAYS_LONG[nx.d.getDay()] : shortDate(shown)); }
-          else if (nx) out.foot.push("Timetable " + src.timetable.entity + " " + (nx.t.reason || "unavailable") + ".");
-          else out.html += empty("No lessons on the timetable for the next two weeks.");
-        }
-        if (sh) out.html += "<h2>" + esc(head) + "</h2>" + (sh.lessons.length ? lessonRows(sh.lessons) : empty("Nothing on the timetable for " + DAYS_LONG[new Date(shown + "T12:00:00").getDay()] + "."));
-        var g = (sh || t).grid;
-        if (g && g.week) out.html += '<details class="wk"><summary>' + esc(weekName(g.week)) + ", from " + esc(shortDate(g.monday)) + "</summary>" + weekGrid(g, td, shown) + "</details>";
-      }
-    }
-    if (src.lunch) {
-      var first = lunchFor(name, d);
-      out.html += "<h2>Lunch</h2>";
-      if (first.status === "unavailable") { out.html += empty("Lunch menu unavailable (" + src.lunch.entity + ")");
-        out.foot.push("Lunch menu " + src.lunch.entity + " " + (first.reason || "unavailable") + "."); }
-      else {
-        var days = weekday(d) ? [d] : [];
-        var nd = addDays(d, 1); while (!weekday(nd)) nd = addDays(nd, 1);
-        days.push(nd);
-        days.forEach(function (x) { out.html += row(dayLabel(ymd(x)), lunchHtml(name, x, lunchFor(name, x), ymd(x) === td), "", true); });
-        var ce = choiceFor(name, d, first.choice);
-        if (ce && ce.err) out.foot.push("Lunch choice unavailable (" + ce.err + ").");
-      }
-    }
-    return out;
-  }
-  // The School card's week: one lane per child with a timetable, Mon to Fri, today lit. On a
-  // weekend it is next week.
-  function schoolWeek(td) {
-    var d = now(), kids = PEOPLE.filter(function (p) { return SRC[p.name] && SRC[p.name].timetable; });
-    if (!kids.length) return "";
-    var mon = weekday(d) ? mondayOf(d) : mondayOf(addDays(d, 7)), dates = [0, 1, 2, 3, 4].map(function (i) { return ymd(addDays(mon, i)); });
-    var h = "<h2>" + (weekday(d) ? "This week" : "Next week") + '</h2><table class="tt lanes"><tr><th></th>';
-    dates.forEach(function (ds) { h += '<th class="' + (ds === td ? "now" : "") + '">' + esc(shortDate(ds).replace(/ \w+$/, "")) + "</th>"; });
-    h += "</tr>";
-    kids.forEach(function (p) {
-      var t = ttFor(p.name, mon), g = t.grid;
-      h += '<tr><th class="who"><span class="dot" style="background:' + esc(p.col) + '"></span>' + esc(p.name) + (g && g.week ? "<small>" + esc(weekName(g.week)) + "</small>" : "") + "</th>";
-      if (!g || !g.week) { h += '<td colspan="5" class="off">' + esc(t.status === "unavailable" ? "Timetable unavailable (" + SRC[p.name].timetable.entity + ")" : t.status === "loading" ? "Loading"
-        : g && g.off ? "No timetable this week" : "Timetable can't tell which week this is") + "</td></tr>"; return; }
-      g.days.forEach(function (day) {
-        h += '<td class="' + (day.date === td ? "now" : "") + (day.closed ? " off" : "") + '">' + (day.closed ? esc(day.note || "No school")
-          : day.lessons.map(function (l) { return '<div class="ln"><b>' + esc(l.p) + "</b> " + esc(l.subject) + "</div>"; }).join("")) + "</td>"; });
-      h += "</tr>";
-    });
-    return h + "</table>";
-  }
-  // "Term 1 ends Fri 16 Oct", or when the next one starts, with the gathered note.
-  function termRows(sc, td) {
-    var out = "", cur = null, next = null;
-    sc.terms.forEach(function (t) {
-      if (t.from && t.from <= td && (!t.to || t.to >= td)) cur = t;
-      else if (!t.from && t.to && t.to >= td && !cur) cur = t;
-      if (!next && t.from && t.from > td) next = t;
-    });
-    if (cur) out += row(cur.to ? dayLabel(cur.to) : "", esc(cur.label) + (cur.to ? " ends" : " is on") + (cur.note ? soft(cur.note) : ""), sc.who, true);
-    if (next) out += row(dayLabel(next.from), esc(next.label) + " starts" + (next.note ? soft(next.note) : ""), sc.who, true);
-    if (!cur && !next) sc.terms.filter(function (t) { return !t.from && !t.to; }).forEach(function (t) { out += row("", esc(t.label) + soft(t.note || "not published"), sc.who, true); });
-    (sc.days || []).filter(function (d) { return d.date >= td; }).slice(0, 3).forEach(function (d) { out += row(dayLabel(d.date), esc(d.what), sc.who, true); });
-    return out;
-  }
   function openSchool() {
     settleLetter();
-    var d = now(), td = ymd(d), ex = DATA.extra || {}, S = DATA.school || {}, html = "", sum = "";
-    // Each child with a timetable in one grid, then today's lunch for each child with a menu
-    html += schoolWeek(td);
-    var lunchKids = PEOPLE.filter(function (p) { return SRC[p.name] && SRC[p.name].lunch; });
-    if (lunchKids.length && weekday(d)) {
-      html += "<h2>Lunch today</h2>";
-      lunchKids.forEach(function (p) { var l = lunchFor(p.name, d);
-        html += row(p.name, l.status === "unavailable" ? esc("Lunch menu unavailable (" + SRC[p.name].lunch.entity + ")") : lunchHtml(p.name, d, l, true), "", true); });
-    }
-    if (S.kit) html += "<h2>Kit today</h2>" + row(SCHOOL_WHO.kit, S.kit.kit_today && S.kit.kit_today !== "none" ? S.kit.kit_today : "No kit needed");
-    // Kids the data cannot place (no timetable, lunch or term dates) are not counted as home.
-    var days = KIDS.map(function (n) { return schoolDay(n, d); }), atSchool = days.filter(function (x) { return x === true; }).length;
-    sum = !weekday(d) ? "Weekend" : atSchool ? atSchool + (atSchool === 1 ? " child" : " children") + " at school today"
-      : days.length && days.every(function (x) { return x === false; }) ? "No school today" : "Can't tell who has school today";
-    // School items for every kid, soonest first
-    var items = (ex.items || []).filter(function (i) { return KIDS.indexOf(i.who) >= 0 && i.date >= td; })
-      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-    html += "<h2>Coming up</h2>";
-    html += items.length ? items.slice(0, 12).map(function (i) { return row(dayLabel(i.date), (KIND[i.kind] ? KIND[i.kind] + ": " : "") + i.what, i.who); }).join("")
-        + (items.length > 12 ? '<div class="empty">+' + (items.length - 12) + " more on each child's card</div>" : "")
-      : '<div class="empty">Nothing gathered for the coming weeks.</div>';
-    (ex.kit || []).filter(function (k) { return KIDS.indexOf(k.who) >= 0; }).forEach(function (k) { html += row("Every week", k.what, k.who); });
-    // Term dates
-    html += "<h2>Term dates</h2>";
-    html += ex.schools && ex.schools.length ? ex.schools.map(function (sc) { return termRows(sc, td); }).join("")
-      : '<div class="empty">Term dates not gathered yet.</div>';
-    var foot = [];
-    if (ex.checked_at) { var xc = new Date(ex.checked_at); foot.push("School info checked " + DAYS[xc.getDay()] + " " + xc.getDate() + " " + MONTHS[xc.getMonth()] + "."); }
-    var missing = (ex.sources || {}).unavailable || [];
-    if (missing.length) foot.push('<span class="bad">Couldn\'t check: ' + missing.map(esc).join(", ") + ".</span>");
-    if (!DEMO) { var xs2 = extraState(); if (xs2) foot.push('<span class="bad">' + esc(xs2) + "</span>"); }
-    PEOPLE.forEach(function (p) { schoolSections(p.name).foot.forEach(function (f) { foot.push('<span class="bad">' + esc(p.name + ": " + f) + "</span>"); }); });
-    (CONFIG.schoolOrphans || []).forEach(function (o) { foot.push('<span class="bad">' + esc("sensors." + o.key + " (" + o.entity + ") belongs to schoolWho." + o.key + " = " + o.who +
-      ", who is not in people. Set " + o.key + " on the child.") + "</span>"); });
-    html += '<div class="foot">' + foot.join(" ") + "</div>";
-
-    $("lists").innerHTML = html; $("lists").scrollTop = 0;
-    $("who").textContent = "School"; $("sum").textContent = sum;
+    var c = schoolCard(view(now()));
+    $("lists").innerHTML = c.html; $("lists").scrollTop = 0;
+    $("who").textContent = "School"; $("sum").textContent = c.sum;
     $("face").style.background = "#F6E7B8";
     // portrait: the school itself, cut from the painted meadow
     var pc = $("portrait"), g = pc.getContext("2d"), s = LAY.school, cut = s.cut || [s.x - 105, s.y - 150, 210, 175], sw = cut[2], sh = cut[3];
     g.clearRect(0, 0, pc.width, pc.height);
     g.drawImage(BG, cut[0] * DPR, cut[1] * DPR, sw * DPR, sh * DPR, 0, (pc.height - pc.width * sh / sw) / 2, pc.width, pc.width * sh / sw);
-    openThing = SCHOOL_CARD;
-    $("scrim").classList.add("open");
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+    showCard(SCHOOL_CARD);
   }
   // ── The workshop card ───────────────────────────────────────────────────────
-  // The print job as the printer reports it: name, percent, time left and when
-  // that lands on the clock. Nothing fresh, and the card says so instead of
-  // showing the last thing it saw.
+  // The print job as the printer reports it (popup.js shopCard).
   var SHOP_CARD = { happy: 0, wait: 0 };
-  var PR_LABEL = { running: "Printing", pause: "Paused", finish: "Finished", failed: "Failed", idle: "Idle", prepare: "Getting ready",
-    slicing: "Slicing", init: "Starting up", offline: "Offline", unknown: "Unknown", missing: "Not reachable" };
-  function mins(m) { return m >= 60 ? Math.floor(m / 60) + "h " + pad2(m % 60) + "m" : m + " min"; }
   function openShop() {
     settleLetter();
-    var ps = printerState(), live = ps !== "empty", st = live ? PR.status : (PR.err ? "missing" : PR.status), html = "", sum;
-    var label = PR_LABEL[st] || st;
-    html += "<h2>The printer</h2>" + row("Status", label);
-    if (live && PR.name && st !== "idle") html += row("Job", PR.name);
-    if (st === "running" || st === "pause") {
-      html += row("Progress", Math.round(PR.progress) + "%");
-      if (PR.layer != null && PR.layers != null) html += row("Layer", PR.layer + " of " + PR.layers);
-      if (PR.remain != null) { var done = new Date(now().getTime() + PR.remain * 60000);
-        html += row("Time left", mins(PR.remain)) + row("Done at", pad2(done.getHours()) + ":" + pad2(done.getMinutes()) + (st === "pause" ? " once it resumes" : "")); }
-      sum = label + ", " + Math.round(PR.progress) + "%";
-    } else if (st === "finish") { html += row("Progress", "100%"); sum = "Finished" + (PR.name ? ": " + PR.name : ""); }
-    else if (st === "failed") sum = "The print failed";
-    else if (/^(prepare|slicing|init)$/.test(st)) sum = "A print is starting";
-    else if (st === "idle") sum = "Nothing printing";
-    else sum = live ? label : "Printer not reachable";
-    var foot = [];
-    if (PR.at) foot.push("Printer checked " + pad2(PR.at.getHours()) + ":" + pad2(PR.at.getMinutes()) + ".");
-    if (!live) foot.push('<span class="bad">' + (PR.err ? "Can't reach the printer sensors (" + esc(PR.err) + ")." : "No fresh reading from the printer.") + "</span>");
-    html += '<div class="foot">' + foot.join(" ") + "</div>";
-    $("lists").innerHTML = html; $("lists").scrollTop = 0;
-    $("who").textContent = "Workshop"; $("sum").textContent = sum;
+    var c = shopCard({ printer: PR, state: printerState(), now: now() });
+    $("lists").innerHTML = c.html; $("lists").scrollTop = 0;
+    $("who").textContent = "Workshop"; $("sum").textContent = c.sum;
     $("face").style.background = "#DCE6F0";
     // portrait: the finished workshop, from its baked pieces
     var pc = $("portrait"), g = pc.getContext("2d"), k = pc.width / 130;
     g.clearRect(0, 0, pc.width, pc.height); g.save(); g.scale(k, k); g.translate(65, 118);
     [[SHOP.walls2, 0, 0], [SHOP.roof, 0, -48], [SHOP.sign, -56, 0]].forEach(function (p) { var ic = p[0]; g.drawImage(ic.c, p[1] - ic.ax / ic.k, p[2] - ic.ay / ic.k, ic.c.width / ic.k, ic.c.height / ic.k); });
     g.restore();
-    openThing = SHOP_CARD;
-    $("scrim").classList.add("open");
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+    showCard(SHOP_CARD);
   }
 
   // ── The banner plane ────────────────────────────────────────────────────────
@@ -3517,16 +3193,17 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function nextEvent() {
     var d = now(), td = ymd(d);
     for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i];
+      if (e.cont) continue;                                     // the second day of a trip is not the next thing on
       if ((!e.all_day && new Date(e.start) > d) || (e.all_day && e.day > td)) return e; }
     return null;
   }
   function bakeBanner(e) {
-    if (typeof e === "string") e = { who: "House", what: e, day: ymd(now()), all_day: true };
+    if (typeof e === "string") e = { who: HOUSEHOLD, what: e, day: ymd(now()), all_day: true };
     var p = PEOPLE.filter(function (q) { return q.name === e.who; })[0];
-    var when = (e.day === ymd(now()) ? "" : dayLabel(e.day) + " ") + (e.all_day ? "" : e.at);
+    var when = (e.day === ymd(now()) ? "" : dayLabel(e.day, now()) + " ") + (e.all_day ? "" : e.at);
     var what = e.what.length > 38 ? e.what.slice(0, 36) + "..." : e.what;
     var g0 = canvas(10, 10).getContext("2d"), f1 = "600 " + 19 * K + "px Fredoka", f2 = "500 " + 19 * K + "px Fredoka";
-    var parts2 = [[when, f1, INK], [e.who === "House" ? "" : e.who, f1, p ? shade(p.col, 0.55) : INK], [what, f2, INK]].filter(function (a) { return a[0]; });
+    var parts2 = [[when, f1, INK], [e.who === HOUSEHOLD ? "" : e.who, f1, p ? shade(p.col, 0.55) : INK], [what, f2, INK]].filter(function (a) { return a[0]; });
     var gap = 10 * K, tw = 0;
     parts2.forEach(function (a) { g0.font = a[1]; a.push(g0.measureText(a[0]).width); tw += a[3] + gap; });
     var w = tw + 28 * K, h = 34 * K, c = canvas(w, h), g = c.getContext("2d");
@@ -3590,7 +3267,19 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   $("done").addEventListener("click", closeCard);
   $("lists").addEventListener("click", function (e) { if (e.target && e.target.className === "pgot") gotIt(); });
   $("scrim").addEventListener("pointerdown", function (e) { if (e.target === $("scrim")) closeCard(); });
-  $("lists").addEventListener("scroll", function () { clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000); });
+  $("lists").addEventListener("scroll", function () { if (openThing) armClose(); });
+  $("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });       // reading the School grid is not walking away
+  $("card").addEventListener("keydown", function () { if (openThing) armClose(); });           // nor is scrolling it from the keyboard
+  // Escape is Done. Tab goes round the card's own buttons and its scrolling #lists while it is up
+  // (aria-modal says the rest is out of reach, and Chrome 87 has no inert to make it so).
+  WRAP.addEventListener("keydown", function (e) {
+    if (!openThing) return;
+    if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }
+    if (e.key !== "Tab" || !$("card").querySelectorAll) return;
+    var f = [].slice.call($("card").querySelectorAll("button, summary, [href], #lists")), a = ROOT.activeElement, i = f.indexOf(a);
+    if (!f.length) return;
+    if (e.shiftKey ? i <= 0 : i === f.length - 1 || i < 0) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+  });
 
   cv.addEventListener("pointerdown", function (e) {
     if (openThing) return;
@@ -3601,11 +3290,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var d = Math.sqrt(Math.pow(x - at[0], 2) + Math.pow(y - (at[2] - t.r * sc * 0.9), 2));
       if (b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10) d = 0;
       if (d < t.r * sc * 1.8 && d < bd) { bd = d; best = t; } }
-    if (best) { best.jump = 0.6; best.happy = 1; puff("heart", best.x, best.y - best.r * 2.2, 3, best.person.col);
-      setTimeout(function () { openCard(best, true); }, 320); return; }
+    if (best) { tapPerson(best); return; }
     // The office robot, or its speech bubble: the agent office view
-    if (robotHit(x, y)) { ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
-      setTimeout(function () { goView(VIEW.office); }, 380); return; }
+    if (robotHit(x, y)) { tapRobot(); return; }
     // The scene's landmarks (scene.hotspots): the school opens the School card, the others
     // their view in VIEW, and a landmark whose view is null is scenery.
     SV.sign = SIGN && MUSIC_T > 0.3 ? SIGN.h + 14 : 0;                  // the now-playing sign over the meadow's bandstand
@@ -3622,10 +3309,94 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (!h || h.robot || (id !== "school" && !VIEW[id])) return false;
     var b = h.box(SV), tb = id === "school" && SCHOOL_CARD.tagBox;
     if (!(x > b[0] && x < b[2] && y > b[1] && y < b[3]) && !(tb && x >= tb[0] - 10 && x <= tb[0] + tb[2] + 10 && y >= tb[1] - 10 && y <= tb[1] + tb[3] + 10)) return false;
-    h.tap(SV);
+    openSpot(id);
+    return true;
+  }
+  // What a tap on each does, for the canvas and the key buttons alike.
+  function tapPerson(t) {
+    t.jump = 0.6; t.happy = 1; puff("heart", t.x, t.y - t.r * 2.2, 3, t.person.col);
+    setTimeout(function () { openCard(t, true); }, 320);
+  }
+  function tapRobot() {
+    ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
+    setTimeout(function () { goView(VIEW.office); }, 380);
+  }
+  function openSpot(id) {
+    SCENE.hotspots[id].tap(SV);
     if (id === "school") setTimeout(openSchool, 320);
     else setTimeout(function () { goView(VIEW[id]); }, 380);
-    return true;
+  }
+
+  // ── Keys ────────────────────────────────────────────────────────────────────
+  // The canvas is one picture, so a keyboard, a switch or a screen reader has nothing to press.
+  // #keys holds a real button for each person, the School and each landmark with a view (the
+  // office robot once it is out), named from what their name tag shows (the count refreshTags
+  // bakes, the letter badge), and each does what a tap on it does. Out of sight until one has
+  // focus; then frame() rings its target on the scene (placeKey), or shows it as a pill when the
+  // target is off the scene or under the HUD. Named again with the HUD, once a second.
+  var KEYS = [], KEYON = null, SPOT_NAME = { printer: "Printer", music: "Music", home: "Home", office: "Office" };
+  function schoolToday() {
+    var td = ymd(now());
+    return ((DATA.extra || {}).items || []).filter(function (i) { return i.date === td && KIDS.indexOf(i.who) >= 0; }).length;
+  }
+  function onToday(n) { return n ? ", " + n + (n === 1 ? " thing today" : " things today") : ""; }
+  function keyList() {
+    var out = fam.map(function (t) {
+      return { k: "p:" + t.person.name, text: t.person.name, label: t.person.name + onToday(todayFor(t.person.name).length) + (postBadge(t.letter) ? ", letter waiting" : "") }; });
+    var hs = SCENE.hotspots || {};
+    if (hs.school && LAY.school) out.push({ k: "school", text: "School", label: "School" + onToday(schoolToday()) });
+    HOTSPOT_IDS.forEach(function (id) {
+      var h = hs[id]; if (!h || id === "school") return;
+      if (h.robot ? ROBOT && VIEW.office : VIEW[id]) out.push({ k: id, text: SPOT_NAME[id] || id, label: (SPOT_NAME[id] || id) + " view" }); });
+    return out;
+  }
+  function refreshKeys() {
+    var want = keyList(), box = $("keys"), id = function (x) { return x.k; };
+    if (want.map(id).join("\n") !== KEYS.map(id).join("\n")) {
+      var had = KEYON && KEYON.k; KEYON = null;
+      box.innerHTML = "";
+      KEYS = want.map(function (w) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "key"; b.textContent = w.text; b.setAttribute("data-k", w.k);
+        b.addEventListener("click", function () { keyAct(w.k); });
+        b.addEventListener("focus", function () { KEYON = { k: w.k, b: b }; placeKey(); });
+        b.addEventListener("blur", function () { if (KEYON && KEYON.b === b) KEYON = null; b.className = "key"; b.style.left = b.style.top = b.style.width = b.style.height = ""; });
+        box.appendChild(b);
+        return { k: w.k, b: b, label: null };
+      });
+      KEYS.forEach(function (kb) { if (kb.k === had) kb.b.focus({ preventScroll: true }); });
+    }
+    want.forEach(function (w, i) { var kb = KEYS[i]; if (kb.label !== w.label) { kb.label = w.label; kb.b.setAttribute("aria-label", w.label); } });
+  }
+  function keyAct(k) {
+    if (openThing) return;
+    activity();
+    var t = fam.filter(function (f) { return "p:" + f.person.name === k; })[0];
+    if (t) tapPerson(t);
+    else if (k === "office" && SCENE.hotspots.office.robot) { if (ROBOT) tapRobot(); }
+    else if (SCENE.hotspots[k]) openSpot(k);
+  }
+  // A target under the HUD (a narrow card's rows cover the back of the scene) gets the pill, so
+  // the focus is never hidden.
+  function underHud(r) {
+    var o = WRAP.getBoundingClientRect();
+    return ["hud", "corner", "dates", "due", "announce"].some(function (id) {
+      var e = $(id);
+      return e && [].some.call(e.children, function (c) { var b = c.getBoundingClientRect();
+        return b.width > 0 && b.left - o.left < r[0] + r[2] && b.right - o.left > r[0] && b.top - o.top < r[1] + r[3] && b.bottom - o.top > r[1]; });
+    });
+  }
+  // The focused key's ring: round the name tag, the School's tag, the landmark or the robot.
+  function placeKey() {
+    var kb = KEYON; if (!kb) return;
+    var t = fam.filter(function (f) { return "p:" + f.person.name === kb.k; })[0], h = (SCENE.hotspots || {})[kb.k], r = null, b;
+    if (t) r = t.tagBox && [t.tagBox[0], t.tagBox[1], t.tagBox[2], t.tagBox[3] - 10];
+    else if (kb.k === "school" && SCHOOL_CARD.tagBox) r = [SCHOOL_CARD.tagBox[0], SCHOOL_CARD.tagBox[1], SCHOOL_CARD.tagBox[2], SCHOOL_CARD.tagBox[3] - 10];
+    else if (h && h.robot) r = ROBOT && [ROBOT.x - 40, ROBOT.y - 92, 80, 104];
+    else if (h) { b = h.box(SV); r = [b[0], b[1], b[2] - b[0], b[3] - b[1]]; }
+    var s = kb.b.style;
+    if (r && !underHud(r)) { kb.b.className = "key on"; s.left = Math.round(r[0]) + "px"; s.top = Math.round(r[1]) + "px"; s.width = Math.round(r[2]) + "px"; s.height = Math.round(r[3]) + "px"; }
+    else { kb.b.className = "key on loose"; s.left = s.top = s.width = s.height = ""; }
   }
 
   // Tell any idle or backlight timer on the page that the panel is in use.
@@ -3639,7 +3410,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function size() {
     W = WRAP.clientWidth || 1280; H = WRAP.clientHeight || 800; DPR = Math.min(window.devicePixelRatio || 1, 2);
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + "px"; cv.style.height = H + "px";
-    if (W < 640) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack
+    if (W < 700) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack; up to 700 four tiles meet a long date
+    WRAP.classList.toggle("compact", W < 1100);                                        // the HUD's middle row moves under the clock (layHud)
+    CD_KEY = ""; XS.dueKey = null;                                                    // and the chips are fitted again to the new width
     HZ = Math.round(H * 0.27); TOP = HZ + 44;
     bakeBackground();
     lastPaint = -Infinity;                                // a resize clears the canvas: paint it now
@@ -3657,6 +3430,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (FPS) { FPSN++; FPSMS += performance.now() - t0; if (ms - FPS0 >= 2000) { FPST = (FPSN * 1000 / (ms - FPS0)).toFixed(1) + " fps \u00b7 " + (FPSMS / FPSN).toFixed(1) + " ms"; FPSN = 0; FPSMS = 0; FPS0 = ms; }
       ctx.font = "600 16px Fredoka"; ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillStyle = "#000"; ctx.fillRect(W - 170, H - 26, 170, 26); ctx.fillStyle = "#FFF"; ctx.fillText(FPST, W - 8, H - 4); }
     if (ms - lastHud > 1000) { lastHud = ms; hud(); }
+    if (KEYON) placeKey();
   }
   function start() {
     // Tags go up before any data: if Home Assistant is down at boot, everyone still has a name.
@@ -3671,6 +3445,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     requestAnimationFrame(frame);
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, book: function () { return BOOK; }, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
+      duty: dutyFor, next: nextEvent, parties: function () { return [PARTY, HOUSE]; },
       office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone,
       extras: function () { return { ann: XS.ann, due: XS.due, tiles: XS.tiles, taps: XS.taps, hidden: XS.hidden }; },
       crier: function () { var C = CRIER; return { on: !!CRY, read: XS.crier, want: CWANT && CWANT.key, dismissed: XS.dismissed, clears: XS.clears, err: XS.clearErr, banner: XS.annKey,
@@ -3687,8 +3462,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // positions are fractions of the card, so a new size rebuilds the village
     resize: function () { if (STOPPED || !STARTED) return; if (WRAP.clientWidth === W && WRAP.clientHeight === H) return;
       size(); if (VIL) VILLAGE = makeVillage(); else makeDrops(); makeWeatherSprites();
-      if (SCENE.ambient) SCENE.ambient.setup(SV); },
+      if (SCENE.ambient) SCENE.ambient.setup(SV); hud(); },
     stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF);
+      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });
+      FETCHES.splice(0).forEach(function (ac) { ac.abort(); });
+      if (CAUDIO) { var ac = CAUDIO; CAUDIO = null; Promise.resolve().then(function () { return ac.close(); }).catch(function (e) { console.warn("family-dashboard-card: the bell's audio did not close", e); }); }
       if (REDUCE_MQ) { if (REDUCE_MQ.removeEventListener) REDUCE_MQ.removeEventListener("change", readReduced); else if (REDUCE_MQ.removeListener) REDUCE_MQ.removeListener(readReduced); } }
   };
 }
