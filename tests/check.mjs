@@ -119,6 +119,7 @@ eq(cover("2026-10-27", "2026-10-30"), ["10-27 all day", "10-28 all day (cont)", 
 eq(cover("2026-10-25T22:00:00+00:00", "2026-10-26T06:00:00+00:00"), ["10-26 until 06:00 (cont)"], "last night's shift reads until 06:00 this morning, not 22:00");
 eq(cover("2026-10-26T22:00:00+00:00", "2026-10-27T06:00:00+00:00"), ["10-26 22:00", "10-27 until 06:00 (cont)"], "tonight's shift starts tonight and ends tomorrow");
 eq(cover("2026-10-27T20:00:00+00:00", "2026-10-28T00:00:00+00:00"), ["10-27 20:00"], "an evening ending at 00:00 does not cover the next day");
+eq(cover("2026-10-26T22:00:00+00:00", "2026-10-28T00:00:00+00:00"), ["10-26 22:00", "10-27 all day (cont)"], "a night cover ending at 00:00 two days on is all day on the day between, not until 00:00");
 eq(cover("2026-10-27T10:00:00+00:00", "2026-10-29T16:00:00+00:00"), ["10-27 10:00", "10-28 all day (cont)", "10-29 until 16:00 (cont)"], "a three-day course: its start, all day, until its end");
 eq(cover("2026-10-30", "2026-11-20"), ["10-30 all day", "10-31 all day (cont)", "11-01 all day (cont)"], "a long trip stops at the end of the week");
 eq([cover("2026-10-28", "2026-10-28"), cover("2026-10-28T09:00:00+00:00", "2026-10-27T09:00:00+00:00"), cover("2026-10-28T09:00:00+00:00", "")], [["10-28 all day"], ["10-28 09:00"], ["10-28 09:00"]],

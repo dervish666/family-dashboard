@@ -233,6 +233,7 @@ calendar.js|s/for (let day = sd < first ? first : sd; day <= ed /for (let day = 
 calendar.js|s/(allDay .. MIDNIGHT.test(end))/(MIDNIGHT.test(end))/|an all-day event's end date counts as one of its days
 calendar.js|s/(allDay .. MIDNIGHT.test(end))/(allDay)/|a timed event ending at 00:00 covers the next day too
 calendar.js|s/at: "until " + end.slice(11, 16)/at: s.slice(11, 16)/|the morning after a night shift reads the time it started
+calendar.js|s/const until = !atMidnight \&\& /const until = /|a day covered to its end by an event ending at 00:00 reads until 00:00
 engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day after a late shift walks the creature out at the time it started
 engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
 engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day

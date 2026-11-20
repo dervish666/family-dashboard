@@ -18,7 +18,8 @@ const YMD = /^\d{4}-\d\d-\d\d/, MIDNIGHT = /^.{10}T00:00(:00(\.0+)?)?([Z+-]|$)/;
 // wrote it), plus end as the calendar wrote it. An all-day end is the day after the last one;
 // a timed event ending at 00:00 does not reach into that day. A row on a day after the event's
 // first (or on the range's first day, for one that began before it) has cont: an all-day event
-// stays all day, a timed one says "until 06:00" on its last day and reads as all day between.
+// stays all day, a timed one says "until 06:00" on its last day and reads as all day between
+// (and on its last day too when it ends at 00:00 the day after).
 // Anything that is not a list throws, so a broken answer reads as unavailable, not empty.
 export function parseCalendarEvents(evs, who, range) {
   if (!Array.isArray(evs)) throw new Error("calendar answer is not a list");
@@ -30,9 +31,10 @@ export function parseCalendarEvents(evs, who, range) {
     if (!YMD.test(s)) return;
     const what = String(e.summary || "Busy"), sd = s.slice(0, 10), end = String(e.end && (allDay ? e.end.date : e.end.dateTime) || "");
     let ed = YMD.test(end) ? end.slice(0, 10) : sd;
-    if (ed > sd && (allDay || MIDNIGHT.test(end))) ed = shiftYmd(ed, -1);
+    const atMidnight = ed > sd && (allDay || MIDNIGHT.test(end));   // ends as its last day ends: that day is all day
+    if (atMidnight) ed = shiftYmd(ed, -1);
     if (ed < sd) ed = sd;
-    const until = /^\d\d:\d\d$/.test(end.slice(11, 16));
+    const until = !atMidnight && /^\d\d:\d\d$/.test(end.slice(11, 16));
     for (let day = sd < first ? first : sd; day <= ed && day <= last; day = shiftYmd(day, 1)) {
       if (day === sd) rows.push({ who: who, what: what, day: day, all_day: allDay, start: allDay ? day : s, at: allDay ? "" : s.slice(11, 16), end: end });
       else if (!allDay && day === ed && until) rows.push({ who: who, what: what, day: day, all_day: false, start: s, at: "until " + end.slice(11, 16), end: end, cont: true });
