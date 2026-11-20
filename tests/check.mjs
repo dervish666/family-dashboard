@@ -127,6 +127,23 @@ eq(m.normalize(Object.assign({}, many, { demo: false })).calendarMode, true, "th
 const none = m.stubConfig(null);
 eq([none.demo, none.people.length, none.sensors, none.people.some(function (p) { return p.calendar; })], [true, 6, undefined, false], "no hass still gives the demo cast");
 
+// ── Birthdays ────────────────────────────────────────────────────────────────────
+// A real cast's birthdays are its own. dates without birthdays used to merge the demo
+// cast's in, and the sky counted down to Kid 1 and Parent 1 in a two-person house.
+const realCast = [{ name: "Sam", calendar: "calendar.sam" }, { name: "Home" }];
+eq(m.normalize({ people: realCast, dates: { fixed: [] } }).dates, { birthdays: {}, fixed: [] }, "dates without birthdays brings none of the demo cast's to a cast with calendars");
+const ownBd = m.normalize({ people: realCast, dates: { birthdays: { Sam: "02-29" } } }).dates;
+eq([ownBd.birthdays, ownBd.fixed.length], [{ Sam: "02-29" }, 4], "a cast's own birthdays, and the fixed days still default");
+eq(m.normalize({ people: realCast, dates: { birthdays: null } }).dates.birthdays, {}, "an empty birthdays: in YAML is no birthdays");
+eq([m.normalize({}).dates.birthdays["Kid 1"], m.normalize({ sensors: { week: "sensor.family_week" }, people: [{ name: "Kid 1" }], dates: { fixed: [] } }).dates.birthdays["Parent 1"]],
+  ["01-22", "03-14"], "a v1.0.0 config keeps the demo birthdays, as it always merged them");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: "1985-03-14" } } }); }, /Sam's birthday must be a month and day as MM-DD, like "03-14", got "1985-03-14"/, "a birthday with a year names the person and the value");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: "02-30" } } }); }, /Sam's birthday .*"02-30"/, "a day the month does not have");
+["13-01", "00-10", "3-14", "03-14 "].forEach(function (v) { throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: v } } }); }, /Sam's birthday/, "birthday " + JSON.stringify(v)); });
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: { Sam: 314 } } }); }, /Sam's birthday .*got 314/, "a birthday that is a number");
+throws(function () { m.normalize({ people: realCast, dates: { birthdays: ["03-14"] } }); }, /dates.birthdays must be a mapping/, "birthdays as a list");
+throws(function () { m.normalize({ sensors: { week: "sensor.family_week" }, dates: { birthdays: { "Kid 1": "22-01" } } }); }, /Kid 1's birthday/, "a v1.0.0 config's birthdays are checked too");
+
 // ── School data per child (v1.2.0) ──────────────────────────────────────────────
 // Config: people[].timetable / .lunch / .choice, and v1.1.0's sensors + schoolWho mapped on.
 const sc = m.normalize({ people: [

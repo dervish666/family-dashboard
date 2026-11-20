@@ -191,6 +191,18 @@ function lunchChoiceConf(v, name) {
   }
   throw cfgError(name + ": choice must be a word (packed, school), a weekday map or an entity id, got " + JSON.stringify(v));
 }
+// dates.birthdays: a name to "MM-DD", a day that exists in some year (02-29 does).
+const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function birthdaysConf(v) {
+  if (v == null) return {};
+  if (typeof v !== "object" || Array.isArray(v)) throw cfgError("dates.birthdays must be a mapping of names to MM-DD, like { Sam: \"03-14\" }, got " + JSON.stringify(v));
+  Object.keys(v).forEach(function (n) {
+    const md = typeof v[n] === "string" ? /^(\d\d)-(\d\d)$/.exec(v[n]) : null;
+    if (!md || +md[1] < 1 || +md[1] > 12 || +md[2] < 1 || +md[2] > MONTH_DAYS[+md[1] - 1])
+      throw cfgError("dates.birthdays: " + n + "'s birthday must be a month and day as MM-DD, like \"03-14\", got " + JSON.stringify(v[n]));
+  });
+  return v;
+}
 // normalize() runs on every keystroke in the editor, so each warning prints once.
 const WARNED = {};
 function warnOnce(msg) { if (WARNED[msg]) return; WARNED[msg] = 1; console.warn("family-dashboard-card: " + msg); }
@@ -236,9 +248,10 @@ export function normalize(raw) {
     s.week = null;
     out.sensors = Object.assign(s, raw.sensors || {});
     out.view = Object.assign({ home: null, music: null, printer: null, office: null }, raw.view || {});
-    if (!raw.dates) out.dates = { birthdays: {}, fixed: DEFAULTS.dates.fixed };
     if (!raw.anniversary) out.anniversary = names.slice(0, 2);
   }
+  // A cast with calendars has only the birthdays its config names, never the demo cast's.
+  out.dates = Object.assign({}, out.dates, { birthdays: birthdaysConf(calendarMode ? raw.dates && raw.dates.birthdays : out.dates.birthdays) });
   Object.keys(out.sensors).forEach(function (k) {
     const v = out.sensors[k];
     if (v === "" || v === undefined) out.sensors[k] = null;
