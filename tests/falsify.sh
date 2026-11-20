@@ -177,12 +177,15 @@ engine/engine.js|s/window.cancelAnimationFrame(RAF);//|stop() leaves the frame q
 engine/engine.js|s/if (!STOPPED) RAF = window.requestAnimationFrame(f);/RAF = window.requestAnimationFrame(f);/|a frame that runs after stop() queues another
 engine/engine.js|s/TIMERS.forEach(function (id) { window.clearInterval(id); });//|stop() leaves the polls running
 engine/engine.js|s/else if (DATA.holidaysErr) st = /else if (false) st = /|a failed holiday fetch is not on the status line
-engine/engine.js|s/holidays: s\[7\] .. (DATA.holidays .. \[\]),/holidays: s[7] ? s[7] : [],/|a failed holiday fetch drops the last list
+engine/engine.js|s/function (e) { console.warn("meadow: holidays", e); DATA.holidaysErr = /function (e) { console.warn("meadow: holidays", e); DATA.holidays = []; DATA.holidaysErr = /|a failed holiday fetch drops the last list
 engine/engine.js|s/      .then(function (evs) { return evs.filter(/      .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
 card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
 engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
 calendar.js|s/  if (!data .. !data.gotAt) return "loading";//|a card opened before the first load says Free today
 engine/engine.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
 engine/engine.js|s/    else if (!DATA.gotAt \&\& !DEMO) st = "Loading the week";//|the status line never says the week is loading
+engine/engine.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
+engine/engine.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
+engine/engine.js|s/console.error("meadow: the week did not load", e); DATA.error/console.error("meadow: the week did not load", e); DATA.events = []; DATA.error/|a failed reload throws away the last good week
 EOF
 echo "ok: all $n sabotaged copies failed the check"

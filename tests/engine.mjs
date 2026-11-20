@@ -277,6 +277,61 @@ export async function engineChecks(src, T) {
     eq(card.$("status").textContent, "Letters unavailable: Alex", "and the status line moves on");
     done(card);
   }
+  // A later load where every calendar fails keeps the last good week and says so, and the
+  // weather still updates: the week no longer holds the other sources hostage.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    const hass = fakeHass(st);
+    hass.answer = route({ "calendar.alex": [timed("Dentist", DAY, "15:00")] });
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    frame();
+    ok(/14\u00b0/.test(text(card, "clock")), "the weather's temperature is on the clock");
+    hass.answer = function () { return new Error("Calendar offline"); };
+    st["weather.home"] = { state: "rainy", attributes: { temperature: 9 } };
+    await advance(5 * 60000);
+    card.dbg.open(person(card, "Alex"), true);
+    eq(card.$("sum").textContent, "1 thing today", "a failed reload keeps the last week that loaded");
+    ok(/Dentist/.test(text(card, "lists")) && /Can't load the week \(no calendar answered [^)]*\)\), so this is the last week that loaded\./.test(text(card, "lists")),
+      "and the card says it is the last week that loaded");
+    frame();
+    eq(card.$("status").textContent, "Can't load the week (no calendar answered (calendar.alex, calendar.alex_work, calendar.sky, calendar.house)). Showing 12:00",
+      "the status line says the week failed and how old the one showing is");
+    ok(/9\u00b0/.test(text(card, "clock")), "the weather updates although the week failed");
+    done(card);
+  }
+  // A calendar that never answers counts as failed after 20 s; the sensors do not wait for it.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.alex_work": HOLD, "calendar.sky": [timed("Drama", DAY, "16:00")] });
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    frame();
+    ok(/14\u00b0/.test(text(card, "clock")), "the weather arrives while a calendar has not answered");
+    await advance(19000);
+    frame();
+    eq(card.$("status").textContent, "Loading the week", "19 s on, the week is still loading");
+    await advance(1000);
+    frame();
+    eq(card.$("status").textContent, "1 calendar unavailable: Alex", "20 s on, the calendar that never answered counts as failed");
+    card.dbg.open(person(card, "Sky"), true);
+    eq(card.$("sum").textContent, "1 thing today", "and the calendars that did answer are on the card");
+    card.$("done").fire("click");
+    card.dbg.open(person(card, "Alex"), true);
+    ok(/Calendar unavailable: calendar\.alex_work\./.test(text(card, "lists")), "the person's card names the calendar that did not answer");
+    done(card);
+  }
+  // The trips calendar the same: a hung holiday fetch fails after 20 s and says so.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.trips": HOLD });
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home", trips: "calendar.trips" } }, hass);
+    await advance(20000);
+    frame();
+    eq(card.$("status").textContent, "Holidays unavailable (no answer in 20 s)", "a holiday fetch that never answers is unavailable after 20 s");
+    done(card);
+  }
   // A title is text: markup in it comes out escaped, on the card and in the HUD's Next line.
   {
     C.now = NOON;

@@ -2268,6 +2268,17 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var s = h.states[id];
     return s ? Promise.resolve(s) : Promise.reject(new Error(id + " not found"));
   }
+  // A calendar request that has not answered in CAL_WAIT counts as failed. Without a limit one
+  // call that never came back held the whole load open, so nothing on the card updated again and
+  // nothing said why. 20 s leaves room for an integration that fetches a remote calendar over a
+  // slow link, and still names a hung calendar long before the next reload, five minutes on.
+  var CAL_WAIT = 20000;
+  function ask(tok, p) {
+    var tm = 0;
+    return Promise.race([Promise.resolve().then(function () { return tok.callApi("GET", p); }),
+      new Promise(function (ok, no) { tm = setTimeout(function () { no(new Error("no answer in " + CAL_WAIT / 1000 + " s")); }, CAL_WAIT); })])
+      .then(function (v) { clearTimeout(tm); return v; }, function (e) { clearTimeout(tm); throw e; });
+  }
   // Trips from the family calendar, a year ahead. The REST calendar endpoint gives
   // all-day events as {date} and timed ones as {dateTime}; either way the day is the
   // first ten characters. load() catches a failure: the last good list stays, and the
@@ -2275,7 +2286,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function holidays(tok) {
     if (!SENSORS.trips) return Promise.resolve([]);
     var td = ymd(now()), end = (+td.slice(0, 4) + 1) + td.slice(4);
-    return tok.callApi("GET", "calendars/" + SENSORS.trips + "?start=" + td + "T00:00:00&end=" + end + "T00:00:00")
+    return ask(tok, "calendars/" + SENSORS.trips + "?start=" + td + "T00:00:00&end=" + end + "T00:00:00")
       .then(function (evs) { return evs.filter(function (e) { return /\bholidays?\b/i.test(e.summary || ""); }).map(function (e) {
         return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); });
   }
@@ -2293,7 +2304,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     });
     var range = weekRange(now()), jobs = [];
     PEOPLE.forEach(function (p) { (p.calendars || []).forEach(function (id) {
-      jobs.push(tok.callApi("GET", calendarPath(id, range)).then(function (evs) { return { ok: true, rows: parseCalendarEvents(evs, p.name, range) }; })
+      jobs.push(ask(tok, calendarPath(id, range)).then(function (evs) { return { ok: true, rows: parseCalendarEvents(evs, p.name, range) }; })
         .catch(function (e) { console.warn("meadow: " + id, e); return { ok: false, who: p.name, id: id, err: (e && (e.message || e.body && e.body.message)) || String(e) }; }));
     }); });
     return Promise.all(jobs).then(function (rs) {
@@ -2302,9 +2313,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       return { events: [].concat.apply([], ok.map(function (r) { return r.rows; })), at: new Date(), failed: failed };
     });
   }
+  // The week, the holidays and the sensors each land on their own. A week that fails keeps its
+  // last good copy and says so (DATA.error); the weather, the sun, school and the holidays
+  // update either way.
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null, extraErr = null, holErr = null;
+    var schoolErr = null, extraErr = null;
     hassToken().then(function (tok) {
       // the school sensors are optional: a missing one blanks its part of the School card, nothing else
       function opt(id) { if (!id) return Promise.resolve(null);
@@ -2317,20 +2331,19 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var ids = schoolEntities(), states = {};
       var school = Promise.all(ids.map(function (id) { return getState(id, tok).then(function (s) { states[id] = s; })
         .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
-      return Promise.all([readWeek(tok), extra,
-        school, opt(SENSORS.kit), null,                  // null: the slot v1.1.0 used for sensors.lunch
-        opt(SENSORS.sun), opt(SENSORS.weather),
-        holidays(tok).catch(function (e) { console.warn("meadow: holidays", e); holErr = (e && (e.message || e.body && e.body.message)) || String(e); return null; })]); })
-      .then(function (s) {
-        var wk = s[0];
-        DATA = { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, extra: s[1] ? s[1].attributes || null : null, extraErr: extraErr, error: null, gotAt: new Date(),
-          school: { states: s[2], kit: s[3] && s[3].attributes, err: schoolErr },
-          sun: s[5] && s[5].attributes, weather: s[6] ? { state: s[6].state, attributes: s[6].attributes } : null,
-          holidays: s[7] || (DATA.holidays || []),                                  // a failed fetch keeps the last good list
-          holidaysErr: holErr, holidaysAt: s[7] ? new Date() : DATA.holidaysAt || null };
+      var week = readWeek(tok).then(function (wk) {
+        DATA = Object.assign({}, DATA, { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, error: null, gotAt: new Date() });
         refreshTags();
-      })
-      .catch(function (e) { console.error("meadow: load failed", e); DATA.error = e.message || String(e); });
+      }, function (e) { console.error("meadow: the week did not load", e); DATA.error = e.message || String(e); });
+      var hols = holidays(tok).then(function (h) { DATA = Object.assign({}, DATA, { holidays: h, holidaysErr: null, holidaysAt: new Date() }); },
+        function (e) { console.warn("meadow: holidays", e); DATA.holidaysErr = (e && (e.message || e.body && e.body.message)) || String(e); });   // the last good list stays
+      var rest = Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]).then(function (s) {
+        DATA = Object.assign({}, DATA, { extra: s[0] ? s[0].attributes || null : null, extraErr: extraErr, school: { states: s[1], kit: s[2] && s[2].attributes, err: schoolErr },
+          pc: null, sun: s[3] && s[3].attributes, weather: s[4] ? { state: s[4].state, attributes: s[4].attributes } : null, othersAt: new Date() });
+        refreshTags();
+      });
+      return Promise.all([week, hols, rest]);
+    }).catch(function (e) { console.error("meadow: load failed", e); DATA.error = e.message || String(e); });
   }
   function demoData() {
     var d = function (n) { return ymd(new Date(now().getTime() + n * 864e5)); };
@@ -3176,7 +3189,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function extraState() {
     if (!SENSORS.extra || DATA.extra) return "";
     if (DATA.extraErr) return "School info unavailable (" + DATA.extraErr + ").";
-    return DATA.gotAt ? "School info unavailable." : "";
+    return DATA.othersAt ? "School info unavailable." : "";
   }
   // A letter opened on someone's card (v1.9.0). It stays theirs while the card is up, so it can
   // be read: Got it, or closing the card, clears it. What to empty is worked out when the card
