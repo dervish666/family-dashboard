@@ -31,6 +31,10 @@ Card
 - Status tiles and the announcement banner are buttons that act on a tap, Enter or Space, and
   a new announcement is read out. Grey "unavailable" text is 5.7:1 on its grey (was 3.9:1), and
   a tile's label is 13 px (was 11).
+- Under 1100 px wide the countdowns, due chips and announcement are rows under the clock and
+  tiles, so at 1024 the banner keeps its words and nothing is cut. Under 640 px the corner hint
+  goes and the tiles move under a smaller clock. A resize fits the countdown chips again.
+  1280x800 looks as it did.
 
 Editor
 - A "Birthday (MM-DD)" field per person. A rename carries the birthday and anniversary along.

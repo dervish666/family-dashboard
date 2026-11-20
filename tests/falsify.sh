@@ -264,5 +264,11 @@ engine/engine.js|s/      an.setAttribute("role", "status");//|a new announcement
 engine/engine.js|s/return '<button type="button" class="tile'/return '<div class="tile'/|a status tile is a div that Tab never reaches
 card.js|s/border-style: dashed; color: #55555E; }/border-style: dashed; color: #6E6E78; }/|an unavailable tile's text is 3.9:1 on its grey
 card.js|s/.tile .tl { display: block; font: 500 13px\/16px/.tile .tl { display: block; font: 500 11px\/14px/|a tile's label stays at 11 px
+engine/engine.js|s/WRAP.classList.toggle("compact", W < 1100);/WRAP.classList.toggle("compact", false);/|under 1100 px the countdowns and the banner stay squeezed between the clock and the tiles
+engine/engine.js|s/ refreshKeys(); layHud();/ refreshKeys();/|nothing moves the rows under the clock on a narrow card
+engine/engine.js|s/^    CD_KEY = ""; XS.dueKey = null; .*$//|the countdown chips are fitted once a day, never on a resize
+engine/engine.js|s/if (SCENE.ambient) SCENE.ambient.setup(SV); hud(); },/if (SCENE.ambient) SCENE.ambient.setup(SV); },/|a resize leaves the HUD in the old layout until the next tick
+engine/engine.js|s/    cn.style.top = narrow ? foot(\$("hud")) + 6 + "px" : "";/    cn.style.top = "";/|on a phone the tiles stay on the clock
+card.js|s/justify-content: center; pointer-events: none; }/justify-content: center; }/|the banner's whole row takes taps, so a tag beside the banner cannot be tapped
 EOF
 echo "ok: all $n sabotaged copies failed the check"

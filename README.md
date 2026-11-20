@@ -525,9 +525,15 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 ## Known limits
 
 - Built and tuned for 1280x800. Other sizes work but every scene was laid out for that one.
-  At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
-  the space station's wall most of all; use a wide card there. A card under 640 px wide stacks
-  the person's face over their lists (v1.9.0), so a letter and the week can be read on a phone.
+  Under 1100 px wide (an iPad, or the 1280 panel with Home Assistant's sidebar open) the
+  countdowns, due chips and announcement move from the sky to rows under the clock and tiles,
+  where they cover the back of the scene and the name tags there. A tap beside them still
+  reaches the scene.
+- At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
+  the space station's wall most of all; use a wide card there. Under 640 px the corner hint
+  goes, the clock shrinks and the tiles move under it, so the HUD covers about the top half of
+  the scene. A card that narrow stacks the person's face over their lists (v1.9.0), so a
+  letter and the week can be read on a phone.
 - With `prefers-reduced-motion` set, the scene is redrawn every 10 seconds instead of moving. The
   creatures still go about their day between redraws, so each one can land somewhere new; the
   clock, the lists and the status line update as usual.

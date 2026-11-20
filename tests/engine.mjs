@@ -64,7 +64,7 @@ function el(tag, id) {
       return { set outerHTML(v) { host.swapped = v; } };
     }
   };
-  Object.defineProperty(e, "innerHTML", { get: function () { return this._html; }, set: function (v) { this._html = String(v); this.children = []; } });
+  Object.defineProperty(e, "innerHTML", { get: function () { return this._html; }, set: function (v) { this._html = String(v); this.children = []; this.writes = (this.writes || 0) + 1; } });
   return e;
 }
 function find(e, id) {
@@ -772,6 +772,29 @@ export async function engineChecks(src, T) {
     const na = [".tile.na", ".tile.na .tl", ".dchip.na", ".ann.na"].map(function (r) { return [r, hex(r)]; });
     ok(na.every(function (x) { return x[1] && contrast(x[1], "#E2E2E6") >= 4.5; }), "unavailable text on its grey is at least 4.5:1 (" + na.map(function (x) { return x.join(" "); }).join(", ") + ")");
     ok(/ 13px\//.test(rule(card, ".tile .tl")), "a tile's label is 13 px");
+    done(card);
+  }
+  // Narrow cards: under 1100 px the countdowns, due chips and banner are rows under the clock and
+  // the tiles, and under 640 the tiles go under the clock too. A resize lays the HUD out again at
+  // once and fits the chips again to the new width (they used to be fitted once a day).
+  {
+    C.now = NOON;
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" }, announcement: "input_text.announcement", due: "sensor.due" }, fakeHass(BASE_STATES()));
+    frame();
+    const wrap = card.sr.wrap, ro = ROS[ROS.length - 1];
+    const at = function () { return [wrap.classList.contains("compact"), wrap.classList.contains("narrow"), card.$("dates").style.top || "", card.$("due").style.top || "", card.$("announce").style.top, card.$("corner").style.top || ""]; };
+    eq(at(), [false, false, "", "", "124px", ""], "1280 wide: the HUD keeps its places");
+    const fitted = card.$("dates").writes;
+    wrap.clientWidth = 1024; ro.cb();
+    const c = at();
+    ok(c[0] && !c[1] && c[2] && c[3] && c[4] && c[4] !== "124px" && !c[5], "1024 wide: the countdowns, due chips and banner move to rows under the clock and tiles (" + c.join(", ") + ")");
+    ok(card.$("dates").writes > fitted, "and the countdown chips are fitted again to the new width");
+    wrap.clientWidth = 400; ro.cb();
+    ok(at()[1] && at()[5], "400 wide: the corner (status and tiles) goes under the clock");
+    wrap.clientWidth = 1280; ro.cb();
+    eq(at(), [false, false, "", "", "124px", ""], "back to 1280: the places come back");
+    ok(/pointer-events: none/.test(rule(card, "#announce")) && /pointer-events: auto/.test(rule(card, ".ann")),
+      "the banner's row lets a tap beside the banner through to the scene (on a narrow card that row is over the name tags)");
     done(card);
   }
   // A letter kept that way is back in the letter book: a panel's Done still takes it off the tag.

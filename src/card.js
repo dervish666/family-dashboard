@@ -26,7 +26,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #keys { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
 .key { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; background: none; color: transparent; pointer-events: none; }
-.key.on { margin: 0; overflow: visible; clip: auto; box-sizing: border-box; border-radius: 22px; outline: none;
+.key.on { z-index: 1; margin: 0; overflow: visible; clip: auto; box-sizing: border-box; border-radius: 22px; outline: none;
   box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF; }
 .key.on.loose { left: 40px; top: auto; bottom: 30px; width: auto; height: auto; padding: 8px 18px; border-radius: 999px;
   background: rgba(255, 255, 255, .96); color: #26352C; font: 600 20px Fredoka, sans-serif; }
@@ -64,10 +64,10 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #due { position: absolute; left: 390px; right: 340px; top: 80px; height: 40px; display: flex;
   align-items: flex-start; overflow: hidden; pointer-events: none; }
 .dchip.na { background: rgba(226, 226, 230, .95); border: 2.5px dashed #8A8A94; color: #55555E; padding-right: 12px; }
-#announce { position: absolute; left: 390px; right: 340px; top: 80px; display: flex; justify-content: center; }
+#announce { position: absolute; left: 390px; right: 340px; top: 80px; display: flex; justify-content: center; pointer-events: none; }
 .ann { display: flex; align-items: center; max-width: 100%; box-sizing: border-box; margin: 0; padding: 10px 22px 11px 14px;
   border-radius: 20px; background: #FFF8EE; border: 2.5px solid #D9C6A5; font: inherit; text-align: left;
-  color: #26352C; animation: annin .5s cubic-bezier(.2, 1.3, .4, 1); cursor: pointer; }
+  color: #26352C; animation: annin .5s cubic-bezier(.2, 1.3, .4, 1); cursor: pointer; pointer-events: auto; }
 .ann .ab, .ann .at { display: block; }
 .ann .dic { width: 34px; height: 34px; flex: none; margin-right: 12px; animation: ring 1.1s ease-in-out 3; transform-origin: 50% 8%; }
 .ann .ab { min-width: 0; }
@@ -89,6 +89,19 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .tile.na .tv { font-size: 11px; }
 .tile.tap { transform: scale(.93); }
 .soft.late { color: var(--warn); }
+/* Under 1100 px wide (.compact, from the engine's size()) the gap between the clock and the
+   corner is too narrow for words: the countdowns, the due chips and the announcement become
+   full-width rows under both, and the engine's layHud sets each one's top. Under 640 px
+   (.narrow) the corner hint goes, the clock shrinks and the status and tiles move under it. */
+.fd.compact #dates, .fd.compact #due, .fd.compact #announce { left: 40px; right: 36px; }
+.fd.narrow #hud { left: 16px; top: 14px; }
+.fd.narrow #clock { font-size: clamp(56px, 16vw, 88px); }
+.fd.narrow #clock .temp { font-size: .39em; margin-left: .18em; vertical-align: .45em; }
+.fd.narrow #hint { display: none; }
+.fd.narrow #corner { left: 16px; right: 16px; text-align: left; }
+.fd.narrow #tiles { justify-content: flex-start; margin-top: 6px; }
+.fd.narrow .tile { margin: 0 7px 0 0; }
+.fd.narrow #dates, .fd.narrow #due, .fd.narrow #announce { left: 16px; right: 16px; }
 
 #scrim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden;

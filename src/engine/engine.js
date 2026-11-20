@@ -2995,9 +2995,25 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var stl = statusLine(DATA, d, { demo: DEMO, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
     if ($("status").textContent !== stl) $("status").textContent = stl;
     $("next").style.opacity = FLIGHT ? 0 : 1;
-    extrasHud(d); postHud(d); refreshKeys();
+    extrasHud(d); postHud(d); refreshKeys(); layHud();
     WRAP.classList.toggle("night", DARK > 0.5);
     if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
+  }
+  // Under 1100 px (.compact) the countdowns, due chips and announcement are rows under the clock
+  // and the tiles, each below the last one that has something in it; under 640 (.narrow) the
+  // corner goes under the clock first. Measured each tick: the status line, the tiles and the
+  // post hint come and go. Wide, they keep card.js's places.
+  function layHud() {
+    var cn = $("corner"), narrow = WRAP.classList.contains("narrow"), compact = WRAP.classList.contains("compact");
+    var foot = function (e) { return (e.offsetTop || 0) + (e.offsetHeight || 0); };
+    cn.style.top = narrow ? foot($("hud")) + 6 + "px" : "";
+    var top = Math.max(foot($("hud")), foot(cn)) + 12;
+    [$("dates"), $("due"), $("announce")].forEach(function (e) {
+      if (!e) return;
+      if (!compact) { e.style.top = e.id === "announce" && DUE_CONF ? "124px" : ""; return; }
+      e.style.top = top + "px";
+      if (e.children.length) top += e.offsetHeight + 8;
+    });
   }
 
   // v1.9.0: letters waiting for the post overnight say when it goes (post.js reads the hours off
@@ -3280,7 +3296,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // office robot once it is out), named from what their name tag shows (the count refreshTags
   // bakes, the letter badge), and each does what a tap on it does. Out of sight until one has
   // focus; then frame() rings its target on the scene (placeKey), or shows it as a pill when the
-  // target is off the scene. Named again with the HUD, once a second.
+  // target is off the scene or under the HUD. Named again with the HUD, once a second.
   var KEYS = [], KEYON = null, SPOT_NAME = { printer: "Printer", music: "Music", home: "Home", office: "Office" };
   function schoolToday() {
     var td = ymd(now());
@@ -3323,6 +3339,16 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (k === "office" && SCENE.hotspots.office.robot) { if (ROBOT) tapRobot(); }
     else if (SCENE.hotspots[k]) openSpot(k);
   }
+  // A target under the HUD (a narrow card's rows cover the back of the scene) gets the pill, so
+  // the focus is never hidden.
+  function underHud(r) {
+    var o = WRAP.getBoundingClientRect();
+    return ["hud", "corner", "dates", "due", "announce"].some(function (id) {
+      var e = $(id);
+      return e && [].some.call(e.children, function (c) { var b = c.getBoundingClientRect();
+        return b.width > 0 && b.left - o.left < r[0] + r[2] && b.right - o.left > r[0] && b.top - o.top < r[1] + r[3] && b.bottom - o.top > r[1]; });
+    });
+  }
   // The focused key's ring: round the name tag, the School's tag, the landmark or the robot.
   function placeKey() {
     var kb = KEYON; if (!kb) return;
@@ -3332,7 +3358,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     else if (h && h.robot) r = ROBOT && [ROBOT.x - 40, ROBOT.y - 92, 80, 104];
     else if (h) { b = h.box(SV); r = [b[0], b[1], b[2] - b[0], b[3] - b[1]]; }
     var s = kb.b.style;
-    if (r) { kb.b.className = "key on"; s.left = Math.round(r[0]) + "px"; s.top = Math.round(r[1]) + "px"; s.width = Math.round(r[2]) + "px"; s.height = Math.round(r[3]) + "px"; }
+    if (r && !underHud(r)) { kb.b.className = "key on"; s.left = Math.round(r[0]) + "px"; s.top = Math.round(r[1]) + "px"; s.width = Math.round(r[2]) + "px"; s.height = Math.round(r[3]) + "px"; }
     else { kb.b.className = "key on loose"; s.left = s.top = s.width = s.height = ""; }
   }
 
@@ -3348,6 +3374,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     W = WRAP.clientWidth || 1280; H = WRAP.clientHeight || 800; DPR = Math.min(window.devicePixelRatio || 1, 2);
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + "px"; cv.style.height = H + "px";
     if (W < 640) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack
+    WRAP.classList.toggle("compact", W < 1100);                                        // the HUD's middle row moves under the clock (layHud)
+    CD_KEY = ""; XS.dueKey = null;                                                    // and the chips are fitted again to the new width
     HZ = Math.round(H * 0.27); TOP = HZ + 44;
     bakeBackground();
     lastPaint = -Infinity;                                // a resize clears the canvas: paint it now
@@ -3397,7 +3425,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // positions are fractions of the card, so a new size rebuilds the village
     resize: function () { if (STOPPED || !STARTED) return; if (WRAP.clientWidth === W && WRAP.clientHeight === H) return;
       size(); if (VIL) VILLAGE = makeVillage(); else makeDrops(); makeWeatherSprites();
-      if (SCENE.ambient) SCENE.ambient.setup(SV); },
+      if (SCENE.ambient) SCENE.ambient.setup(SV); hud(); },
     stop: function () { STOPPED = true; TIMERS.forEach(function (id) { window.clearInterval(id); }); window.cancelAnimationFrame(RAF);
       TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });
       if (CAUDIO) { var ac = CAUDIO; CAUDIO = null; Promise.resolve().then(function () { return ac.close(); }).catch(function (e) { console.warn("family-dashboard-card: the bell's audio did not close", e); }); }
