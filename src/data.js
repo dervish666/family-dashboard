@@ -148,15 +148,18 @@ export function newLoader(config, now, timers) {
 export const DEMO_IN_HA = "Demo data. Turn off Demo cast in the card editor to see your calendars";
 // Say out loud when the picture is old. A stale week must not read as a quiet one. One line,
 // the most urgent first, "" when nothing is wrong. data is the engine's snapshot (DATA), d now,
-// and o the rest it reports on: { demo, demoInHa (the demo on a real Home Assistant), letters
-// (LETTER: bad, clearErr), weatherLive, annErr (the announcement's failed clear) }. The demo has
+// and o the rest it reports on: { demo, demoInHa (the demo on a real Home Assistant), offline
+// ({ at: the last read } while Home Assistant is disconnected), letters (LETTER: bad, clearErr),
+// weatherLive, annErr (the announcement's failed clear) }. The demo has
 // no week to load and no weather; on a real dashboard it must still say it is the demo, or a
 // person given a real calendar reads as free on made-up data.
 export function statusLine(data, d, o) {
   var st = "", L = o.letters;
+  // the day too once it is not today: an overnight outage must not read as this morning
+  function showing(at) { return ". Showing " + (ymd(at) === ymd(d) ? "" : dayWord(ymd(at), d) + " ") + pad2(at.getHours()) + ":" + pad2(at.getMinutes()); }
   if (o.demoInHa) st = DEMO_IN_HA;
-  else if (data.error) st = "Can't load the week (" + data.error + ")" + (data.gotAt ? ". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayWord(ymd(data.gotAt), d) + " ") +
-    pad2(data.gotAt.getHours()) + ":" + pad2(data.gotAt.getMinutes()) : "");              // the day too once it is not today: an overnight outage must not read as this morning
+  else if (o.offline) st = "No connection to Home Assistant" + (o.offline.at ? showing(o.offline.at) : "");
+  else if (data.error) st = "Can't load the week (" + data.error + ")" + (data.gotAt ? showing(data.gotAt) : "");
   else if (!data.gotAt && !o.demo) st = "Loading the week";
   else if (data.weekAt && d - data.weekAt > WEEK_STALE) st = "Calendars last checked " + stamp(data.weekAt, d);
   else if (data.calFailed && data.calFailed.length) st = data.calFailed.length + (data.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + data.calFailed.map(function (f) { return f.who; }).join(", ");

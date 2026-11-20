@@ -2193,13 +2193,20 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var SRC = schoolSources(PEOPLE, DEMO);
   // The card's hass, for the polls and writes that are the engine's own (data.js hassReady).
   function hassToken() { return hassReady(HA.hass()); }
+  // hass.connected is false while the browser has lost Home Assistant. Its states are then the last
+  // it had, and reading them would stamp old values fresh (a printer "running", read just now). So
+  // the polls read nothing while it is down, the status line says so with the time of the last
+  // read (CONN.at), and hud() reads everything again the moment it is back.
+  var CONN = { off: false, at: null };
+  function offline() { var h = HA.hass(); return !!h && h.connected === false; }
   // The loads themselves are in data.js (newLoader): the week, the holidays and the sensors each
   // land on their own, and put() merges each answer into DATA here, unless the engine has stopped
   // since. The demo makes its data up.
   var LOAD = newLoader(CONFIG, now, { setTimeout: setTimeout, clearTimeout: clearTimeout });
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { if (STOPPED) return; DATA = Object.assign({}, DATA, patch); if (retag) refreshTags();
+    if (offline()) return;
+    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { if (STOPPED) return; DATA = Object.assign({}, DATA, patch); CONN.at = new Date(); if (retag) refreshTags();
       if (openThing && openThing.person) openCard(openThing, false, true); });     // a person's card that is up shows what landed, in place
   }
   function demoData() {
@@ -2429,7 +2436,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (MFORCE) { var mt = (Q.match(/[?&]mtitle=([^&]+)/) || [])[1], ma = (Q.match(/[?&]martist=([^&]+)/) || [])[1];   // ?mtitle= / ?martist= with ?music=on
       MUSIC.on = MFORCE === "on"; MUSIC.title = MUSIC.on ? (mt ? decodeURIComponent(mt.replace(/\+/g, " ")) : "Hit Me Like a Drum") : null;
       MUSIC.artist = MUSIC.on ? (ma ? decodeURIComponent(ma.replace(/\+/g, " ")) : mt ? null : "Parov Stelar feat. Timothy Auld") : null; return; }
-    if (DEMO || !MUSIC_ID) return;
+    if (DEMO || !MUSIC_ID || offline()) return;
     hassToken().then(function (tok) { return getState(MUSIC_ID, tok); }).then(function (s) {
       MUSIC.on = isMusic(s); MUSIC.title = MUSIC.on ? s.attributes.media_title || null : null; MUSIC.artist = MUSIC.on ? s.attributes.media_artist || null : null;
       MUSIC.at = new Date(); MUSIC.err = null;
@@ -2440,12 +2447,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (DEMO) { PR = demoPrinter();
       if (PLFORCE) demoPersonLetter(decodeURIComponent(PLFORCE.replace(/\+/g, " ")));
       if (LFORCE) letterArrived(decodeURIComponent(LFORCE.replace(/\+/g, " ")), "hook"); return; }
+    if (offline()) return;
     hassToken().then(function (tok) {
       function opt(id) { if (!id) return Promise.resolve(null); return getState(id, tok).catch(function (e) { console.warn("meadow: " + id, e); return null; }); }
       return Promise.all(PR_KEYS.map(function (k) { return opt(PR_ID && PR_ID + k); }).concat([opt(SENSORS.letter), opt(SENSORS.rain)],
         OWNERS.map(function (o) { return opt(o.entity); })));
     }).then(function (s) {
-      setPrinter(s);
+      setPrinter(s); CONN.at = new Date();
       var l = s[6], txt = l && l.state, r = s[7] && s[7].state;
       if (OWNERS.length) { var ps = {}; OWNERS.forEach(function (o, i) { ps[o.entity] = s[8 + i]; }); personLetters(ps); }
       if (txt && !/^(unknown|unavailable)$/.test(txt) && txt.trim()) letterArrived(txt, txt + "|" + l.last_changed);
@@ -2985,7 +2993,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // card for the new today, letter and all (it is not read again, so nothing is cleared).
   var HUD_DAY = null;
   function hud() {
-    var d = now();
+    var d = now(), off = offline();
+    if (off !== CONN.off) { CONN.off = off; if (!off) { load(); loadLive(); loadMusic(); } }       // back: read it all now, not in five minutes
     if (HUD_DAY && HUD_DAY !== ymd(d)) { load(); if (openThing && openThing.person) openCard(openThing, false, true); }
     HUD_DAY = ymd(d);
     CD = countdowns(); PARTY = findParty(); HOUSE = findHouseParty(); renderDates();
@@ -2997,7 +3006,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       : DATA.events.length ? "Nothing else on today" : "";
     // Say out loud when the picture is old (data.js statusLine).
     // Written only when the words change: it is a live region, and a reader would say it every second.
-    var stl = statusLine(DATA, d, { demo: DEMO, demoInHa: DEMO && !!HA.hass(), letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
+    var stl = statusLine(DATA, d, { demo: DEMO, demoInHa: DEMO && !!HA.hass(), offline: off ? { at: CONN.at } : null, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
     if ($("status").textContent !== stl) $("status").textContent = stl;
     $("next").style.opacity = FLIGHT ? 0 : 1;
     extrasHud(d); postHud(d); refreshKeys(); layHud();

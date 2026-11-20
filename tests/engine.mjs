@@ -466,6 +466,32 @@ export async function engineChecks(src, T) {
     eq(card.$("status").textContent, want, "a week checked " + mins + " minutes ago " + (want ? "is flagged stale" : "is not stale"));
     done(card);
   }
+  // Home Assistant's connection drops: its cached states are not read as fresh, the status line
+  // says so with the time of the last read, and the moment it is back the card reads it all again.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    st["sensor.printer_print_status"] = { state: "running", attributes: {} };
+    const hass = fakeHass(st);
+    hass.connected = true;
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home", printer: "sensor.printer_" } }, hass);
+    await advance(1600);
+    const read = card.dbg.pr().at.getTime();
+    hass.connected = false;
+    await advance(7 * 60000);
+    frame();
+    eq(card.dbg.pr().at.getTime(), read, "disconnected: the printer's cached state is not read as fresh");
+    eq(card.dbg.state(), "empty", "so after six minutes the workshop has nothing fresh to show");
+    eq(card.$("status").textContent, "No connection to Home Assistant. Showing 12:00", "the status line says the connection is down, and how old the picture is");
+    const asked = hass.api.length;
+    hass.connected = true;
+    frame();
+    await flush();
+    ok(hass.api.length > asked && card.dbg.pr().at.getTime() > read && card.dbg.state() === "running", "back: the card reads the week and the printer at once, not at the next poll");
+    frame();
+    eq(card.$("status").textContent, "", "and the status line clears");
+    done(card);
+  }
   // The holidays: a failed fetch keeps the last list, and the status line says so and how old it is.
   {
     C.now = NOON;

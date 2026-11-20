@@ -210,6 +210,8 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   const quiet = { demo: false, letters: { bad: [] }, weatherLive: true };
   eq([m.statusLine({ events: [], error: "x", gotAt: new Date(2026, 9, 26, 11, 20) }, at, quiet), m.statusLine({ events: [], error: "x", gotAt: null }, at, quiet)],
     ["Can't load the week (x). Showing 11:20", "Can't load the week (x)"], "statusLine: a failed load says how old the week showing is, or nothing to show");
+  eq([m.statusLine(snap, at, Object.assign({}, quiet, { offline: { at: new Date(2026, 9, 25, 23, 58) } })), m.statusLine(snap, at, Object.assign({}, quiet, { offline: { at: null } }))],
+    ["No connection to Home Assistant. Showing Sun 25 23:58", "No connection to Home Assistant"], "statusLine: Home Assistant disconnected comes first, with the time of the last read");
   eq([m.statusLine({ events: [], gotAt: null }, at, quiet), m.statusLine({ events: [], gotAt: null }, at, { demo: true, letters: { bad: [] }, weatherLive: false })],
     ["Loading the week", ""], "statusLine: before the first load the week is loading, and the demo has nothing to load");
   eq([39, 41].map(function (mins) { return m.statusLine({ events: [], gotAt: at, weekAt: new Date(at - mins * 60000) }, at, quiet); }), ["", "Calendars last checked today 11:19"],

@@ -527,6 +527,9 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
 - **"No calendar picked".** That person has no calendar. Choose one in the editor.
 - **"Loading the week" and nothing else.** The card has no answer yet. If it never goes
   away, the browser has lost its connection to Home Assistant; reload the page.
+- **"No connection to Home Assistant. Showing 21:40".** The browser has lost Home Assistant.
+  The card shows what it last read, at that time, and reads everything again as soon as the
+  connection is back.
 
 ## Known limits
 

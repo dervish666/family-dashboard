@@ -207,6 +207,9 @@ engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  
 engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });//|stop() leaves the auto-close and a tap's open waiting
 engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open
 engine/engine.js|s/      FETCHES.splice(0).forEach(function (ac) { ac.abort(); });//|stop() leaves the office fetch running with no deadline
+engine/engine.js|s/^    if (offline()) return;$//|disconnected, the polls read the cached states and stamp them fresh
+engine/engine.js|s/if (!off) { load(); loadLive(); loadMusic(); }/if (!off) {}/|back from a lost connection the card waits for the next poll
+data.js|s/  else if (o.offline) st = /  else if (false) st = /|a lost connection to Home Assistant is not on the status line
 engine/engine.js|s/function (patch, retag) { if (STOPPED) return; /function (patch, retag) { /|a calendar answer that lands after stop() is published into the stopped engine
 engine/engine.js|s/^      if (openThing .. openThing.person) openCard(openThing, false, true); });/      });/|a card opened while its week is loading says Loading the week after the week lands
 data.js|s/if (!today() .. !newest("week", gen)) return;/if (!newest("week", gen)) return;/|a week asked for before midnight that lands after it is shown as today's

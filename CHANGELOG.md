@@ -29,6 +29,10 @@ Card
 - A child's lunch on the next school day skips a closed day: a Friday card shows Tuesday's
   menu after an INSET Monday. A timetable day with no lessons on it no longer walks a child to
   school; the lunch menu or the term dates decide.
+- When the browser loses Home Assistant the status line says "No connection to Home
+  Assistant" with the time of the last read, the cached states are not read again as fresh (a
+  printer no longer reads "running" with a new time), and the card reads everything the moment
+  the connection is back instead of at the next five-minute load.
 - A card that closes itself after a minute keeps an unread letter. Got it, Done and a tap
   outside still clear it. A read letter leaves the letter book. A letter read on a room panel
   while its card was up on the wall goes when the card closes itself, instead of coming back.
