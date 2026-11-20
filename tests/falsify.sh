@@ -207,5 +207,8 @@ engine/engine.js|s/else if (REDUCE_MQ.addListener) REDUCE_MQ.addListener(readRed
 engine/engine.js|s/at = REDUCED \&\& t.seen ? t.seen : seenAt(t)/at = seenAt(t)/|under reduced motion a tap aims at where the creature is, not where it was painted
 engine/engine.js|s/      if (REDUCED) fam.forEach(function (t) { t.seen = seenAt(t); }); }/      }/|under reduced motion nothing records where a creature was painted
 engine/engine.js|s/    if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }//|the demo asks Home Assistant for a week it does not have
+engine/engine.js|s/closeTimer = setTimeout(autoClose, 60000)/closeTimer = setTimeout(closeCard, 60000)/|the card closing itself clears an unread letter
+engine/engine.js|s/  \$("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });//|a tap inside the card does not start its minute again
+engine/engine.js|s/)) BOOK.live.push(r.l);/)) void 0;/|a letter kept by the auto-close is left out of the book, so a panel's Done cannot take it back
 EOF
 echo "ok: all $n sabotaged copies failed the check"

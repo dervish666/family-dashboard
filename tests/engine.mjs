@@ -554,6 +554,56 @@ export async function engineChecks(src, T) {
     done(card);
   }
 
+  // The card closing itself after a minute is not someone closing it: the letter stays on the
+  // tag and in its helper, and the next open shows it again. Done, or a tap on the scrim, then
+  // clears it. A tap inside the card (reading the School grid, say) starts the minute again.
+  for (const own of [false, true]) {
+    C.now = NOON;
+    const st = BASE_STATES(), id = own ? "input_text.letter_alex" : "input_text.family_letter", what = own ? "a per-person letter" : "a shared letter";
+    st[id] = { state: own ? "Parent 1|Coats on" : "Alex: Coats on", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    const ppl = own ? PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: id }, p) : p; }) : PEOPLE;
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home", letter: "input_text.family_letter" } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    await advance(30000);
+    card.$("card").fire("pointerdown");
+    await advance(59000);
+    ok(card.$("scrim").classList.contains("open"), what + ": a tap inside the card starts its minute again");
+    await advance(1000);
+    ok(!card.$("scrim").classList.contains("open"), what + ": the card closes itself a minute after the last tap");
+    eq(sets(hass, id).length, 0, what + ": closing itself does not clear the letter");
+    ok(alex.letter && !alex.letter.gone && alex.letter.text === "Coats on", what + ": and the badge stays on the tag");
+    card.dbg.open(alex, true);
+    ok(/Coats on/.test(text(card, "lists")), what + ": the next open shows it again");
+    if (own) card.$("scrim").fire("pointerdown"); else card.$("done").fire("click");
+    await flush();
+    eq(sets(hass, id).map(function (c) { return c.data.value; }), [""], what + ": " + (own ? "a tap on the scrim" : "Done") + " then clears it");
+    eq(alex.letter, null, what + ": and takes it off the tag");
+    done(card);
+  }
+  // A letter kept that way is back in the letter book: a panel's Done still takes it off the tag.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    st["input_text.letter_alex"] = { state: "Parent 1|Coats on", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    const ppl = PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: "input_text.letter_alex" }, p) : p; });
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home" } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    await advance(60000);
+    ok(!card.$("scrim").classList.contains("open") && alex.letter, "the card closed itself and the letter stayed");
+    st["input_text.letter_alex"] = { state: "", last_changed: "2026-10-26T12:01:10Z" };
+    await advance(45000);
+    eq(alex.letter, null, "a letter kept by the auto-close and read on a panel comes off the tag");
+    done(card);
+  }
+
   // Reduced motion: the world runs every frame and the scene repaints at most every few
   // seconds; the preference is followed live and let go on stop; a tap aims at where a creature
   // was painted, not where the world has moved it since. Seaside, so a letter comes by airmail.

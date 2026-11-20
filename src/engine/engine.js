@@ -3215,8 +3215,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var READING = null;
   function readLetter(t, tap) {
     var l = t.letter, h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
+    var inBook = BOOK.live.indexOf(l) >= 0;
     var plan = letterRead(BOOK, l, SENSORS.letter, sh);          // out of the book either way, so a read letter is never matched again
-    READING = { t: t, l: l, tap: tap, plan: l.src ? plan : null };
+    READING = { t: t, l: l, tap: tap, plan: l.src ? plan : null, inBook: inBook };
   }
   function settleLetter() {
     var r = READING; if (!r) return false;
@@ -3238,7 +3239,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var r = READING; if (!settleLetter()) return;
     var b = $("lists").querySelector(".post");
     if (b) b.outerHTML = '<div class="post done">' + (r.l.from ? "Letter from " + esc(r.l.from) + " cleared." : "Letter cleared.") + "</div>";
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+    armClose();
   }
   // again: redraw the card already open (midnight) without reading its letter again.
   function openCard(t, tap, again) {
@@ -3303,7 +3304,15 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     g.drawImage(bs.c, (pc.width - bs.c.width * fit) / 2, pc.height - 20 - bs.ay * fit, bs.c.width * fit, bs.c.height * fit);
     openThing = t; t.happy = 99;
     $("scrim").classList.add("open");
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);      // a wall panel forgets
+    armClose();                                                             // a wall panel forgets
+  }
+  function armClose() { clearTimeout(closeTimer); closeTimer = setTimeout(autoClose, 60000); }
+  // Closing on its own is not someone closing the card: an unread letter stays on its creature,
+  // and in the book, so the next open shows it again and a panel's Done still takes it back.
+  function autoClose() {
+    var r = READING; READING = null;
+    if (r && r.t.letter === r.l && r.inBook && !BOOK.live.some(function (x) { return x.src && x.src === r.l.src; })) BOOK.live.push(r.l);
+    closeCard();
   }
   function closeCard() {
     settleLetter();
@@ -3501,7 +3510,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     g.drawImage(BG, cut[0] * DPR, cut[1] * DPR, sw * DPR, sh * DPR, 0, (pc.height - pc.width * sh / sw) / 2, pc.width, pc.width * sh / sw);
     openThing = SCHOOL_CARD;
     $("scrim").classList.add("open");
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+    armClose();
   }
   // ── The workshop card ───────────────────────────────────────────────────────
   // The print job as the printer reports it: name, percent, time left and when
@@ -3542,7 +3551,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     g.restore();
     openThing = SHOP_CARD;
     $("scrim").classList.add("open");
-    clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000);
+    armClose();
   }
 
   // ── The banner plane ────────────────────────────────────────────────────────
@@ -3627,7 +3636,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   $("done").addEventListener("click", closeCard);
   $("lists").addEventListener("click", function (e) { if (e.target && e.target.className === "pgot") gotIt(); });
   $("scrim").addEventListener("pointerdown", function (e) { if (e.target === $("scrim")) closeCard(); });
-  $("lists").addEventListener("scroll", function () { clearTimeout(closeTimer); closeTimer = setTimeout(closeCard, 60000); });
+  $("lists").addEventListener("scroll", function () { if (openThing) armClose(); });
+  $("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });       // reading the School grid is not walking away
 
   cv.addEventListener("pointerdown", function (e) {
     if (openThing) return;

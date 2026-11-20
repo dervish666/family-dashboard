@@ -86,11 +86,12 @@ people:
   A letter that lands outside them waits; a pill by the postbox (meadow, winter village) or under
   the corner hint (the other scenes) says "Post goes at 07:09", or "... tomorrow" in the evening,
   until the post goes.
-- **Got it**, or closing the card (Done, a tap outside it, or the minute a wall card stays open),
-  empties the helper (`input_text.set_value` or `text.set_value`, value `""`), only if it still
-  holds the letter that was shown, so a newer letter that landed in the meantime stays. Until
-  v1.9.0 the card emptied it the moment it opened; it now waits so the letter can be read first.
-  Only a card opened with a tap writes: the demo, the test hooks and `?open=` never do.
+- **Got it**, or closing the card (Done, or a tap outside it), empties the helper
+  (`input_text.set_value` or `text.set_value`, value `""`), only if it still holds the letter
+  that was shown, so a newer letter that landed in the meantime stays. Until v1.9.0 the card
+  emptied it the moment it opened; it now waits so the letter can be read first. A card left
+  alone closes itself after a minute and empties nothing: the letter stays on the tag for the
+  next open. Only a card opened with a tap writes: the demo, the test hooks and `?open=` never do.
 - A helper emptied elsewhere (a panel's **Done**, the expiry) takes the letter back off the wall
   at the next poll, even if the postie is on the road with it. A new letter replaces an unread
   one in the same envelope.

@@ -138,7 +138,8 @@ the kit bag by the cottage, the house party and the office robot.
 ([Room panels](#room-panels-optional)), is carried to its person, and their name tag wears a red
 envelope badge until their card is opened. The card opens on a striped airmail sheet: who it is
 from, the words in large type, and **Got it**. Got it, or closing the card, clears the letter
-(before v1.9.0 opening the card cleared it). The post only goes while the family is up, from
+(before v1.9.0 opening the card cleared it). A card left alone closes itself after a minute and
+keeps the letter, so the next open shows it again. The post only goes while the family is up, from
 07:09 to 19:50 (20:50 on a party night). A letter sent outside those hours waits, and a pill by
 the postbox says when it goes, "Post goes at 07:09" or "... tomorrow"; the seaside, the forest
 and the station have no postbox, so theirs sits under the corner hint.
