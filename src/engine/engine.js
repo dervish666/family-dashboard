@@ -3,12 +3,13 @@ import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, cla
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
-import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
+import { lessonsOver, addDays, mondayOf } from "../school.js";
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
-import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel as dayLabelAt, DAYS, DAYS_LONG, MONTHS } from "../data.js";
+import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel as dayLabelAt, DAYS, DAYS_LONG, MONTHS,
+  schoolParse, choiceFor as lunchChoiceFor, schoolDay, weekday } from "../data.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -319,36 +320,6 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // are mostly notes ("Bin day"). No data, or data that cannot say, is no duty: they
   // stay in the meadow rather than act out a guess.
   var SCHOOL_OUT = false;                       // the village school's break, set by its scene
-  function weekday(d) { return d.getDay() >= 1 && d.getDay() <= 5; }
-  // true = school day, false = no school, null = cannot tell.
-  function schoolDay(name, d) {
-    if (!weekday(d)) return false;
-    var td = ymd(d);
-    // The child's own timetable and lunch sensors answer first (people[].timetable, .lunch).
-    var tt = ttFor(name, d);
-    if (tt && tt.status === "ok") return true;
-    if (tt && (tt.status === "closed" || tt.status === "weekend")) return false;
-    var ln = lunchFor(name, d);
-    if (ln && ln.status === "served") return true;
-    if (ln && ln.status === "closed") return false;
-    // Otherwise the term dates in SENSORS.extra.
-    var sc = ((DATA.extra || {}).schools || []).filter(function (s) { return s.who === name; })[0];
-    if (!sc || !sc.terms) return null;
-    if ((sc.days || []).some(function (x) { return x.date === td; })) return false;
-    // In term needs a known end still ahead; out of term needs a known gap either
-    // side. Some schools publish half their dates, and an open-ended term is an
-    // unknown, not a yes: Christmas must not show anyone at school.
-    var prevEnd = null, nextStart = null, inTerm = false, open = false;
-    sc.terms.forEach(function (t) {
-      if (t.to && t.to >= td && (!t.from || t.from <= td)) inTerm = true;
-      if (t.from && t.from <= td && !t.to) open = true;
-      if (t.to && t.to < td && (!prevEnd || t.to > prevEnd)) prevEnd = t.to;
-      if (t.from && t.from > td && (!nextStart || t.from < nextStart)) nextStart = t.from;
-    });
-    if (inTerm) return true;
-    if (!open && prevEnd && nextStart) return false;
-    return null;
-  }
   var PLACE = [[/swim/i, "pond"], [/football|rugby|match|training/i, "pitch"], [/\bband\b|drama|music|choir|cubs|scouts|beavers|club|rehears/i, "band"]];
   function placeFor(what) {
     if (/book club/i.test(what)) return "away";                      // at someone's house, not the bandstand
@@ -357,7 +328,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function dutyFor(t) {
     var name = t.person.name, d = now(), m = d.getHours() * 60 + d.getMinutes(), td = ymd(d);
-    if (KIDS.indexOf(name) >= 0 && m >= 8 * 60 + 35 && m < 15 * 60 + 15 && schoolDay(name, d) === true) return { where: "school", what: "School" };
+    if (KIDS.indexOf(name) >= 0 && m >= 8 * 60 + 35 && m < 15 * 60 + 15 && schoolDay(DATA, SRC, name, d) === true) return { where: "school", what: "School" };
     for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i];
       if (e.who !== name || e.day !== td || e.all_day || e.cont || !e.start) continue;     // a night shift's morning after is not a walk out
       var s = new Date(e.start), em = s.getHours() * 60 + s.getMinutes();
@@ -2222,23 +2193,10 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
   // Each child's school sources from people[].timetable, .lunch and .choice (data.js schoolSources).
   var SRC = schoolSources(PEOPLE, DEMO);
-  // Parsed once per child and day until the next load: schoolDay() asks every frame.
-  // { status: "loading" } until the first load has read the sensors.
-  function schoolParse(kind, name, d) {
-    var src = SRC[name] && SRC[name][kind];
-    if (!src) return null;
-    if (!DATA.school) return { status: "loading", lessons: [], options: [] };
-    var C = DATA.pc || (DATA.pc = {}), k = kind + "|" + name + "|" + ymd(d);
-    if (!(k in C)) { var st = DATA.school.states ? DATA.school.states[src.entity] : null;
-      C[k] = (kind === "timetable" ? parseTimetable : parseLunch)(st || null, d, now(), src.attribute); }
-    return C[k];
-  }
-  function ttFor(name, d) { return schoolParse("timetable", name, d); }
-  function lunchFor(name, d) { return schoolParse("lunch", name, d); }
-  function choiceFor(name, d, fromData) {
-    var c = SRC[name] && SRC[name].choice, S = DATA.school || {};
-    return lunchChoice(c || null, d, c && c.entity && S.states ? S.states[c.entity] : null, fromData);
-  }
+  // Parsed once per child and day until the next load (data.js schoolParse), with the test hooks' clock.
+  function ttFor(name, d) { return schoolParse(DATA, SRC, "timetable", name, d, now()); }
+  function lunchFor(name, d) { return schoolParse(DATA, SRC, "lunch", name, d, now()); }
+  function choiceFor(name, d, fromData) { return lunchChoiceFor(DATA, SRC, name, d, fromData); }
 
   // The card's hass, for the polls and writes that are the engine's own (data.js hassReady).
   function hassToken() { return hassReady(HA.hass()); }
@@ -3362,7 +3320,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     }
     if (S.kit) html += "<h2>Kit today</h2>" + row(SCHOOL_WHO.kit, S.kit.kit_today && S.kit.kit_today !== "none" ? S.kit.kit_today : "No kit needed");
     // Kids the data cannot place (no timetable, lunch or term dates) are not counted as home.
-    var days = KIDS.map(function (n) { return schoolDay(n, d); }), atSchool = days.filter(function (x) { return x === true; }).length;
+    var days = KIDS.map(function (n) { return schoolDay(DATA, SRC, n, d); }), atSchool = days.filter(function (x) { return x === true; }).length;
     sum = !weekday(d) ? "Weekend" : atSchool ? atSchool + (atSchool === 1 ? " child" : " children") + " at school today"
       : days.length && days.every(function (x) { return x === false; }) ? "No school today" : "Can't tell who has school today";
     // School items for every kid, soonest first

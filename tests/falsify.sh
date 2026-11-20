@@ -241,5 +241,6 @@ editor.js|s/: p.look .. LOOKS\[i % 6\],/: p.look ? p.look : "crow",/|an edit tur
 engine/engine.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
 data.js|s/  else if (L.clearErr) st = /  else if (false) st = /|a letter that could not be cleared is not on the status line
 data.js|s/  else if (o.annErr) st = /  else if (false) st = /|an announcement that could not be cleared is not on the status line
+data.js|s/  if (inTerm) return true;/  if (inTerm) return null;/|a day in term reads as cannot tell, so nobody goes to school on term dates alone
 EOF
 echo "ok: all $n sabotaged copies failed the check"

@@ -6,11 +6,13 @@
 //                                   the other sensors, each landing on its own through put()
 //   readWeek, holidays, ask         the calendar reads, each with its 20 s limit
 //   schoolSources(people, demo)     each child's timetable, lunch and choice entities
+//   schoolParse, choiceFor          a child's lessons, lunch and lunch choice on a day, from the snapshot
+//   schoolDay(data, src, name, d)   whether a child has school today: true, false, or null for cannot tell
 //   byStart(events)                 the week's order
 //   statusLine(data, d, o)          the HUD's status line: what is old or broken, most urgent first
 //   dayLabel(ds, t)                 "Today", "Tomorrow", "Thu 29", or "Thu 5 Nov" a week or more on
 import { weekRange, calendarPath, parseCalendarEvents } from "./calendar.js";
-import { readExtra } from "./school.js";
+import { parseTimetable, parseLunch, lunchChoice, readExtra } from "./school.js";
 import { pad2, ymd } from "./engine/draw.js";
 
 export var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -174,4 +176,51 @@ export function schoolEntities(SRC) {
   Object.keys(SRC).forEach(function (n) { var s = SRC[n];
     [s.timetable && s.timetable.entity, s.lunch && s.lunch.entity, s.choice && s.choice.entity].forEach(function (id) { if (id && ids.indexOf(id) < 0) ids.push(id); }); });
   return ids;
+}
+// Parsed once per child and day until the next load: schoolDay() asks every frame. The cache
+// sits on the snapshot (data.pc), which the loader's put() empties with each new read of the
+// sensors. { status: "loading" } until the first load has read them. today is the clock the
+// v1.1.0 flat shapes read ("today" and "tomorrow" rather than dates).
+export function schoolParse(data, SRC, kind, name, d, today) {
+  var src = SRC[name] && SRC[name][kind];
+  if (!src) return null;
+  if (!data.school) return { status: "loading", lessons: [], options: [] };
+  var C = data.pc || (data.pc = {}), k = kind + "|" + name + "|" + ymd(d);
+  if (!(k in C)) { var st = data.school.states ? data.school.states[src.entity] : null;
+    C[k] = (kind === "timetable" ? parseTimetable : parseLunch)(st || null, d, today, src.attribute); }
+  return C[k];
+}
+export function choiceFor(data, SRC, name, d, fromData) {
+  var c = SRC[name] && SRC[name].choice, S = data.school || {};
+  return lunchChoice(c || null, d, c && c.entity && S.states ? S.states[c.entity] : null, fromData);
+}
+export function weekday(d) { return d.getDay() >= 1 && d.getDay() <= 5; }
+// true = school day, false = no school, null = cannot tell. d is now.
+export function schoolDay(data, SRC, name, d) {
+  if (!weekday(d)) return false;
+  var td = ymd(d);
+  // The child's own timetable and lunch sensors answer first (people[].timetable, .lunch).
+  var tt = schoolParse(data, SRC, "timetable", name, d, d);
+  if (tt && tt.status === "ok") return true;
+  if (tt && (tt.status === "closed" || tt.status === "weekend")) return false;
+  var ln = schoolParse(data, SRC, "lunch", name, d, d);
+  if (ln && ln.status === "served") return true;
+  if (ln && ln.status === "closed") return false;
+  // Otherwise the term dates in sensors.extra.
+  var sc = ((data.extra || {}).schools || []).filter(function (s) { return s.who === name; })[0];
+  if (!sc || !sc.terms) return null;
+  if ((sc.days || []).some(function (x) { return x.date === td; })) return false;
+  // In term needs a known end still ahead; out of term needs a known gap either
+  // side. Some schools publish half their dates, and an open-ended term is an
+  // unknown, not a yes: Christmas must not show anyone at school.
+  var prevEnd = null, nextStart = null, inTerm = false, open = false;
+  sc.terms.forEach(function (t) {
+    if (t.to && t.to >= td && (!t.from || t.from <= td)) inTerm = true;
+    if (t.from && t.from <= td && !t.to) open = true;
+    if (t.to && t.to < td && (!prevEnd || t.to > prevEnd)) prevEnd = t.to;
+    if (t.from && t.from > td && (!nextStart || t.from < nextStart)) nextStart = t.from;
+  });
+  if (inTerm) return true;
+  if (!open && prevEnd && nextStart) return false;
+  return null;
 }

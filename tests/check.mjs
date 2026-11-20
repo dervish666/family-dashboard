@@ -210,6 +210,24 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   eq(["2026-10-26", "2026-10-27", "2026-10-29", "2026-10-31", "2026-11-05"].map(function (ds) { return m.dayLabel(ds, at); }), ["Today", "Tomorrow", "Thu 29", "Sat 31", "Thu 5 Nov"],
     "dayLabel: today, tomorrow, the day this week, and the month once a week or more on");
 }
+// Who has school (data.js schoolDay): the child's own timetable first, then the term dates.
+{
+  const src = m.schoolSources([{ name: "Sky", school: true, timetable: { entity: "sensor.sky_tt", attribute: "timetable" } }, { name: "Ann", school: true }, { name: "Home" }], false);
+  eq(src, { Sky: { timetable: { entity: "sensor.sky_tt", attribute: "timetable" }, lunch: undefined, choice: undefined } }, "schoolSources: only a child with a school entity has sources");
+  const tt = { weeks: ["A"], days: { A: { mon: ["Maths"], tue: ["Art"], wed: ["PE"], thu: ["Music"], fri: ["French"] } }, closed: ["2026-10-27"] };
+  const term = function (terms) { return { schools: [{ who: "Ann", terms: terms }] }; };
+  const snap = { events: [], school: { states: { "sensor.sky_tt": { state: "A", attributes: { timetable: tt } } } },
+    extra: term([{ label: "T1", from: "2026-09-01", to: "2026-10-23" }, { label: "T2", from: "2026-11-02", to: "2026-12-18" }]) };
+  const on = function (data, name, day) { return m.schoolDay(data, src, name, new Date(2026, 9, day, 12)); };
+  eq([on(snap, "Sky", 26), on(snap, "Sky", 27), on(snap, "Sky", 31), on({ events: [] }, "Sky", 26)], [true, false, false, null],
+    "schoolDay: a lesson day, a closed day, a Saturday, and nothing read yet");
+  eq([on(snap, "Ann", 26), m.schoolDay(snap, src, "Ann", new Date(2026, 10, 2, 12)), on({ events: [], extra: term([{ label: "T1", from: "2026-09-01", to: null }]) }, "Ann", 26), on(snap, "Home", 26)],
+    [false, true, null, null], "schoolDay: half term between two known terms, the first day back, an open-ended term, and no school data at all");
+  const first = m.schoolParse(snap, src, "timetable", "Sky", new Date(2026, 9, 26, 12), new Date(2026, 9, 26, 12));
+  eq([first.status, first.lessons.map(function (l) { return l.subject; }), m.schoolParse({ events: [] }, src, "timetable", "Sky", new Date(2026, 9, 26, 12)).status],
+    ["ok", ["Maths"], "loading"], "schoolParse: the day's lessons once the sensors are read, loading before");
+  ok(m.schoolParse(snap, src, "timetable", "Sky", new Date(2026, 9, 26, 9), new Date()) === first, "schoolParse: a child's day is parsed once per snapshot");
+}
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
