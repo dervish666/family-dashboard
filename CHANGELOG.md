@@ -13,6 +13,8 @@ Card
   card. None of them reads as a free day.
 - One stuck calendar no longer freezes the week, the weather and school. A calendar that takes
   more than 20 seconds counts as unavailable.
+- A calendar answer whose entries have no readable start counts as unavailable, not as a free
+  day with "Calendars checked".
 - An event over several days is on each of them. A night shift reads "until 06:00" the next
   morning, and a day it covers to midnight reads "All day", not "until 00:00". A v1.0.0
   template-sensor setup has no event ends, so it keeps one row per event.

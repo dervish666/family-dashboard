@@ -20,15 +20,18 @@ const YMD = /^\d{4}-\d\d-\d\d/, MIDNIGHT = /^.{10}T00:00(:00(\.0+)?)?([Z+-]|$)/;
 // first (or on the range's first day, for one that began before it) has cont: an all-day event
 // stays all day, a timed one says "until 06:00" on its last day and reads as all day between
 // (and on its last day too when it ends at 00:00 the day after).
-// Anything that is not a list throws, so a broken answer reads as unavailable, not empty.
+// Anything that is not a list throws, so a broken answer reads as unavailable, not empty, and
+// so does a list with entries none of which has a readable start.
 export function parseCalendarEvents(evs, who, range) {
   if (!Array.isArray(evs)) throw new Error("calendar answer is not a list");
   const first = localYmd(range.start), last = localYmd(new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate() - 1));
   const rows = [];
+  let read = 0;
   evs.forEach(function (e) {
     if (!e || !e.start) return;
     const allDay = !!e.start.date && !e.start.dateTime, s = String(allDay ? e.start.date : e.start.dateTime || "");
     if (!YMD.test(s)) return;
+    read++;
     const what = String(e.summary || "Busy"), sd = s.slice(0, 10), end = String(e.end && (allDay ? e.end.date : e.end.dateTime) || "");
     let ed = YMD.test(end) ? end.slice(0, 10) : sd;
     const atMidnight = ed > sd && (allDay || MIDNIGHT.test(end));   // ends as its last day ends: that day is all day
@@ -41,6 +44,7 @@ export function parseCalendarEvents(evs, who, range) {
       else rows.push({ who: who, what: what, day: day, all_day: true, start: day, at: "", end: end, cont: true });
     }
   });
+  if (evs.length && !read) throw new Error("calendar answer unreadable (" + evs.length + (evs.length === 1 ? " entry" : " entries") + ", none with a start)");
   return rows;
 }
 

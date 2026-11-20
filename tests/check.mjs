@@ -125,6 +125,9 @@ eq(cover("2026-10-30", "2026-11-20"), ["10-30 all day", "10-31 all day (cont)", 
 eq([cover("2026-10-28", "2026-10-28"), cover("2026-10-28T09:00:00+00:00", "2026-10-27T09:00:00+00:00"), cover("2026-10-28T09:00:00+00:00", "")], [["10-28 all day"], ["10-28 09:00"], ["10-28 09:00"]],
   "an end on, before or missing from its start is one day");
 throws(function () { m.parseCalendarEvents({ message: "Entity not found" }, "Alex", range); }, /not a list/, "an error answer is not an empty week");
+throws(function () { m.parseCalendarEvents([null, { summary: "Broken shift", start: {} }], "Alex", range); }, /^calendar answer unreadable \(2 entries, none with a start\)$/,
+  "an answer with entries but none readable is not an empty week");
+eq(m.parseCalendarEvents([], "Alex", range), [], "an empty answer is an empty week");
 // A person's card: a failed load, or one of their calendars down, is not a free day.
 const gotAt = new Date(2026, 9, 26, 12);
 eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "Alex"), m.calendarHealth({ events: [], error: "no calendar answered (calendar.alex)" }, "Alex"),
@@ -149,6 +152,9 @@ eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "
     "readWeek: the calendars that answered give the week, the one that failed is named with its owner");
   const allDown = await m.readWeek(tok({ "calendar.a": new Error("x"), "calendar.b": new Error("x"), "calendar.c": new Error("x") }), cal, at, timers).then(function () { return "resolved"; }, function (e) { return e.message; });
   eq(allDown, "no calendar answered (calendar.a, calendar.b, calendar.c)", "readWeek: every calendar failing is an error, not an empty week");
+  const junk = await m.readWeek(tok({ "calendar.a": [timedEv("Dentist", "15:00")], "calendar.b": [null, { start: {} }] }), cal, at, timers);
+  eq(junk.failed.map(function (f) { return [f.who, f.id, f.err]; }), [["Alex", "calendar.b", "calendar answer unreadable (2 entries, none with a start)"]],
+    "readWeek: a calendar whose answer has no readable event is named as failed, not read as free");
   timers.due = [];
   const hung = m.readWeek(tok({ "calendar.a": HOLD }), cal, at, timers);
   eq(timers.due.map(function (t) { return t[1]; }), [m.CAL_WAIT, m.CAL_WAIT, m.CAL_WAIT], "readWeek: each calendar asked waits CAL_WAIT on the engine's timers");
