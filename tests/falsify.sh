@@ -170,7 +170,7 @@ calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars dow
 engine/engine.js|s/d - DATA.weekAt > 40 \* 60000/d - DATA.weekAt > 400 * 60000/|a week hours old is not flagged stale
 engine/engine.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
 engine/engine.js|s/esc(up\[0\].what)/up[0].what/|the Next line stops escaping titles
-engine/engine.js|s/if (was != null \&\& s \&\& String(s.state) !== was) return;//|closing a card empties a shared letter that landed while it was up
+engine/engine.js|s/if (s \&\& String(s.state) !== l.was) return;//|closing a card empties a shared letter that landed while it was up
 engine/engine.js|s/if (!s .. String(s.state) !== c.expect) return;/if (!s) return;/|closing a card empties a per-person letter that landed while it was up
 engine/engine.js|s/return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });/return;/|closing a card never empties the shared helper
 engine/engine.js|s/window.cancelAnimationFrame(RAF);//|stop() leaves the frame queued
@@ -180,5 +180,6 @@ engine/engine.js|s/else if (DATA.holidaysErr) st = /else if (false) st = /|a fai
 engine/engine.js|s/holidays: s\[7\] .. (DATA.holidays .. \[\]),/holidays: s[7] ? s[7] : [],/|a failed holiday fetch drops the last list
 engine/engine.js|s/      .then(function (evs) { return evs.filter(/      .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
 card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
+engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
 EOF
 echo "ok: all $n sabotaged copies failed the check"

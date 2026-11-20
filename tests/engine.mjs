@@ -341,6 +341,33 @@ export async function engineChecks(src, T) {
     done(card);
   }
 
+  // Letter B lands in the shared helper before anyone opens letter A: closing A leaves B there,
+  // and reading B empties it.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    st["input_text.family_letter"] = { state: "Alex: Letter A", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home", letter: "input_text.family_letter" } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    st["input_text.family_letter"] = { state: "Alex: Letter B", last_changed: "2026-10-26T12:00:10Z" };
+    await advance(45000);
+    eq(card.dbg.LETTER.queue.map(function (l) { return l.text; }), ["Letter B"], "a second shared letter queues behind the first");
+    card.dbg.open(alex, true);
+    ok(/Letter A/.test(text(card, "lists")), "the card opens on letter A");
+    card.$("done").fire("click");
+    await flush();
+    eq(sets(hass, "input_text.family_letter").length, 0, "closing letter A leaves letter B in the helper");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    card.$("done").fire("click");
+    await flush();
+    eq(sets(hass, "input_text.family_letter").map(function (c) { return c.data.value; }), [""], "reading letter B empties the helper");
+    done(card);
+  }
+
   // ── stop(): the card leaves the page and takes its loop and timers with it ────────
   {
     C.now = NOON;

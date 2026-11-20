@@ -2502,17 +2502,18 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (m) { var nm = m[1].toLowerCase();
       who = PEOPLE.filter(function (p) { return [p.name].concat(p.aliases || []).some(function (a) { return a.toLowerCase() === nm; }); })[0]; if (who) body = m[2]; }
     if (!who) who = PEOPLE[PEOPLE.length - 1];
-    var l = { to: who.name, text: String(body).trim() || String(text), at: new Date(), key: key };
+    var l = { to: who.name, text: String(body).trim() || String(text), at: new Date(), key: key, was: String(text) };
     LETTER.queue.push(l);
     if (OWNERS.length) letterShared(BOOK, l, text);
   }
-  // The shared helper's letter, v1.7.0's way: empty the helper. was is what it held when the card
-  // opened: if it holds something else now, a newer letter landed while the card was up, so leave it.
-  function clearLetter(l, was) {
+  // The shared helper's letter, v1.7.0's way: empty the helper. l.was is what it held when this
+  // letter arrived: if it holds something else now, a newer letter has landed since (before the
+  // card opened or while it was up), so leave it.
+  function clearLetter(l) {
     if (DEMO || l.key === "hook" || !SENSORS.letter) return;
     hassToken().then(function (h) {
       var s = h && h.states && h.states[SENSORS.letter];
-      if (was != null && s && String(s.state) !== was) return;
+      if (s && String(s.state) !== l.was) return;
       return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });
     }).then(function () { LETTER.clearErr = null; })
       .catch(function (e) { console.warn("meadow: could not clear the letter", e); LETTER.clearErr = e.message || String(e); });
@@ -3184,13 +3185,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var READING = null;
   function readLetter(t, tap) {
     var l = t.letter, h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
-    READING = { t: t, l: l, tap: tap, plan: l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null, was: sh && sh.state != null ? String(sh.state) : null };
+    READING = { t: t, l: l, tap: tap, plan: l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null };
   }
   function settleLetter() {
     var r = READING; if (!r) return false;
     READING = null;
     if (r.t.letter === r.l) r.t.letter = null;
-    if (r.plan) clearPersonLetter(r.l, r.tap, r.plan); else clearLetter(r.l, r.was);
+    if (r.plan) clearPersonLetter(r.l, r.tap, r.plan); else clearLetter(r.l);
     return true;
   }
   function postBlock(l) {
