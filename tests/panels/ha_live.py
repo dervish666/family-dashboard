@@ -295,6 +295,29 @@ def main() -> int:
         settle()
         check(state(token, "input_text.letter_kid_a") == "" and state(token, "input_text.family_letter") == "",
               "Done empties the postie copy of its own letter")
+
+        print("open A, receive B, Done:")
+        # The panel froze A when it was opened and names A in its Done.
+        send(token, "kid_a", "Parent 1", "Letter A")
+        settle()
+        a_raw, a_sent = state(token, "input_text.letter_kid_a"), state(token, "input_datetime.letter_kid_a_sent")
+        send(token, "kid_a", "Parent 2", "Letter B")
+        settle()
+        b_sent = state(token, "input_datetime.letter_kid_a_sent")
+        fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": a_sent, "letter": a_raw})
+        settle()
+        check(state(token, "input_text.letter_kid_a") == "Parent 2|Letter B" and log_has(token, "is not the one the panel showed"),
+              "a Done for A, still on screen when B arrived, keeps B, and the log says why")
+        # The gap between the script's two writes: a new text, the old sent time.
+        call(token, "input_text", "set_value", {"entity_id": "input_text.letter_kid_a", "value": "Parent 3|Letter C"})
+        settle()
+        fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": b_sent, "letter": "Parent 2|Letter B"})
+        settle()
+        check(state(token, "input_text.letter_kid_a") == "Parent 3|Letter C",
+              "a Done for B keeps C, whose sent time has not landed yet")
+        fire(token, "esphome.family_letter_read", {"child": "kid_a", "sent": b_sent, "letter": "Parent 3|Letter C"})
+        settle()
+        check(state(token, "input_text.letter_kid_a") == "", "a Done naming the letter waiting, at its sent time, empties it")
         fire(token, "esphome.family_letter_read", {"child": "nobody", "sent": ""})
         settle()
         check(state(token, "input_text.letter_kid_b") == "Pa/rent|42", "a Done for an unknown child changes nothing")

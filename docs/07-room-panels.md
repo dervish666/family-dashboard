@@ -33,11 +33,15 @@ a `text` entity from another integration has the same ceiling. The script trims 
 which leaves about 230 characters of letter.
 
 **The sent time.** `input_datetime.letter_<slug>_sent` (date and time) is optional. The script
-sets it on every send. A panel's **Done** carries the value it saw, and the read automation
-only clears the letter when it still matches, so reading an old letter never deletes a new one.
-A **Done** that carries no sent time, or `unknown`, leaves the letter and writes why to the log:
-it cannot show which letter was read. Without the helper there is nothing to compare, and any
-**Done** for that child clears whatever letter is waiting. The daily expiry uses it, falling back to the helper's last change.
+sets it on every send. A panel freezes the letter when it is opened, and its **Done** carries
+that letter (`letter`, the helper value as it was) and its sent time (`sent`). The read
+automation only clears the helper when it still holds that letter and, with the sent helper
+set, that sent time, so a letter that arrives while another is on screen survives the **Done**.
+A **Done** that carries no sent time, or `unknown`, while the sent helper is set leaves the
+letter and writes why to the log: it cannot show which letter was read. Panel firmware from
+before `letter` was sent is matched on the sent time alone, and with no sent helper either its
+**Done** clears whatever letter is waiting. The daily expiry uses the sent time, falling back
+to the helper's last change.
 
 **Sending.** `script.family_send_panel_letter`, fields `to`, `sender` and `text`. `to` is a slug
 (`kid_a`) or a name (`Kid A`); the script slugifies it. It stops, and writes an error to the
@@ -49,9 +53,9 @@ templates.)
 **Reading.** A letter is read once and gone everywhere. Whoever reads it first empties the
 helper:
 
-- a panel's **Done** fires `esphome.family_letter_read` with `child` and `sent`, and the
-  `family_panel_letter_read` automation empties the helper. Home Assistant accepts `esphome.*`
-  events from an adopted device without the "allow actions" option.
+- a panel's **Done** fires `esphome.family_letter_read` with `child`, `sent` and `letter`, and
+  the `family_panel_letter_read` automation empties the helper. Home Assistant accepts
+  `esphome.*` events from an adopted device without the "allow actions" option.
 - the wall card: **Got it** on that person's card, or closing the card, empties the helper, the
   same thing a panel's **Done** does. See [The wall card](#the-wall-card) below.
 

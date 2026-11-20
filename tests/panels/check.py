@@ -466,36 +466,122 @@ def check_send_script(r: Report, ha: dict):
     r.check(any(render_bool(env, c, ctx) for c in reject_ifs), "send to kid_a with no helper: not refused")
 
 
-# A panel's Done against what the sent helper holds: (event data, helper state
-# or None for no helper, cleared?). A read that cannot be matched keeps the letter.
+# A panel's Done against what the helpers hold: (event data, sent helper state
+# or None for no helper, cleared?), with letter_kid_a holding LETTER_NOW. A
+# read that cannot be matched keeps the letter. Events with no `letter` are
+# from firmware before it sent one, and must work as they always did.
 SENT_NOW = "2026-11-01 10:00:00"
+SENT_OLD = "2026-10-31 09:00:00"
+LETTER_NOW = "Parent 1|Tea's at six"
+LETTER_OLD = "Parent 2|Bath at seven"
 READ_GUARD_CASES = [
     ({"child": "kid_a", "sent": SENT_NOW}, SENT_NOW, True),
-    ({"child": "kid_a", "sent": "2026-10-31 09:00:00"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_OLD}, SENT_NOW, False),
     ({"child": "kid_a", "sent": ""}, SENT_NOW, False),
     ({"child": "kid_a"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": "unavailable"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": "unknown"}, SENT_NOW, False),
     ({"child": "kid_a", "sent": ""}, None, True),
     ({"child": "kid_a", "sent": SENT_NOW}, None, True),
+    # With the letter the panel showed.
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": LETTER_NOW}, SENT_NOW, True),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": LETTER_OLD}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_OLD, "letter": LETTER_NOW}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_NOW}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": ""}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": "unavailable"}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": SENT_NOW, "letter": " " + LETTER_NOW}, SENT_NOW, False),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_NOW}, None, True),
+    ({"child": "kid_a", "sent": "", "letter": LETTER_OLD}, None, False),
+    ({"child": "kid_a", "sent": "", "letter": ""}, None, False),
 ]
+
+
+def read_guard(ha: dict):
+    """The read automation and the one `if` that stops it with 'Letter kept'."""
+    read = {a["id"]: a for a in ha["automation"]}["family_panel_letter_read"]
+    guards = [a["if"] for a in read["actions"] if isinstance(a, dict) and "if" in a and any(
+        isinstance(s, dict) and s.get("stop") == "Letter kept" for s in a.get("then", []))]
+    return read, guards
+
+
+def read_kept(env, read: dict, guard: str, data: dict, letter: str, held: str | None) -> bool:
+    """Would the read automation keep `letter` for this event? held is the sent
+    helper's state, None for no sent helper."""
+    st = {"input_text.letter_kid_a": letter}
+    if held is not None:
+        st["input_datetime.letter_kid_a_sent"] = held
+    ctx = render_vars(env, read["variables"], {"trigger": {"event": {"data": data}}, "states": FakeStates(st)})
+    return render_bool(env, guard, ctx)
 
 
 def check_read_guard(r: Report, ha: dict):
     env = ha_env()
-    read = {a["id"]: a for a in ha["automation"]}["family_panel_letter_read"]
-    guards = [a["if"] for a in read["actions"] if isinstance(a, dict) and "if" in a and any(
-        isinstance(s, dict) and s.get("stop") == "Letter kept" for s in a.get("then", []))]
+    read, guards = read_guard(ha)
     r.check(len(guards) == 1, "letter read: expected one guard that stops with 'Letter kept'")
     if len(guards) != 1:
         return
     for data, held, cleared in READ_GUARD_CASES:
-        st = {"input_text.letter_kid_a": "Parent 1|Tea's at six"}
-        if held is not None:
-            st["input_datetime.letter_kid_a_sent"] = held
-        ctx = render_vars(env, read["variables"], {"trigger": {"event": {"data": data}}, "states": FakeStates(st)})
-        kept = render_bool(env, guards[0], ctx)
+        kept = read_kept(env, read, guards[0], data, LETTER_NOW, held)
         r.check(kept != cleared, f"letter read {data} with sent helper {held!r}: cleared={not kept}, want {cleared}")
+
+
+# The kid panel's Done, then the read automation, for one letter on screen:
+# (shown, its sent time when opened, the helper now, its sent time now, the
+# panel's letter_kind now) -> (letter sent with Done, sent time sent, letter_kind
+# after). Home Assistant holds what the panel holds now; it must clear exactly
+# when the helper still holds the letter on screen, with or without the sent helper.
+S0, S1, S2 = "2026-11-01 09:00:00", "2026-11-01 10:00:00", "2026-11-01 10:05:00"
+A, B = "Parent 1|Tea's at six", "Parent 2|Bath at seven"
+LETTER_DONE_CASES = [
+    ("read A", (A, S1, A, S1, 2), (A, S1, 1)),
+    ("open A, receive B, Done", (A, S1, B, S2, 2), (A, S1, 2)),
+    ("open A, B's text lands before its time, Done", (A, S1, B, S1, 2), (A, S1, 2)),
+    ("A opened before its own time landed", (A, S0, A, S1, 2), (A, S1, 1)),
+    ("A opened before any time was heard", (A, "", A, S1, 2), (A, S1, 1)),
+    ("A emptied elsewhere while open", (A, S1, "", S1, 1), (A, S1, 1)),
+]
+
+
+def check_letter_done(r: Report, ha: dict, kid_src: str, cxx: str | None):
+    if cxx is None:
+        r.check(False, "no C++ compiler (c++) on PATH: the panel's Done was not checked")
+        return
+    block = cpp_block(kid_src, "letter-done")
+    calls = "\n  ".join("done(%s, %s, %s, %s, %d);" % (cstr(sh), cstr(osent), cstr(raw), cstr(sent), kind)
+                        for _, (sh, osent, raw, sent, kind), _ in LETTER_DONE_CASES)
+    src = f"""
+#include <cstdio>
+#include <string>
+static void done(const std::string &shown, const std::string &opened_sent, const std::string &raw,
+                 const std::string &sent, int kind) {{
+  std::string done_raw, done_sent;
+{block}
+  printf("%s\\x1f%s\\x1f%d\\x1e", done_raw.c_str(), done_sent.c_str(), kind);
+}}
+int main() {{
+  {calls}
+  return 0;
+}}
+"""
+    out = run_cpp(r, cxx, src, "panel Done C++")
+    if out is None:
+        return
+    rows = [row.split("\x1f") for row in out.split("\x1e")[:-1]]
+    r.check(len(rows) == len(LETTER_DONE_CASES), f"panel Done C++: {len(rows)} results for {len(LETTER_DONE_CASES)} cases")
+    env = ha_env()
+    read, guards = read_guard(ha)
+    for (what, (shown, _, raw, sent, _), want), got in zip(LETTER_DONE_CASES, rows):
+        got = (got[0], got[1], int(got[2]))
+        r.check(got == want, f"panel Done, {what}: sends ({got[0]!r}, {got[1]!r}), kind {got[2]}; want {want}")
+        if len(guards) != 1:
+            continue
+        data = {"child": "kid_a", "sent": got[1], "letter": got[0]}
+        for held in (sent, None):
+            kept = read_kept(env, read, guards[0], data, raw, held)
+            r.check(kept == (raw != shown),
+                    f"panel Done, {what}, sent helper {'set' if held else 'absent'}: Home Assistant "
+                    f"{'kept' if kept else 'cleared'} {raw!r}")
 
 
 def jinja_parse(env, auto_vars: dict, value: str, slug: str, recipients: dict):
@@ -931,6 +1017,23 @@ def check_consistency(r: Report, ha: dict, hak: dict, srcs: dict):
             "kid.yaml: the profile must not draw 'No letters' or 'Letters unavailable'")
     r.check(re.search(r"id: letter_button\n(?:.*\n){1,12}?\s+hidden: true", srcs["kid"]) is not None,
             "kid.yaml: the envelope button must start hidden")
+    # Done names the letter on screen: opening freezes it, letter-done reads
+    # the frozen copy, and the event carries it under the name the read
+    # automation compares.
+    kid_scripts = {s["id"]: json.dumps(s) for s in load_ha(srcs["kid"]).get("script", []) if isinstance(s.get("id"), str)}
+    opened = kid_scripts.get("open_letter", "")
+    r.check("id(shown_raw) = id(letter_raw).state;" in opened and "id(shown_sent) = id(letter_sent).state;" in opened,
+            "kid.yaml: open_letter must freeze the letter it shows (shown_raw, shown_sent)")
+    done = kid_scripts.get("letter_done", "")
+    r.check("shown = id(shown_raw)" in done and "opened_sent = id(shown_sent)" in done
+            and "id(read_raw) = done_raw;" in done and "id(read_sent) = done_sent;" in done,
+            "kid.yaml: letter_done must send the letter that was opened, not the helper's value now")
+    ev = re.search(r"event: esphome\.family_letter_read\n\s+data:\n((?:\s+\w+: .*\n)+)", srcs["kid"])
+    fields = dict(re.findall(r"(\w+): (.*)", ev.group(1))) if ev else {}
+    r.check(fields.get("sent") == "!lambda return id(read_sent);" and fields.get("letter") == "!lambda return id(read_raw);",
+            f"kid.yaml: Done must carry sent and letter, got {sorted(fields)}")
+    guard = read_guard(ha)[1]
+    r.check(bool(guard) and "trigger.event.data.letter" in guard[0], "letter read: the guard must compare the letter the panel sent")
     g = esphome_subs(srcs["garden"])
     r.check(g.get("theme") == "garden", "garden.yaml: theme defaults to garden")
     r.check(all(f"fly_{c}_{k}" in srcs["garden"] for c in ("pink", "lilac", "peach", "blue") for k in range(3))
@@ -1169,6 +1272,7 @@ def run(srcs: dict, quiet=False) -> Report:
     cxx = shutil.which("c++")
     check_send_script(r, ha)
     check_read_guard(r, ha)
+    check_letter_done(r, ha, srcs["kid"], cxx)
     check_parsers(r, ha, srcs["kid"], srcs["base"], cxx)
     check_panel_v2(r, srcs, cxx)
     check_kitchen_ha(r, hak)
@@ -1195,8 +1299,20 @@ SABOTAGES = [
      'if (false) {\n              kind = 3;'),
     ("panel reads a never-set helper as a letter", "kid", 'if (s == "unknown") s = "";', ""),
     ("a Done with no sent time clears the letter", "ha",
-     "{{ states(sent_helper) not in ['unknown', 'unavailable']\n",
-     "{{ seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
+     "{{ (states(sent_helper) not in ['unknown', 'unavailable']\n",
+     "{{ (seen_sent not in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']\n"),
+    ("read guard ignores the letter the panel showed", "ha",
+     "\n             or ('letter' in trigger.event.data\n                 and trigger.event.data.letter | string != states(helper)) }}",
+     " }}"),
+    ("read guard refuses a panel too old to send the letter", "ha", "or ('letter' in trigger.event.data\n", "or (true\n"),
+    ("Done sends the helper's sent time, not the shown letter's", "kid", "done_sent = opened_sent;", "done_sent = sent;"),
+    ("Done names the helper's letter, not the one on screen", "kid", "done_raw = shown;", "done_raw = raw;"),
+    ("Done hides a letter that replaced the one read", "kid", "              done_sent = opened_sent;\n",
+     "              done_sent = opened_sent;\n              kind = 1;\n"),
+    ("opening a letter stops freezing it", "kid", "                id(shown_raw) = id(letter_raw).state;\n", ""),
+    ("Done reads the helper again instead of the frozen letter", "kid", "std::string shown = id(shown_raw),",
+     "std::string shown = id(letter_raw).state,"),
+    ("Done stops sending the letter it showed", "kid", "                  letter: !lambda return id(read_raw);\n", ""),
     ("script checks the helper's state, not that it exists", "ha",
      "helper not in states.input_text | map(attribute='entity_id') | list", "states(helper) in ['unknown', 'unavailable']"),
     ("announcement drops the sender", "base", 'from.empty() ? text : from + ": " + text', "text"),
