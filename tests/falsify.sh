@@ -99,6 +99,7 @@ extras.js|s/\(if (!label .. !at) {\) bad++; return; }/\1 return; }/|due items th
 extras.js|s/return a.sort - b.sort/return b.sort - a.sort/|due items sort latest first
 extras.js|s/it.kind === "today" .. it.sort <= cap/true/|the row in the sky shows items days away
 extras.js|s/if (it.at <= t) {/if (it.at < t - 1e12) {/|an overdue item reads as due later
+extras.js|s/const x = Date.parse(s.replace(" ", "T"));/const x = Date.parse(s.replace(" ", "T").slice(0, 19));/|a due time's offset is dropped and its clock read as local
 extras.js|s/if (v >= th.from) color = th.color;/if (v > th.from) color = th.color;/|a value on a threshold does not take its colour
 extras.js|s/door ? (on ? "open" : "closed")/door ? (on ? "on" : "off")/|a door reads on and off
 extras.js|s/ .. s === "unknown"//|an unknown tile shows the word unknown

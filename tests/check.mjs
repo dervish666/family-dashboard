@@ -407,7 +407,12 @@ eq(D1.items.map(function (i) { return i.label + "|" + i.kind + "|" + i.rel + "|"
   "Trip form|later|due Thu|Thu|Thu|"], "sorted soonest first, worded");
 eq(pd([{ label: "x", due: "13:05" }]).items[0].rel, "due in 1h 5m", "hours and minutes");
 eq(pd([{ label: "x", due: "2026-11-10" }]).items[0].when, "Tue 10 Nov", "more than a week away gets a date");
-eq(pd([{ label: "x", due: "2026-10-26T09:00:00Z" }]).items[0].kind, "overdue", "an offset is honoured");
+// An hour before NOW, written in a zone three hours ahead of this one: its clock reads 14:00,
+// so only a parser that honours the offset calls it overdue. Built from the local offset, so
+// it holds in any TZ.
+const offAhead = 180 - NOW.getTimezoneOffset(), offWall = new Date(NOW.getTime() - 3600e3 + offAhead * 60000).toISOString().slice(0, 19);
+const offStr = offWall + (offAhead < 0 ? "-" : "+") + String(Math.floor(Math.abs(offAhead) / 60)).padStart(2, "0") + ":" + String(Math.abs(offAhead) % 60).padStart(2, "0");
+eq([offStr.slice(11, 16), pd([{ label: "x", due: offStr }]).items[0].kind], ["14:00", "overdue"], "an offset is honoured");
 eq(m.dueForHud(D1, NOW).map(function (i) { return i.label; }), ["Old", "Homework", "Dentist"], "the row in the sky takes three, soonest first");
 eq(m.dueForHud(D1, NOW, 9).map(function (i) { return i.label; }), ["Old", "Homework", "Dentist", "Library books", "Bins", "Today thing"], "and nothing more than 18 hours off");
 eq(m.parseDue({ state: "1", attributes: { items: JSON.stringify([{ label: "j", due: "13:00" }]) } }, "items", NOW).items.length, 1, "a JSON string attribute parses");
