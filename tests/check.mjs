@@ -105,11 +105,23 @@ const rows = m.parseCalendarEvents([
   { summary: "Half term", start: { date: "2026-10-24" }, end: { date: "2026-11-01" } },
   { start: { dateTime: "2026-10-29T18:00:00+01:00" } },
   { summary: "broken", start: {} }, null], "Alex", range);
-eq(rows, [
-  { who: "Alex", what: "Dentist", day: "2026-10-27", all_day: false, start: "2026-10-27T10:15:00+00:00", at: "10:15" },
-  { who: "Alex", what: "Bin day", day: "2026-10-28", all_day: true, start: "2026-10-28", at: "" },
-  { who: "Alex", what: "Half term", day: "2026-10-26", all_day: true, start: "2026-10-26", at: "" },
-  { who: "Alex", what: "Busy", day: "2026-10-29", all_day: false, start: "2026-10-29T18:00:00+01:00", at: "18:00" }], "calendar events become week rows");
+eq(rows[0], { who: "Alex", what: "Dentist", day: "2026-10-27", all_day: false, start: "2026-10-27T10:15:00+00:00", at: "10:15", end: "2026-10-27T11:00:00+00:00" }, "a calendar event becomes a week row");
+const brief = function (rs) { return rs.map(function (r) { return r.day.slice(5) + " " + (r.all_day ? "all day" : r.at) + " " + r.what + (r.cont ? " (cont)" : ""); }); };
+eq(brief(rows), ["10-27 10:15 Dentist", "10-28 all day Bin day", "10-26 all day Half term (cont)", "10-27 all day Half term (cont)", "10-28 all day Half term (cont)",
+  "10-29 all day Half term (cont)", "10-30 all day Half term (cont)", "10-31 all day Half term (cont)", "10-29 18:00 Busy"], "calendar events become week rows, one per day they cover");
+// Multi-day and overnight: every day an event covers inside the week, once. An all-day end is
+// exclusive, a timed one ending at 00:00 stops the day before, and a day after the first says
+// until when, or all day in between.
+const span = function (start, end) { return { summary: "x", start: start.length > 10 ? { dateTime: start } : { date: start }, end: end.length > 10 ? { dateTime: end } : { date: end } }; };
+const cover = function (start, end) { return brief(m.parseCalendarEvents([span(start, end)], "Alex", range)).map(function (r) { return r.replace(" x", ""); }); };
+eq(cover("2026-10-27", "2026-10-30"), ["10-27 all day", "10-28 all day (cont)", "10-29 all day (cont)"], "a Tuesday to Thursday trip is on all three days");
+eq(cover("2026-10-25T22:00:00+00:00", "2026-10-26T06:00:00+00:00"), ["10-26 until 06:00 (cont)"], "last night's shift reads until 06:00 this morning, not 22:00");
+eq(cover("2026-10-26T22:00:00+00:00", "2026-10-27T06:00:00+00:00"), ["10-26 22:00", "10-27 until 06:00 (cont)"], "tonight's shift starts tonight and ends tomorrow");
+eq(cover("2026-10-27T20:00:00+00:00", "2026-10-28T00:00:00+00:00"), ["10-27 20:00"], "an evening ending at 00:00 does not cover the next day");
+eq(cover("2026-10-27T10:00:00+00:00", "2026-10-29T16:00:00+00:00"), ["10-27 10:00", "10-28 all day (cont)", "10-29 until 16:00 (cont)"], "a three-day course: its start, all day, until its end");
+eq(cover("2026-10-30", "2026-11-20"), ["10-30 all day", "10-31 all day (cont)", "11-01 all day (cont)"], "a long trip stops at the end of the week");
+eq([cover("2026-10-28", "2026-10-28"), cover("2026-10-28T09:00:00+00:00", "2026-10-27T09:00:00+00:00"), cover("2026-10-28T09:00:00+00:00", "")], [["10-28 all day"], ["10-28 09:00"], ["10-28 09:00"]],
+  "an end on, before or missing from its start is one day");
 throws(function () { m.parseCalendarEvents({ message: "Entity not found" }, "Alex", range); }, /not a list/, "an error answer is not an empty week");
 // A person's card: a failed load, or one of their calendars down, is not a free day.
 const gotAt = new Date(2026, 9, 26, 12);

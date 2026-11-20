@@ -214,5 +214,14 @@ engine/engine.js|s/var xr = readExtra(s\[0\] ? s\[0\].attributes : null);/var xr
 engine/engine.js|s/    if (DATA.extraBad \&\& DATA.extraBad.length) return "School info unreadable/    if (false) return "School info unreadable/|school info in the wrong shape is left out without a word on the cards
 school.js|s/const kept = v.map(each).filter(function (x) { return x != null; })/const kept = v.slice()/|an entry of sensors.extra in the wrong shape is kept
 school.js|s/if (!Array.isArray(v)) { bad.push(key + " is not a list"); return \[\]; }/if (!Array.isArray(v)) return [];/|a part of sensors.extra that is not a list is dropped without a word
+calendar.js|s/for (let day = sd < first ? first : sd; day <= ed /for (let day = sd < first ? first : sd; day <= (sd < first ? first : sd) /|an event is listed on its first day only
+calendar.js|s/(allDay .. MIDNIGHT.test(end))/(MIDNIGHT.test(end))/|an all-day event's end date counts as one of its days
+calendar.js|s/(allDay .. MIDNIGHT.test(end))/(allDay)/|a timed event ending at 00:00 covers the next day too
+calendar.js|s/at: "until " + end.slice(11, 16)/at: s.slice(11, 16)/|the morning after a night shift reads the time it started
+engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day after a late shift walks the creature out at the time it started
+engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
+engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day
+engine/engine.js|s#      if (e.cont) continue;  *// the second day of a trip#      // the second day of a trip#|the banner's next thing on is the second day of a trip
+engine/engine.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
 EOF
 echo "ok: all $n sabotaged copies failed the check"

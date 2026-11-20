@@ -367,7 +367,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var name = t.person.name, d = now(), m = d.getHours() * 60 + d.getMinutes(), td = ymd(d);
     if (KIDS.indexOf(name) >= 0 && m >= 8 * 60 + 35 && m < 15 * 60 + 15 && schoolDay(name, d) === true) return { where: "school", what: "School" };
     for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i];
-      if (e.who !== name || e.day !== td || e.all_day || !e.start) continue;
+      if (e.who !== name || e.day !== td || e.all_day || e.cont || !e.start) continue;     // a night shift's morning after is not a walk out
       var s = new Date(e.start), em = s.getHours() * 60 + s.getMinutes();
       if (!isNaN(em) && m >= em - 20 && m < em + 60) return { where: placeFor(e.what), what: e.what };
     }
@@ -1708,7 +1708,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function findParty() {
     if (PFORCE) return forcedParty("rave");
     var td = ymd(now());
-    for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td) continue;
+    for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td || e.cont) continue;     // a party is on the day it starts
       var P = partyFor(e.what); if (P) { P.start = startOf(e); return P; } }
     // no calendar entry needed: the countdown list knows the family's own days
     for (i = 0; i < CD.length; i++) if (CD[i].days === 0 && CD[i].rave) { P = partyFor(CD[i].rave); if (P) { P.start = 17; return P; } }
@@ -1720,7 +1720,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // day outranks a friend's birthday for the card over the chimney
     for (var i = 0; i < CD.length; i++) if (CD[i].days === 0) return { who: [], label: CD[i].party, start: 17 };
     var td = ymd(now());
-    for (i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td) continue;
+    for (i = 0; i < DATA.events.length; i++) { var e = DATA.events[i]; if (e.day !== td || e.cont) continue;
       var P = friendParty(e.what); if (P) { P.start = startOf(e); return P; } }
     return null;
   }
@@ -2426,7 +2426,12 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return { "sensor.demo_timetable_1": { state: "A", attributes: { timetable: tt1 } }, "sensor.demo_timetable_2": { state: "A", attributes: { timetable: tt2 } },
       "sensor.demo_lunch_2": { state: "served", attributes: l2 }, "sensor.demo_lunch_3": { state: "served", attributes: l3 } };
   }
-  function byStart(ev) { return ev.slice().sort(function (a, b) { return new Date(a.start) - new Date(b.start); }); }
+  // By day, then all day, then a timed event carried over from an earlier day, then start. Day
+  // first: a carried-over row keeps its first day's start, so start alone sorts it back there.
+  function byStart(ev) {
+    function rank(e) { return e.all_day ? 0 : e.cont ? 1 : 2; }
+    return ev.slice().sort(function (a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) || new Date(a.start) - new Date(b.start); });
+  }
   function todayFor(name) { var td = ymd(now()); return DATA.events.filter(function (e) { return e.who === name && e.day === td; }); }
   function refreshTags() {
     PEOPLE.forEach(function (p) { TAGS[p.name] = bakeTag(p, todayFor(p.name).length); });
@@ -3569,6 +3574,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function nextEvent() {
     var d = now(), td = ymd(d);
     for (var i = 0; i < DATA.events.length; i++) { var e = DATA.events[i];
+      if (e.cont) continue;                                     // the second day of a trip is not the next thing on
       if ((!e.all_day && new Date(e.start) > d) || (e.all_day && e.day > td)) return e; }
     return null;
   }
@@ -3724,6 +3730,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     requestAnimationFrame(frame);
     // ?dbg exposes the sim for a headless check (positions, duties, the printer, the letters).
     if (/[?&]dbg\b/.test(Q)) window.meadow = { fam: fam, LETTER: LETTER, book: function () { return BOOK; }, pr: function () { return PR; }, music: function () { return { m: MUSIC, t: MUSIC_T, dance: DANCE, sign: SIGN && { w: SIGN.w, h: SIGN.h } }; }, fps: function () { return FPST; }, isMusic: isMusic, state: printerState, open: openCard, shop: openShop,
+      duty: dutyFor, next: nextEvent, parties: function () { return [PARTY, HOUSE]; },
       office: function () { return { o: OFFICE, robot: ROBOT && { x: ROBOT.x, y: ROBOT.y, bub: ROBOT.bubBox } }; }, officeLine: officeLine, nav: function () { return NAVS; }, go: goView, inZone: inZone,
       extras: function () { return { ann: XS.ann, due: XS.due, tiles: XS.tiles, taps: XS.taps, hidden: XS.hidden }; },
       crier: function () { var C = CRIER; return { on: !!CRY, read: XS.crier, want: CWANT && CWANT.key, dismissed: XS.dismissed, clears: XS.clears, err: XS.clearErr, banner: XS.annKey,

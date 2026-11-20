@@ -80,8 +80,9 @@ sensors:
   weather: weather.forecast_home
 ```
 
-The card reads each calendar through Home Assistant's calendar API every five minutes. A
-calendar that does not answer, or takes more than 20 seconds, is named on its owner's card and
+The card reads each calendar through Home Assistant's calendar API every five minutes. An
+event over several days is on each of them, and a night shift that ends at 06:00 reads "until
+06:00" the next morning, not the time it started. A calendar that does not answer, or takes more than 20 seconds, is named on its owner's card and
 in the corner, so a missing calendar never reads as a free day. Until the first answer the card
 says the week is still loading. The school data sensor (`sensors.extra`) works the same
 way: off when empty, "School info unavailable" when it is set but missing, and "School info

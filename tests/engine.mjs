@@ -482,6 +482,36 @@ export async function engineChecks(src, T) {
     done(card);
   }
 
+  // Multi-day and overnight events, on the card: a trip on each of its days, last night's shift
+  // until when it ended, not at the time it started. A day after an event's first is no walk
+  // out, no party and not the next thing on.
+  {
+    const ev = function (summary, start, end) { return { summary: summary, start: start.length > 10 ? { dateTime: start } : { date: start }, end: end.length > 10 ? { dateTime: end } : { date: end } }; };
+    const cals = { "calendar.alex": [ev("Night shift", "2026-10-26T22:00:00+00:00", "2026-10-27T06:00:00+00:00"), ev("Trip", "2026-10-27", "2026-10-30"),
+      ev("Late shift", "2026-10-27T22:00:00+00:00", "2026-10-28T06:00:00+00:00"), ev("Alex's birthday party", "2026-10-26T19:00:00+00:00", "2026-10-27T01:00:00+00:00"),
+      ev("Dentist", "2026-10-29T10:00:00+00:00", "2026-10-29T10:30:00+00:00")],
+      "calendar.house": [ev("Pat's birthday", "2026-10-26T19:00:00+00:00", "2026-10-27T01:00:00+00:00")] };
+    const at = async function (when) { C.now = when; const hass = fakeHass(BASE_STATES()); hass.answer = route(cals); const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass); frame(); return card; };
+    const rows = function (card) { return [...text(card, "lists").matchAll(/<h2>([^<]*)<\/h2>|<div class="when">([^<]*)<\/div><div class="what">([^<]*)</g)].map(function (m) { return m[1] ? "# " + m[1] : m[2] + " " + m[3]; }); };
+    let card = await at(local(2026, 10, 27, 9, 0));                    // Tuesday morning
+    card.dbg.open(person(card, "Alex"), true);
+    eq(rows(card), ["# Today", "All day Trip", "until 01:00 Alex's birthday party", "until 06:00 Night shift", "22:00 Late shift",
+      "# This week", "Tomorrow Trip", "Tomorrow until 06:00 Late shift", "Thu 29 Trip", "Thu 29 10:00 Dentist"], "a trip is on each of its days, and last night's shift reads until 06:00");
+    eq(card.$("sum").textContent, "4 things today", "what carries on into today counts on the card");
+    ok(/^Next: <b>22:00<\/b> Alex, Late shift/.test(text(card, "next")), "the Next line is tonight's shift, not last night's");
+    eq(card.dbg.parties().map(function (p) { return p && p.label; }), [null, null], "a party that ran past midnight is not on again the next day");
+    card.$("done").fire("click");
+    card.dbg.open(person(card, "House"), true);
+    ok(rows(card).indexOf("until 01:00 Pat's birthday") === 1, "the House card has the party until 01:00");
+    done(card);
+    card = await at(local(2026, 10, 27, 22, 30));
+    eq(card.dbg.next() && card.dbg.next().what, "Dentist", "the next thing on is Thursday's dentist, not the second day of the trip");
+    done(card);
+    card = await at(local(2026, 10, 28, 21, 50));                       // Wednesday evening
+    eq(card.dbg.duty(person(card, "Alex")), null, "the morning after a late shift is no walk out at the time it started");
+    done(card);
+  }
+
   // ── Letters: closing a card never empties a helper that has moved on ────────────
   // The shared helper (sensors.letter): Letter A arrives, is opened; if the helper still holds
   // A on close it is emptied, and if a newer letter landed while the card was up it is left.
