@@ -202,7 +202,7 @@ popup.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card'
 data.js|s/  else if (!data.gotAt \&\& !o.demo) st = "Loading the week";//|the status line never says the week is loading
 data.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
 data.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
-data.js|s/if (newest("week", gen)) put({ error: /if (newest("week", gen)) put({ events: [], error: /|a failed reload throws away the last good week
+data.js|s/if (today() \&\& newest("week", gen)) put({ error: /if (today() \&\& newest("week", gen)) put({ events: [], error: /|a failed reload throws away the last good week
 data.js|s/calFailed: wk.failed, error: null, gotAt/calFailed: wk.failed, gotAt/|a good load after a failed one leaves "Can't load the week" up until the page reloads
 editor.js|s/else p.calendar = cal.length === 1 ? cal\[0\] : cal;/else p.calendar = cal[0];/|the editor writes only the first of two calendars
 engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  function setTimeoutX(f, ms) { var id = window.setTimeout(/|the engine's timeouts are not its own, so stop() cannot clear them
@@ -222,7 +222,7 @@ engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) letter = R
 data.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
 engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
 engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
-data.js|s/". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayWord(ymd(data.gotAt), d) + " ") +/". Showing " +/|an overnight outage's Showing time has no day
+data.js|s/". Showing " + (ymd(at) === ymd(d) ? "" : dayWord(ymd(at), d) + " ") +/". Showing " +/|an overnight outage's Showing time has no day
 data.js|s/return w === "Today" .. w === "Tomorrow" ? w.toLowerCase() : w;/return w.toLowerCase();/|the status line lower-cases a day: "Showing mon 26"
 engine/engine.js|s/^    update(dt);$//;s/if (!REDUCED .. ms - lastPaint >= REDUCED_PAINT) { lastPaint = ms; /&update(dt); /|reduced motion stops the world between paints, not just the picture
 engine/engine.js|s/REDUCED_PAINT = 10000;/REDUCED_PAINT = 4000;/|reduced motion repaints every four seconds
