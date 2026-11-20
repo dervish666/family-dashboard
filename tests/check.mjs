@@ -256,6 +256,21 @@ eq(m.lunchChoice({ entity: "input_select.k" }, monday, { state: "unavailable" },
 eq(m.lunchChoice({ value: "packed" }, monday, null, "Jacket potato").text, "Jacket potato", "the menu's day choice beats the config");
 eq(m.lunchChoice(null, monday, null, ""), null, "nothing says, nothing shown");
 
+// readExtra: sensors.extra's attributes, checked. The documented example reads clean; a part in
+// the wrong shape is left out and named, and the rest is kept.
+const exJson = JSON.parse(fs.readFileSync(new URL("../homeassistant/www/family-extra.example.json", import.meta.url), "utf8"));
+const exOk = m.readExtra(exJson);
+eq([exOk.bad, exOk.data.items.length, exOk.data.schools.map(function (s) { return s.terms[0].to; }), exOk.data.sources.unavailable, exOk.data.needs_human],
+  [[], 6, ["2026-10-23", "2026-10-23"], ["second-mailbox"], 1], "the documented sensors.extra reads clean, other keys kept");
+const exBad = m.readExtra({ checked_at: "yesterday", sources: { unavailable: "mailbox" }, items: [{ who: "Sky", date: "2026-10-27", what: "PE kit" }, "Swimming", { who: "Sky", date: "soon", what: "x" }],
+  kit: { who: "Sky" }, flags: ["Heads up", { text: "x" }], schools: [{ who: "Sky", terms: "Term 1", days: [{ date: "2026-11-02", what: "INSET" }] }, { school: "No one" },
+    { who: "Ash", terms: [{ label: "Term 1", from: "2026-09-01", to: "2026-10-23" }, { label: "Bad", to: 23 }] }] });
+eq(exBad.bad, ["checked_at is not a time", "sources.unavailable is not a list", "2 entries in items", "kit is not a list", "1 entry in flags", "terms of Sky is not a list",
+  "1 entry in terms of Ash", "1 entry in schools"], "each part in the wrong shape is named");
+eq([exBad.data.checked_at, exBad.data.sources.unavailable, exBad.data.items, exBad.data.kit, exBad.data.flags, exBad.data.schools.map(function (s) { return [s.who, s.terms.length, s.days.length]; })],
+  [undefined, [], [{ who: "Sky", date: "2026-10-27", kind: "", what: "PE kit" }], [], ["Heads up"], [["Sky", 0, 1], ["Ash", 1, 0]]], "and left out, with the rest kept");
+eq([m.readExtra(null), m.readExtra("x").bad, m.readExtra({ schools: "Example" }).data.schools], [{ data: null, bad: [] }, ["the attributes are not a mapping"], []], "no attributes, a string, a string list");
+
 // ── Announcement, due times, status tiles (v1.6.0) ─────────────────────────────────
 // Config: absent means off, so a v1.5.1 config normalises to exactly what it did, plus three empty keys.
 const off = m.normalize({ people: [{ name: "A", calendar: "calendar.a" }, { name: "H" }] });

@@ -397,6 +397,34 @@ export async function engineChecks(src, T) {
     done(card);
   }
 
+  // sensors.extra in the wrong shape (schools as a string, an item that is not one): that part
+  // is left out and named on the cards, and the HUD, the world and the rest of the school info
+  // carry on. The child's timetable and lunch sensors in odd shapes break nothing either.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    st["sensor.family_extra"] = { state: "3", attributes: { checked_at: "2026-10-26T08:00:00+00:00", schools: "Example Secondary",
+      items: [{ who: "Sky", date: DAY, kind: "kit", what: "PE kit" }, "Swimming"], kit: [{ who: "Sky", what: "Reading book every day" }] } };
+    st["sensor.sky_tt"] = { state: "A", attributes: { timetable: { weeks: "A", days: { A: { mon: "Maths" } }, periods: "p1", closed: 3 } } };
+    st["sensor.sky_lunch"] = { state: "served", attributes: { menu: { [DAY]: { options: "Pasta", pudding: 3 } }, menu_ends: {} } };
+    const hass = fakeHass(st);
+    const ppl = PEOPLE.map(function (p) { return p.name === "Sky" ? Object.assign({ school: true, timetable: "sensor.sky_tt", lunch: "sensor.sky_lunch" }, p) : p; });
+    const card = await boot({ people: ppl, query: "dbg&open=school", sensors: { weather: "weather.home", extra: "sensor.family_extra" } }, hass);
+    let threw = null;
+    try { for (let i = 0; i < 5; i++) frame(); await advance(2 * 60000); frame(); } catch (e) { threw = e.message; }
+    eq(threw, null, "school info in the wrong shape: the world and the HUD keep running");
+    ok(/^12:02/.test(text(card, "clock")), "and the clock moves on");
+    eq(card.$("who").textContent, "School", "the School card opens");
+    const bad = "School info unreadable (1 entry in items, schools is not a list).";
+    ok(text(card, "lists").indexOf(bad) >= 0, "the School card says which part of the school info it could not read");
+    ok(/PE kit/.test(text(card, "lists")) && /Reading book every day/.test(text(card, "lists")), "and still shows the parts that were fine");
+    card.$("done").fire("click");
+    card.dbg.open(person(card, "Sky"), true);
+    ok(text(card, "lists").indexOf(bad) >= 0 && /PE kit/.test(text(card, "lists")), "a child's card says so too, and keeps their good items");
+    ok(logs.some(function (l) { return /meadow: sensor\.family_extra unreadable: 1 entry in items, schools is not a list/.test(l); }), "the unreadable school info is logged");
+    done(card);
+  }
+
   // Midnight: the week reloads for the new seven days and an open card redraws for the new
   // today without reading its letter again; a slow load from before midnight that lands after
   // the new one is dropped.

@@ -3,7 +3,7 @@ import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, cla
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
-import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
+import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf, readExtra } from "../school.js";
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
@@ -2349,7 +2349,10 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var hols = holidays(tok).then(function (h) { if (newest("hol", gen)) DATA = Object.assign({}, DATA, { holidays: h, holidaysErr: null, holidaysAt: new Date() }); },
         function (e) { console.warn("meadow: holidays", e); if (newest("hol", gen)) DATA.holidaysErr = (e && (e.message || e.body && e.body.message)) || String(e); });   // the last good list stays
       var rest = Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]).then(function (s) {
-        DATA = Object.assign({}, DATA, { extra: s[0] ? s[0].attributes || null : null, extraErr: extraErr, school: { states: s[1], kit: s[2] && s[2].attributes, err: schoolErr },
+        // a part of it in the wrong shape is left out and named on the cards, not handed to a forEach
+        var xr = readExtra(s[0] ? s[0].attributes : null);
+        if (xr.bad.length) console.warn("meadow: " + SENSORS.extra + " unreadable: " + xr.bad.join(", "));
+        DATA = Object.assign({}, DATA, { extra: xr.data, extraBad: xr.bad, extraErr: extraErr, school: { states: s[1], kit: s[2] && s[2].attributes, err: schoolErr },
           pc: null, sun: s[3] && s[3].attributes, weather: s[4] ? { state: s[4].state, attributes: s[4].attributes } : null, othersAt: new Date() });
         refreshTags();
       });
@@ -3201,10 +3204,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function row(when, what, chip, raw) {
     return '<div class="row"><div class="when">' + esc(when) + '</div><div class="what">' + (chip ? '<span class="chip">' + esc(chip) + "</span>" : "") + (raw ? what : esc(what)) + "</div></div>";
   }
-  // What to say about sensors.extra: nothing when it is off (null) or loaded, and a
-  // plain "unavailable" when it is configured but did not answer.
+  // What to say about sensors.extra: nothing when it is off (null) or loaded, a plain
+  // "unavailable" when it is configured but did not answer, and "unreadable" with what was
+  // left out when part of it was in the wrong shape (readExtra in school.js).
   function extraState() {
-    if (!SENSORS.extra || DATA.extra) return "";
+    if (!SENSORS.extra) return "";
+    if (DATA.extraBad && DATA.extraBad.length) return "School info unreadable (" + DATA.extraBad.join(", ") + ").";
+    if (DATA.extra) return "";
     if (DATA.extraErr) return "School info unavailable (" + DATA.extraErr + ").";
     return DATA.othersAt ? "School info unavailable." : "";
   }
