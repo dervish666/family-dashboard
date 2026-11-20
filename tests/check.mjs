@@ -1,5 +1,6 @@
 // Runnable check for the parts of the card that need no real pixels: config normalisation,
-// calendar parsing, the school timetable and lunch parsers, the announcement extras and the town crier's
+// calendar parsing, the loads from Home Assistant (data.js, on a fake hass), the school timetable and
+// lunch parsers, the announcement extras and the town crier's
 // rules, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
 // throwing). Then the engine itself, booted from src/ by tests/engine.mjs. No dependencies.
@@ -129,6 +130,62 @@ eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "
   m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }], gotAt: gotAt }, "Sky"), m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }], gotAt: gotAt }, "Alex"),
   m.calendarHealth({ events: [], extra: null, weekAt: null, error: null, gotAt: null }, "Alex")],
   ["ok", "error", "failed", "ok", "loading"], "calendar health: loaded and free, total failure, one of theirs down, someone else's down, before any load");
+
+// ── The loads (data.js), without the engine ───────────────────────────────────────
+// A fake hass whose callApi answers from a map (an answer, an Error, or HOLD to stay open),
+// and timers the case fires by hand.
+{
+  const HOLD = {}, logs = [], warnWas = console.warn, errorWas = console.error;
+  console.warn = console.error = function () { const l = [].slice.call(arguments).join(" "); if (/^FAIL /.test(l)) errorWas(l); else logs.push(l); };   // a FAIL still reaches the console
+  const tok = function (map) { return { states: {}, asked: [], callApi: function (method, p) { this.asked.push(p);
+    const id = (String(p).match(/^calendars\/([^?]+)\?/) || [])[1], a = map[id] === undefined ? [] : map[id];
+    return a === HOLD ? new Promise(function () {}) : a instanceof Error ? Promise.reject(a) : Promise.resolve(a); } }; };
+  const timers = { due: [], setTimeout: function (f, ms) { this.due.push([f, ms]); return this.due.length; }, clearTimeout: function (id) { if (this.due[id - 1]) this.due[id - 1][0] = null; } };
+  const at = new Date(2026, 9, 26, 12), cal = { calendarMode: true, sensors: {}, people: [{ name: "Alex", calendars: ["calendar.a", "calendar.b"] }, { name: "Sky", calendars: ["calendar.c"] }] };
+  const timedEv = function (what, hm) { return { summary: what, start: { dateTime: "2026-10-26T" + hm + ":00+00:00" }, end: { dateTime: "2026-10-26T" + hm + ":30+00:00" } }; };
+  const wk = await m.readWeek(tok({ "calendar.a": [timedEv("Dentist", "15:00")], "calendar.b": new Error("Calendar offline") }), cal, at, timers);
+  eq([wk.events.map(function (e) { return e.who + " " + e.what; }), wk.failed.map(function (f) { return [f.who, f.id, f.err]; })], [["Alex Dentist"], [["Alex", "calendar.b", "Calendar offline"]]],
+    "readWeek: the calendars that answered give the week, the one that failed is named with its owner");
+  const allDown = await m.readWeek(tok({ "calendar.a": new Error("x"), "calendar.b": new Error("x"), "calendar.c": new Error("x") }), cal, at, timers).then(function () { return "resolved"; }, function (e) { return e.message; });
+  eq(allDown, "no calendar answered (calendar.a, calendar.b, calendar.c)", "readWeek: every calendar failing is an error, not an empty week");
+  timers.due = [];
+  const hung = m.readWeek(tok({ "calendar.a": HOLD }), cal, at, timers);
+  eq(timers.due.map(function (t) { return t[1]; }), [m.CAL_WAIT, m.CAL_WAIT, m.CAL_WAIT], "readWeek: each calendar asked waits CAL_WAIT on the engine's timers");
+  eq(m.CAL_WAIT, 20000, "a calendar has 20 s to answer");
+  await new Promise(function (r) { setImmediate(r); });
+  timers.due.forEach(function (t) { if (t[0]) t[0](); });
+  eq((await hung).failed.map(function (f) { return f.id + ": " + f.err; }), ["calendar.a: no answer in 20 s"], "readWeek: a calendar that never answers fails when its wait runs out");
+  const v1 = { calendarMode: false, sensors: { week: "sensor.family_week" }, people: [] };
+  eq(await m.readWeek({ states: {} }, v1, at, timers).then(null, function (e) { return e.message; }), "sensor.family_week not found. Give people a calendar in the card editor, or set up that sensor",
+    "readWeek: v1.0.0 mode without its sensor says what to set up");
+  eq(await m.holidays(tok({ "calendar.trips": [allDayEv("Holidays: Cornwall", "2026-12-21"), allDayEv("Dentist", "2026-12-22"), allDayEv("Holiday", "2027-02-15")] }), "calendar.trips", at, timers),
+    [{ date: "2026-12-21", label: "Cornwall" }, { date: "2027-02-15", label: "Holiday" }], "holidays: only titles with holiday in them, labelled with the rest of the title");
+  eq(await m.holidays(tok({ "calendar.trips": new Error("Trips offline") }), "calendar.trips", at, timers).then(null, function (e) { return "failed: " + e.message; }), "failed: Trips offline",
+    "holidays: a failed fetch is a failure for the loader to report, not an empty list");
+  eq(m.byStart([{ day: "2026-10-27", start: "2026-10-27T09:00", at: "09:00" }, { day: "2026-10-26", start: "2026-10-26T18:00", at: "18:00" }, { day: "2026-10-26", start: "2026-10-25T22:00", at: "until 06:00", cont: true },
+    { day: "2026-10-26", start: "2026-10-26", all_day: true, at: "" }]).map(function (e) { return e.day.slice(8) + " " + (e.at || "all day"); }), ["26 all day", "26 until 06:00", "26 18:00", "27 09:00"],
+  "byStart: by day, then all day, then carried over, then start");
+  // Two loads in flight: the older one answering last is dropped, for the week and the holidays alike.
+  const held = [], puts = [];
+  const hass = { states: {}, callApi: function (method, p) { return new Promise(function (ok) { held.push({ p: p, ok: ok }); }); } };
+  const load = m.newLoader({ calendarMode: true, sensors: { trips: "calendar.trips" }, people: [{ name: "Alex", calendars: ["calendar.a"] }] }, function () { return at; }, timers);
+  load(hass, [], function (patch) { puts.push(patch); });
+  load(hass, [], function (patch) { puts.push(patch); });
+  await new Promise(function (r) { setImmediate(r); });
+  eq(held.length, 4, "newLoader: each load asks for the week and the holidays");
+  const answer = function (i, what) { held[i].ok(/trips/.test(held[i].p) ? [allDayEv("Holiday " + what, "2026-12-21")] : [timedEv(what, "15:00")]); };
+  answer(2, "new"); answer(3, "new"); await new Promise(function (r) { setImmediate(r); });
+  answer(0, "old"); answer(1, "old"); await new Promise(function (r) { setImmediate(r); });
+  eq(puts.filter(function (p) { return p.events || p.holidays; }).map(function (p) { return p.events ? "week " + p.events[0].what : "holidays " + p.holidays[0].label; }).sort(), ["holidays new", "week new"],
+    "newLoader: a slow older load landing last does not replace the newer week or holidays");
+  const noHass = [];
+  load(null, [], function (patch) { noHass.push(patch); });
+  await new Promise(function (r) { setImmediate(r); });
+  eq(noHass, [{ error: "no connection to Home Assistant yet" }], "newLoader: no hass yet is an error on the week, not a quiet empty one");
+  console.warn = warnWas; console.error = errorWas;
+  ok(logs.some(function (l) { return /^meadow: calendar\.b/.test(l); }), "readWeek logs the calendar that failed");
+}
+function allDayEv(summary, day) { return { summary: summary, start: { date: day }, end: { date: day } }; }
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });

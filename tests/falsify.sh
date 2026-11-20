@@ -176,7 +176,7 @@ engine/engine.js|s/if (postBadge(t.letter)) {/if (t.letter) {/|the tags draw the
 scenes/meadow.js|s/  postbox: function (S) { var p = S.lay.post; return { x: p.x + 57, y: S.lay.B - 32 }; },/  postbox: function (S) { return { x: S.W \/ 2, y: 20 }; },/|the meadow's hint points at the sky
 scenes/winter.js|s/  postbox: function () { var p = G.postbox; return { x: p.x, y: p.y - 36 }; },/  postbox: function () { var p = G.postbox; return { x: p.x, y: NaN }; },/|the winter postbox is nowhere
 scenes/winter.js|s/  postbox: function () {/  postbox: 3, xx: function () {/|a postbox that is not a function
-engine/engine.js|s/if (!ok.length) throw new Error("no calendar answered/if (false) throw new Error("no calendar answered/|every calendar failing reads as an empty week
+data.js|s/if (!ok.length) throw new Error("no calendar answered/if (false) throw new Error("no calendar answered/|every calendar failing reads as an empty week
 engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable" : "Free today";/: "Free today";/|a failed load's summary says Free today
 engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
 engine/engine.js|s/if (DATA.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
@@ -192,20 +192,20 @@ engine/engine.js|s/window.cancelAnimationFrame(RAF);//|stop() leaves the frame q
 engine/engine.js|s/if (!STOPPED) RAF = window.requestAnimationFrame(f);/RAF = window.requestAnimationFrame(f);/|a frame that runs after stop() queues another
 engine/engine.js|s/TIMERS.forEach(function (id) { window.clearInterval(id); });//|stop() leaves the polls running
 engine/engine.js|s/else if (DATA.holidaysErr) st = /else if (false) st = /|a failed holiday fetch is not on the status line
-engine/engine.js|s/if (newest("hol", gen)) DATA.holidaysErr = /if (newest("hol", gen)) DATA.holidays = []; DATA.holidaysErr = /|a failed holiday fetch drops the last list
-engine/engine.js|s/      .then(function (evs) { return evs.filter(/      .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
+data.js|s/if (newest("hol", gen)) put({ holidaysErr: /if (newest("hol", gen)) put({ holidays: [], holidaysErr: /|a failed holiday fetch drops the last list
+data.js|s/    .then(function (evs) { return evs.filter(/    .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
 card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
 engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
 calendar.js|s/  if (!data .. !data.gotAt) return "loading";//|a card opened before the first load says Free today
 engine/engine.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
 engine/engine.js|s/    else if (!DATA.gotAt \&\& !DEMO) st = "Loading the week";//|the status line never says the week is loading
-engine/engine.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
-engine/engine.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
-engine/engine.js|s/if (newest("week", gen)) DATA.error = /if (newest("week", gen)) DATA.events = []; DATA.error = /|a failed reload throws away the last good week
+data.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
+data.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
+data.js|s/if (newest("week", gen)) put({ error: /if (newest("week", gen)) put({ events: [], error: /|a failed reload throws away the last good week
 engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  function setTimeoutX(f, ms) { var id = window.setTimeout(/|the engine's timeouts are not its own, so stop() cannot clear them
 engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });//|stop() leaves the auto-close and a tap's open waiting
 engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open
-engine/engine.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function newest(k, gen) {/|a slow load that lands last replaces a newer week
+data.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function newest(k, gen) {/|a slow load that lands last replaces a newer week
 engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { /|midnight waits for the five-minute reload
 engine/engine.js|s/ if (openThing \&\& openThing.person) openCard(openThing, false, true); }/ }/|an open card keeps yesterday's Today after midnight
 engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) html += postBlock(READING.l); }/    if (false) {}/|the midnight redraw reads the letter again and clears it
@@ -224,7 +224,7 @@ engine/engine.js|s/    if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA
 engine/engine.js|s/closeTimer = setTimeout(autoClose, 60000)/closeTimer = setTimeout(closeCard, 60000)/|the card closing itself clears an unread letter
 engine/engine.js|s/  \$("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });//|a tap inside the card does not start its minute again
 engine/engine.js|s/)) BOOK.live.push(r.l);/)) void 0;/|a letter kept by the auto-close is left out of the book, so a panel's Done cannot take it back
-engine/engine.js|s/var xr = readExtra(s\[0\] ? s\[0\].attributes : null);/var xr = { data: s[0] ? s[0].attributes : null, bad: [] };/|the engine hands sensors.extra to the cards unchecked, and schools as a string stops the HUD
+data.js|s/var xr = readExtra(s\[0\] ? s\[0\].attributes : null);/var xr = { data: s[0] ? s[0].attributes : null, bad: [] };/|the engine hands sensors.extra to the cards unchecked, and schools as a string stops the HUD
 engine/engine.js|s/    if (DATA.extraBad \&\& DATA.extraBad.length) return "School info unreadable/    if (false) return "School info unreadable/|school info in the wrong shape is left out without a word on the cards
 school.js|s/const kept = v.map(each).filter(function (x) { return x != null; })/const kept = v.slice()/|an entry of sensors.extra in the wrong shape is kept
 school.js|s/if (!Array.isArray(v)) { bad.push(key + " is not a list"); return \[\]; }/if (!Array.isArray(v)) return [];/|a part of sensors.extra that is not a list is dropped without a word
@@ -236,7 +236,7 @@ engine/engine.js|s/ e.cont .. !e.start) continue;/ !e.start) continue;/|the day 
 engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.day !== td) continue;     // a party#|a birthday party that ran past midnight is on again the next day
 engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day
 engine/engine.js|s#      if (e.cont) continue;  *// the second day of a trip#      // the second day of a trip#|the banner's next thing on is the second day of a trip
-engine/engine.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
+data.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
 editor.js|s/: p.look .. LOOKS\[i % 6\],/: p.look ? p.look : "crow",/|an edit turns a look-less person into a crow
 engine/engine.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
 EOF

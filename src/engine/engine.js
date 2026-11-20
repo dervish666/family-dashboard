@@ -1,13 +1,14 @@
-import { weekRange, calendarPath, parseCalendarEvents, calendarHealth } from "../calendar.js";
+import { calendarHealth } from "../calendar.js";
 import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat, prng } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
-import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf, readExtra } from "../school.js";
+import { parseTimetable, parseLunch, lunchChoice, lessonsOver, addDays, mondayOf } from "../school.js";
 import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js";
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
+import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities } from "../data.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -2228,25 +2229,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   //   kit, flags, term dates, which sources it could and could not check).
   var DATA = { events: [], extra: null, weekAt: null, error: null, gotAt: null };
 
-  // Each child's school sources from people[].timetable, .lunch and .choice (v1.1.0's
-  // sensors.timetable and .lunch arrive here too, copied onto their owner by normalize()).
-  // The demo hands its made-up sensors to the first three school kids instead.
-  var SRC = {};
-  PEOPLE.forEach(function (p) { if (p.timetable || p.lunch || p.choice) SRC[p.name] = { timetable: p.timetable, lunch: p.lunch, choice: p.choice }; });
-  if (DEMO) {
-    SRC = {};
-    var DK = PEOPLE.filter(function (p) { return p.school; }).map(function (p) { return p.name; });
-    var dsrc = function (id, a) { return { entity: id, attribute: a }; };
-    if (DK[0]) SRC[DK[0]] = { timetable: dsrc("sensor.demo_timetable_1", "timetable") };
-    if (DK[1]) SRC[DK[1]] = { timetable: dsrc("sensor.demo_timetable_2", "timetable"), lunch: dsrc("sensor.demo_lunch_2", "menu"), choice: { days: { fri: "packed" } } };
-    if (DK[2]) SRC[DK[2]] = { lunch: dsrc("sensor.demo_lunch_3", "menu"), choice: { value: "school" } };
-  }
-  function schoolEntities() {
-    var ids = [];
-    Object.keys(SRC).forEach(function (n) { var s = SRC[n];
-      [s.timetable && s.timetable.entity, s.lunch && s.lunch.entity, s.choice && s.choice.entity].forEach(function (id) { if (id && ids.indexOf(id) < 0) ids.push(id); }); });
-    return ids;
-  }
+  // Each child's school sources from people[].timetable, .lunch and .choice (data.js schoolSources).
+  var SRC = schoolSources(PEOPLE, DEMO);
   // Parsed once per child and day until the next load: schoolDay() asks every frame.
   // { status: "loading" } until the first load has read the sensors.
   function schoolParse(kind, name, d) {
@@ -2265,99 +2249,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     return lunchChoice(c || null, d, c && c.entity && S.states ? S.states[c.entity] : null, fromData);
   }
 
-  // Home Assistant hands the card its hass object, so there is no token to find:
-  // hassToken() just waits for the first hass and resolves with it.
-  function hassToken() {
-    var h = HA.hass();
-    return h ? Promise.resolve(h) : Promise.reject(new Error("no connection to Home Assistant yet"));
-  }
-  function getState(id, h) {
-    var s = h.states[id];
-    return s ? Promise.resolve(s) : Promise.reject(new Error(id + " not found"));
-  }
-  // A calendar request that has not answered in CAL_WAIT counts as failed. Without a limit one
-  // call that never came back held the whole load open, so nothing on the card updated again and
-  // nothing said why. 20 s leaves room for an integration that fetches a remote calendar over a
-  // slow link, and still names a hung calendar long before the next reload, five minutes on.
-  var CAL_WAIT = 20000;
-  function ask(tok, p) {
-    var tm = 0;
-    return Promise.race([Promise.resolve().then(function () { return tok.callApi("GET", p); }),
-      new Promise(function (ok, no) { tm = setTimeout(function () { no(new Error("no answer in " + CAL_WAIT / 1000 + " s")); }, CAL_WAIT); })])
-      .then(function (v) { clearTimeout(tm); return v; }, function (e) { clearTimeout(tm); throw e; });
-  }
-  // Trips from the family calendar, a year ahead. The REST calendar endpoint gives
-  // all-day events as {date} and timed ones as {dateTime}; either way the day is the
-  // first ten characters. load() catches a failure: the last good list stays, and the
-  // status line says it is unavailable and how old the list is.
-  function holidays(tok) {
-    if (!SENSORS.trips) return Promise.resolve([]);
-    var td = ymd(now()), end = (+td.slice(0, 4) + 1) + td.slice(4);
-    return ask(tok, "calendars/" + SENSORS.trips + "?start=" + td + "T00:00:00&end=" + end + "T00:00:00")
-      .then(function (evs) { return evs.filter(function (e) { return /\bholidays?\b/i.test(e.summary || ""); }).map(function (e) {
-        return { date: (e.start.date || e.start.dateTime).slice(0, 10), label: e.summary.replace(/\bholidays?\b/i, "").replace(/^[\s:,-]+|[\s:,-]+$/g, "") || "Holiday" }; }); });
-  }
-  // The week, two ways. Calendar mode (a calendar on any person): ask Home Assistant's
-  // calendar API for each one, so no template sensor is needed. v1.0.0 mode: read the
-  // family_week template sensor. A calendar that fails is named on its owner's card
-  // and its events are left out; the rest of the week still draws.
-  function readWeek(tok) {
-    if (!CONFIG.calendarMode) return getState(SENSORS.week, tok).catch(function () {
-      throw new Error(SENSORS.week + " not found. Give people a calendar in the card editor, or set up that sensor");
-    }).then(function (s) {
-      var wk = s.attributes || {};
-      if (!Array.isArray(wk.events)) throw new Error(SENSORS.week + " has no events list (state " + s.state + ")");
-      return { events: wk.events, at: wk.checked_at ? new Date(wk.checked_at) : null, failed: [] };
-    });
-    var range = weekRange(now()), jobs = [];
-    PEOPLE.forEach(function (p) { (p.calendars || []).forEach(function (id) {
-      jobs.push(ask(tok, calendarPath(id, range)).then(function (evs) { return { ok: true, rows: parseCalendarEvents(evs, p.name, range) }; })
-        .catch(function (e) { console.warn("meadow: " + id, e); return { ok: false, who: p.name, id: id, err: (e && (e.message || e.body && e.body.message)) || String(e) }; }));
-    }); });
-    return Promise.all(jobs).then(function (rs) {
-      var ok = rs.filter(function (r) { return r.ok; }), failed = rs.filter(function (r) { return !r.ok; });
-      if (!ok.length) throw new Error("no calendar answered (" + failed.map(function (f) { return f.id; }).join(", ") + ")");
-      return { events: [].concat.apply([], ok.map(function (r) { return r.rows; })), at: new Date(), failed: failed };
-    });
-  }
-  // The week, the holidays and the sensors each land on their own. A week that fails keeps its
-  // last good copy and says so (DATA.error); the weather, the sun, school and the holidays
-  // update either way. Each load has a number, and an answer from an older load than the one
-  // already shown is dropped: a slow load from before midnight must not bring yesterday's week back.
-  var LOADS = 0, SHOWN = { week: 0, hol: 0 };
-  function newest(k, gen) { if (gen < SHOWN[k]) return false; SHOWN[k] = gen; return true; }
+  // The card's hass, for the polls and writes that are the engine's own (data.js hassReady).
+  function hassToken() { return hassReady(HA.hass()); }
+  // The loads themselves are in data.js (newLoader): the week, the holidays and the sensors each
+  // land on their own, and put() merges each answer into DATA here. The demo makes its data up.
+  var LOAD = newLoader(CONFIG, now, { setTimeout: setTimeout, clearTimeout: clearTimeout });
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    var schoolErr = null, extraErr = null, gen = ++LOADS;
-    hassToken().then(function (tok) {
-      // the school sensors are optional: a missing one blanks its part of the School card, nothing else
-      function opt(id) { if (!id) return Promise.resolve(null);
-        return getState(id, tok).catch(function (e) { console.warn("meadow: " + id, e); schoolErr = e.message || String(e); return null; }); }
-      // sensors.extra is optional too, but a configured one that is missing says so on every card
-      var extra = !SENSORS.extra ? Promise.resolve(null) : getState(SENSORS.extra, tok)
-        .then(function (s) { if (/^(unavailable|unknown)$/.test(s.state) && !(s.attributes || {}).checked_at) throw new Error(SENSORS.extra + " is " + s.state); return s; })
-        .catch(function (e) { console.warn("meadow: extra", e); extraErr = e.message || String(e); return null; });
-      // each child's timetable, lunch and choice entities: a missing one is null, and its card says so
-      var ids = schoolEntities(), states = {};
-      var school = Promise.all(ids.map(function (id) { return getState(id, tok).then(function (s) { states[id] = s; })
-        .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
-      var week = readWeek(tok).then(function (wk) {
-        if (!newest("week", gen)) return;
-        DATA = Object.assign({}, DATA, { events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, error: null, gotAt: new Date() });
-        refreshTags();
-      }, function (e) { console.error("meadow: the week did not load", e); if (newest("week", gen)) DATA.error = e.message || String(e); });
-      var hols = holidays(tok).then(function (h) { if (newest("hol", gen)) DATA = Object.assign({}, DATA, { holidays: h, holidaysErr: null, holidaysAt: new Date() }); },
-        function (e) { console.warn("meadow: holidays", e); if (newest("hol", gen)) DATA.holidaysErr = (e && (e.message || e.body && e.body.message)) || String(e); });   // the last good list stays
-      var rest = Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]).then(function (s) {
-        // a part of it in the wrong shape is left out and named on the cards, not handed to a forEach
-        var xr = readExtra(s[0] ? s[0].attributes : null);
-        if (xr.bad.length) console.warn("meadow: " + SENSORS.extra + " unreadable: " + xr.bad.join(", "));
-        DATA = Object.assign({}, DATA, { extra: xr.data, extraBad: xr.bad, extraErr: extraErr, school: { states: s[1], kit: s[2] && s[2].attributes, err: schoolErr },
-          pc: null, sun: s[3] && s[3].attributes, weather: s[4] ? { state: s[4].state, attributes: s[4].attributes } : null, othersAt: new Date() });
-        refreshTags();
-      });
-      return Promise.all([week, hols, rest]);
-    }).catch(function (e) { console.error("meadow: load failed", e); DATA.error = e.message || String(e); });
+    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { DATA = Object.assign({}, DATA, patch); if (retag) refreshTags(); });
   }
   function demoData() {
     var d = function (n) { return ymd(new Date(now().getTime() + n * 864e5)); };
@@ -2425,12 +2324,6 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var l2 = menu(0, { 9: "INSET" }, { 1: "Veggie fingers" }), l3 = menu(1, {}, {});
     return { "sensor.demo_timetable_1": { state: "A", attributes: { timetable: tt1 } }, "sensor.demo_timetable_2": { state: "A", attributes: { timetable: tt2 } },
       "sensor.demo_lunch_2": { state: "served", attributes: l2 }, "sensor.demo_lunch_3": { state: "served", attributes: l3 } };
-  }
-  // By day, then all day, then a timed event carried over from an earlier day, then start. Day
-  // first: a carried-over row keeps its first day's start, so start alone sorts it back there.
-  function byStart(ev) {
-    function rank(e) { return e.all_day ? 0 : e.cont ? 1 : 2; }
-    return ev.slice().sort(function (a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) || new Date(a.start) - new Date(b.start); });
   }
   function todayFor(name) { var td = ymd(now()); return DATA.events.filter(function (e) { return e.who === name && e.day === td; }); }
   function refreshTags() {
