@@ -208,9 +208,11 @@ engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTim
 engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open
 engine/engine.js|s/      FETCHES.splice(0).forEach(function (ac) { ac.abort(); });//|stop() leaves the office fetch running with no deadline
 engine/engine.js|s/function (patch, retag) { if (STOPPED) return; /function (patch, retag) { /|a calendar answer that lands after stop() is published into the stopped engine
+engine/engine.js|s/^      if (openThing .. openThing.person) openCard(openThing, false, true); });/      });/|a card opened while its week is loading says Loading the week after the week lands
+data.js|s/if (!today() .. !newest("week", gen)) return;/if (!newest("week", gen)) return;/|a week asked for before midnight that lands after it is shown as today's
 data.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function newest(k, gen) {/|a slow load that lands last replaces a newer week
 engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { /|midnight waits for the five-minute reload
-engine/engine.js|s/ if (openThing \&\& openThing.person) openCard(openThing, false, true); }/ }/|an open card keeps yesterday's Today after midnight
+engine/engine.js|s/{ load(); if (openThing \&\& openThing.person) openCard(openThing, false, true); }/{ load(); }/|an open card keeps yesterday's Today after midnight
 engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) letter = READING.l; }/    if (false) {}/|the midnight redraw reads the letter again and clears it
 data.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
 engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter

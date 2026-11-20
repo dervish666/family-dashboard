@@ -31,7 +31,11 @@ Card
   school; the lunch menu or the term dates decide.
 - A card that closes itself after a minute keeps an unread letter. Got it, Done and a tap
   outside still clear it. A read letter leaves the letter book.
-- Midnight moves the week on, and a slow old load cannot bring the old week back. A stopped
+- A person's card that is up when a load lands shows the new week in place, keeping its
+  letter, scroll, unfolded week grid and focus. A card opened during the first load no longer
+  says "Loading the week" after the week has come in.
+- Midnight moves the week on, and a slow old load cannot bring the old week back: a week asked
+  for before midnight is dropped even when it lands before the new one. A stopped
   engine runs no more timeouts, aborts the office fetch it had out, and takes no late calendar
   answer.
 - A keyboard or a screen reader can open every card. Each person, the School and each

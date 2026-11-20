@@ -323,6 +323,31 @@ export async function engineChecks(src, T) {
     eq(card.$("status").textContent, "Letters unavailable: Alex", "and the status line moves on");
     done(card);
   }
+  // A card opened while the first load is out shows the week when it lands, in place: the
+  // summary and Today change, and the letter, the focus and the scroll stay as they were.
+  {
+    C.now = NOON;
+    const st = BASE_STATES(), id = "input_text.letter_alex";
+    st[id] = { state: "Parent 1|Coats on", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    hass.answer = route({ "calendar.alex": HOLD });
+    const ppl = PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: id }, p) : p; });
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home" } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    eq(card.$("sum").textContent, "Loading the week", "a card opened before its calendar answers is loading");
+    card.$("lists").scrollTop = 120;
+    hass.held[0].ok([timed("Reply while open", DAY, "16:00")]);
+    await flush();
+    eq(card.$("sum").textContent, "1 thing today", "when the answer lands, the open card's summary has the event");
+    ok(/<h2>Today<\/h2><div class="row"><div class="when">16:00<\/div><div class="what">Reply while open</.test(text(card, "lists")) && /Coats on/.test(text(card, "lists")),
+      "and its Today, with the letter still at the top");
+    ok(card.$("scrim").classList.contains("open") && card.sr.activeElement === card.$("done") && card.$("lists").scrollTop === 120 && sets(hass, id).length === 0,
+      "the card stays up, focus on Done, scrolled where it was, and the letter is not cleared");
+    done(card);
+  }
   // A person with no calendar of their own has nothing to read, which is not a free day.
   {
     C.now = NOON;
@@ -488,8 +513,9 @@ export async function engineChecks(src, T) {
   }
 
   // Midnight: the week reloads for the new seven days and an open card redraws for the new
-  // today without reading its letter again; a slow load from before midnight that lands after
-  // the new one is dropped.
+  // today at once, from the week it has, without reading its letter again; a slow load from
+  // before midnight that lands after the new one is dropped. Both loads are slow here, so the
+  // redraw at midnight is the hud's, not the one a landing load makes.
   {
     const MON = "2026-10-26", TUE = "2026-10-27", WED = "2026-10-28";
     C.now = local(2026, 10, 26, 23, 54, 50);
@@ -500,7 +526,6 @@ export async function engineChecks(src, T) {
     let phase = "boot";
     hass.answer = function (p) {
       const alex = calId(p) === "calendar.alex";
-      if (p.indexOf(from(2026, 10, 27)) >= 0) return alex ? [timed("Dentist", TUE, "09:00"), allDay("Fresh plan", WED)] : [];
       if (phase === "hold") return HOLD;
       return alex ? [timed("Dentist", TUE, "09:00")] : [];
     };
@@ -521,13 +546,56 @@ export async function engineChecks(src, T) {
     ok(/<h2>Today<\/h2><div class="row"><div class="when">09:00<\/div><div class="what">Dentist</.test(text(card, "lists")), "and the dentist has moved to Today");
     ok(/Night note/.test(text(card, "lists")) && card.$("scrim").classList.contains("open"), "the open card keeps its letter across midnight");
     eq(sets(hass, "input_text.family_letter").length, 0, "and the redraw does not read the letter, so nothing is cleared");
-    hass.held.splice(0).forEach(function (h) { h.ok(calId(h.path) === "calendar.alex" ? [timed("Dentist", TUE, "09:00"), allDay("Stale plan", WED)] : []); });
+    const fresh = function (h) { return h.path.indexOf(from(2026, 10, 27)) >= 0; };
+    eq(hass.held.filter(fresh).length, 4, "the new seven days are slow too");
+    hass.held.filter(fresh).forEach(function (h) { h.ok(calId(h.path) === "calendar.alex" ? [timed("Dentist", TUE, "09:00"), allDay("Fresh plan", WED)] : []); });
+    await flush();
+    hass.held.filter(function (h) { return !fresh(h); }).forEach(function (h) { h.ok(calId(h.path) === "calendar.alex" ? [timed("Dentist", TUE, "09:00"), allDay("Stale plan", WED)] : []); });
     await flush();
     card.$("done").fire("click");
     await flush();
     eq(sets(hass, "input_text.family_letter").map(function (c) { return c.data.value; }), [""], "closing the card then clears the letter, once");
     card.dbg.open(alex, true);
     ok(/Fresh plan/.test(text(card, "lists")) && !/Stale plan/.test(text(card, "lists")), "the slow load from before midnight, landing last, does not replace the new week");
+    done(card);
+  }
+  // A load that lands redraws an open card, but the demo's week is made up, not loaded: at
+  // midnight the hud redraws the open card itself, for the new day's made-up week.
+  {
+    C.now = local(2026, 10, 26, 23, 59, 57);
+    const card = await boot({ demo: true });
+    card.dbg.open(person(card, "Parent 1"), true);
+    ok(/Calendars checked today 23:59\./.test(text(card, "lists")), "the demo before midnight: its week is checked today 23:59");
+    await advance(4000);
+    frame();
+    ok(/Calendars checked today 00:00\./.test(text(card, "lists")), "the demo after midnight: the open card is redrawn for the new day");
+    done(card);
+  }
+  // Midnight with the card open and its calendar slow: the week asked for before midnight starts
+  // at yesterday, so it is dropped whether it lands before or after the one midnight asked for,
+  // and the open card shows the new week when that lands.
+  for (const oldFirst of [true, false]) {
+    const TUE = "2026-10-27", order = oldFirst ? "the old week landing first" : "the new week landing first";
+    C.now = local(2026, 10, 26, 23, 59, 57);
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.alex": HOLD });
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    card.dbg.open(person(card, "Alex"), true);
+    await advance(4000);
+    frame();                                           // 00:00:01: the new seven days are asked for
+    await flush();
+    eq(hass.held.map(function (h) { return decodeURIComponent(h.path).match(/start=(\d{4}-\d\d-\d\d)/)[1]; }), ["2026-10-26", "2026-10-27"], order + ": one week asked for each side of midnight");
+    const settle = { old: function () { hass.held[0].ok([timed("Old window only", TUE, "13:00")]); }, fresh: function () { hass.held[1].ok([timed("Fresh window", TUE, "15:00")]); } };
+    if (oldFirst) {
+      settle.old(); await flush(); frame();
+      ok(card.$("sum").textContent === "Loading the week" && !/Old window/.test(text(card, "lists")) && card.$("status").textContent === "Loading the week",
+        order + ": the week asked for yesterday is not shown as today's");
+      settle.fresh();
+    } else { settle.fresh(); await flush(); settle.old(); }
+    await flush(); frame();
+    ok(card.$("sum").textContent === "1 thing today" && /Fresh window/.test(text(card, "lists")) && !/Old window/.test(text(card, "lists")),
+      order + ": the open card shows the new week, in place");
+    ok(/^Next: <b>15:00<\/b> Alex, Fresh window/.test(text(card, "next")), order + ": and so does the Next line");
     done(card);
   }
   // "Tomorrow" is the next civil day, on the eve of a clock change too (a 23 or a 25 hour day).

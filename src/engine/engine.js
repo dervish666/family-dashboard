@@ -2199,7 +2199,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var LOAD = newLoader(CONFIG, now, { setTimeout: setTimeout, clearTimeout: clearTimeout });
   function load() {
     if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }
-    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { if (STOPPED) return; DATA = Object.assign({}, DATA, patch); if (retag) refreshTags(); });
+    LOAD(HA.hass(), schoolEntities(SRC), function (patch, retag) { if (STOPPED) return; DATA = Object.assign({}, DATA, patch); if (retag) refreshTags();
+      if (openThing && openThing.person) openCard(openThing, false, true); });     // a person's card that is up shows what landed, in place
   }
   function demoData() {
     var d = function (n) { return ymd(new Date(now().getTime() + n * 864e5)); };
@@ -3068,16 +3069,25 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (b) b.outerHTML = postCleared(r.l);
     armClose();
   }
-  // again: redraw the card already open (midnight) without reading its letter again.
+  // again: redraw the card already open (midnight, a load landing) without reading its letter
+  // again, and keep where its reader was: the scroll, an unfolded week grid, and focus, which
+  // goes to Done if the button it was on is rebuilt, so it never drops out of the dialog.
   function openCard(t, tap, again) {
     var p = t.person, name = p.name, d = now(), letter = null;
     if (again) { if (READING && READING.t === t) letter = READING.l; }
     else { settleLetter(); if (t.letter) { readLetter(t, tap); letter = t.letter; } }     // the postie's letter, read once
     var c = personCard(Object.assign(view(d), { person: p, letter: letter, letters: LETTER, due: DUE_CONF ? readDue(d) : null }));
-    $("lists").innerHTML = c.html;
+    var L = $("lists"), top = L.scrollTop, a = ROOT.activeElement, lost = again && a && a !== L && L.contains && L.contains(a);
+    var folds = again && L.querySelectorAll ? [].map.call(L.querySelectorAll("details"), function (x) { return x.open; }) : [];
+    L.innerHTML = c.html;
     $("sum").textContent = c.sum;
-    if (again) return;
-    $("lists").scrollTop = 0;
+    if (again) {
+      if (folds.length) [].forEach.call(L.querySelectorAll("details"), function (x, i) { if (folds[i]) x.open = true; });
+      L.scrollTop = top;
+      if (lost) $("done").focus({ preventScroll: true });
+      return;
+    }
+    L.scrollTop = 0;
     $("who").textContent = name;
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");

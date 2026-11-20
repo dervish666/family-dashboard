@@ -102,7 +102,9 @@ export function byStart(ev) {
 // The week, the holidays and the sensors each land on their own. A week that fails keeps its
 // last good copy and says so (error); the weather, the sun, school and the holidays update
 // either way. Each load has a number, and an answer from an older load than the one already
-// shown is dropped: a slow load from before midnight must not bring yesterday's week back.
+// shown is dropped: a slow load from before midnight must not bring yesterday's week back. So is
+// a week asked for on an earlier day than now, whichever lands first: it starts at yesterday,
+// and the load the engine starts at midnight brings today's.
 // load(h, ids, put): h is the card's hass (or none yet), ids the school entities to read
 // (schoolEntities), and put(patch, retag) hands each answer to the engine, which merges it
 // into its snapshot and redraws the name tags when retag is set.
@@ -110,7 +112,8 @@ export function newLoader(config, now, timers) {
   var SENSORS = config.sensors, LOADS = 0, SHOWN = { week: 0, hol: 0 };
   function newest(k, gen) { if (gen < SHOWN[k]) return false; SHOWN[k] = gen; return true; }
   return function load(h, ids, put) {
-    var schoolErr = null, extraErr = null, gen = ++LOADS;
+    var schoolErr = null, extraErr = null, gen = ++LOADS, day = ymd(now());
+    function today() { return ymd(now()) === day; }
     hassReady(h).then(function (tok) {
       // the school sensors are optional: a missing one blanks its part of the School card, nothing else
       function opt(id) { if (!id) return Promise.resolve(null);
@@ -124,9 +127,9 @@ export function newLoader(config, now, timers) {
       var school = Promise.all(ids.map(function (id) { return getState(id, tok).then(function (s) { states[id] = s; })
         .catch(function (e) { console.warn("meadow: " + id, e); states[id] = null; }); })).then(function () { return states; });
       var week = readWeek(tok, config, now(), timers).then(function (wk) {
-        if (!newest("week", gen)) return;
+        if (!today() || !newest("week", gen)) return;
         put({ events: byStart(wk.events), weekAt: wk.at, calFailed: wk.failed, error: null, gotAt: new Date() }, true);
-      }, function (e) { console.error("meadow: the week did not load", e); if (newest("week", gen)) put({ error: e.message || String(e) }); });
+      }, function (e) { console.error("meadow: the week did not load", e); if (today() && newest("week", gen)) put({ error: e.message || String(e) }); });
       var hols = holidays(tok, SENSORS.trips, now(), timers).then(function (h) { if (newest("hol", gen)) put({ holidays: h, holidaysErr: null, holidaysAt: new Date() }); },
         function (e) { console.warn("meadow: holidays", e); if (newest("hol", gen)) put({ holidaysErr: (e && (e.message || e.body && e.body.message)) || String(e) }); });   // the last good list stays
       var rest = Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]).then(function (s) {
