@@ -8,8 +8,8 @@
 # config, what counts as new or late, its steps, the scroll's words and each scene's walk,
 # and v1.8.0's per-person letters: the from|text parser, the copy it matches against the
 # postie, the dedupe and their config, and v1.9.0's post hours, hint and badge, and the engine
-# booted through the card: failed and partial loads, the stale flag, escaping, the letter
-# guards, the holidays, stop() and a new config). The breaks go in src/, not dist/, because dist/ is
+# booted through the card: failed, partial, hung and out-of-order loads, the stale flag,
+# escaping, the letters, the holidays, midnight, reduced motion, stop() and a new config). The breaks go in src/, not dist/, because dist/ is
 # minified and its names change with every build. Exits 1 if any broken copy passes. Needs
 # npm ci first.
 set -u
@@ -198,5 +198,12 @@ engine/engine.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)
 engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
 engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
 engine/engine.js|s/". Showing " + (ymd(DATA.gotAt) === ymd(d) ? "" : dayLabel(ymd(DATA.gotAt)).toLowerCase() + " ") +/". Showing " +/|an overnight outage's Showing time has no day
+engine/engine.js|s/^    update(dt);$//;s/if (!REDUCED .. ms - lastPaint >= REDUCED_PAINT) { lastPaint = ms; /&update(dt); /|reduced motion stops the world between paints, not just the picture
+engine/engine.js|s/REDUCED_PAINT = 10000;/REDUCED_PAINT = 4000;/|reduced motion repaints every four seconds
+engine/engine.js|s/REDUCE_MQ.addEventListener("change", readReduced)/REDUCE_MQ.addEventListener("change", function () {})/|turning reduced motion on or off needs a reload
+engine/engine.js|s/REDUCE_MQ.removeEventListener("change", readReduced)/REDUCE_MQ.removeEventListener("change", function () {})/|stop() keeps listening to the reduced motion preference
+engine/engine.js|s/else if (REDUCE_MQ.addListener) REDUCE_MQ.addListener(readReduced);//|Chrome 87 never hears the reduced motion preference change
+engine/engine.js|s/at = REDUCED \&\& t.seen ? t.seen : seenAt(t)/at = seenAt(t)/|under reduced motion a tap aims at where the creature is, not where it was painted
+engine/engine.js|s/      if (REDUCED) fam.forEach(function (t) { t.seen = seenAt(t); }); }/      }/|under reduced motion nothing records where a creature was painted
 EOF
 echo "ok: all $n sabotaged copies failed the check"

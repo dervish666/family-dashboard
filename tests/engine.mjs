@@ -544,6 +544,51 @@ export async function engineChecks(src, T) {
     done(card);
   }
 
+  // Reduced motion: the world runs every frame and the scene repaints at most every few
+  // seconds; the preference is followed live and let go on stop; a tap aims at where a creature
+  // was painted, not where the world has moved it since. Seaside, so a letter comes by airmail.
+  {
+    C.now = NOON;
+    const heard = [];
+    MQ = { matches: true, addEventListener: function (t, f) { heard.push(f); }, removeEventListener: function (t, f) { if (heard.indexOf(f) >= 0) heard.splice(heard.indexOf(f), 1); } };
+    const st = BASE_STATES();
+    st["input_text.family_letter"] = { state: "Alex: Rain later", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    const card = await boot({ people: PEOPLE, scene: "seaside", sensors: { weather: "weather.home", letter: "input_text.family_letter" } }, hass);
+    await advance(1600);
+    const g = card.$("world").getContext("2d");
+    const painted = function () { const n = g.calls.setTransform || 0; frame(); return (g.calls.setTransform || 0) > n; };
+    const drew = [];
+    for (let i = 0; i < 30; i++) if (painted()) drew.push(i);
+    ok(drew.length >= 2 && drew.every(function (f, i) { return !i || (f - drew[i - 1]) * 1100 >= 5000; }), "reduced motion: the scene repaints at most every five seconds (painted on frames " + drew.join(", ") + ")");
+    ok(person(card, "Alex").letter && person(card, "Alex").letter.text === "Rain later", "reduced motion: the world runs between paints, so the airmail still delivers");
+    MQ.matches = false; heard.forEach(function (f) { f(); });
+    let all = 0;
+    for (let i = 0; i < 5; i++) if (painted()) all++;
+    eq(all, 5, "turning reduced motion off paints every frame again, without a reload");
+    MQ.matches = true; heard.forEach(function (f) { f(); });
+    painted();
+    const a = person(card, "Sky"), was = [a.x, a.y];
+    a.x += a.x < 640 ? 400 : -400;                    // the world moves on, unpainted
+    card.$("world").fire("pointerdown", { clientX: was[0], clientY: was[1] - a.r * 0.9 });
+    await advance(400);
+    eq(card.$("scrim").classList.contains("open") && card.$("who").textContent, "Sky", "reduced motion: a tap on a creature hits where it was painted");
+    card.disconnectedCallback();
+    eq(heard.length, 0, "reduced motion: stop() lets go of the preference");
+    done(card);
+  }
+  // Chrome 87's MediaQueryList has addListener, not addEventListener.
+  {
+    C.now = NOON;
+    const heard = [];
+    MQ = { matches: false, addListener: function (f) { heard.push(f); }, removeListener: function (f) { if (heard.indexOf(f) >= 0) heard.splice(heard.indexOf(f), 1); } };
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, fakeHass(BASE_STATES()));
+    eq(heard.length, 1, "reduced motion: on Chrome 87 the preference is followed through addListener");
+    card.disconnectedCallback();
+    eq(heard.length, 0, "and let go through removeListener");
+    done(card);
+  }
+
   // ── stop(): the card leaves the page and takes its loop and timers with it ────────
   {
     C.now = NOON;
