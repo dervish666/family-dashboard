@@ -205,5 +205,6 @@ engine/engine.js|s/REDUCE_MQ.removeEventListener("change", readReduced)/REDUCE_M
 engine/engine.js|s/else if (REDUCE_MQ.addListener) REDUCE_MQ.addListener(readReduced);//|Chrome 87 never hears the reduced motion preference change
 engine/engine.js|s/at = REDUCED \&\& t.seen ? t.seen : seenAt(t)/at = seenAt(t)/|under reduced motion a tap aims at where the creature is, not where it was painted
 engine/engine.js|s/      if (REDUCED) fam.forEach(function (t) { t.seen = seenAt(t); }); }/      }/|under reduced motion nothing records where a creature was painted
+engine/engine.js|s/    if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }//|the demo asks Home Assistant for a week it does not have
 EOF
 echo "ok: all $n sabotaged copies failed the check"

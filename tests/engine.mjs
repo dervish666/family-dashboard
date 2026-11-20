@@ -219,6 +219,16 @@ export async function engineChecks(src, T) {
   const DAY = "2026-10-26";                         // a Monday, GMT
   const NOON = local(2026, 10, 26, 12, 0);
 
+  // The demo (no Home Assistant data): it runs, its status line is clear, and a card has its day.
+  {
+    C.now = NOON;
+    const card = await boot({ demo: true }, fakeHass(BASE_STATES()));
+    for (let i = 0; i < 40; i++) frame();
+    eq(card.$("status").textContent, "", "the demo's status line is clear");
+    card.dbg.open(person(card, "Parent 1"), true);
+    eq(card.$("sum").textContent, "1 thing today", "a demo card has its day");
+    done(card);
+  }
   // ── Calendars: a failed load is not a free day ────────────────────────────────
   {
     C.now = NOON;
