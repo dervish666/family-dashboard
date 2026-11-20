@@ -49,6 +49,15 @@ globals:
   - id: read_pending
     type: bool
     initial_value: "false"
+  # The letter on screen, as the helper held it when it was opened, and its
+  # sent time then. Done names this letter, not whatever the helper holds by
+  # the time it is pressed.
+  - id: shown_raw
+    type: std::string
+    initial_value: '""'
+  - id: shown_sent
+    type: std::string
+    initial_value: '""'
 
 text_sensor:
   - platform: homeassistant
@@ -123,6 +132,9 @@ script:
           condition:
             lambda: return id(letter_kind) == 2;
           then:
+            - lambda: |-
+                id(shown_raw) = id(letter_raw).state;
+                id(shown_sent) = id(letter_sent).state;
             - lvgl.label.update:
                 id: letter_heading
                 text: !lambda |-
@@ -148,10 +160,30 @@ script:
   - id: letter_done
     then:
       - lambda: |-
-          id(read_raw) = id(letter_raw).state;
-          id(read_sent) = id(letter_sent).state;
+          // No local may take a global's name, since id(x) becomes x->value().
+          std::string raw = id(letter_raw).state, sent = id(letter_sent).state;
+          std::string shown = id(shown_raw), opened_sent = id(shown_sent);
+          std::string done_raw, done_sent;
+          int kind = id(letter_kind);
+          // BEGIN letter-done (tests/panels/check.py compiles this block)
+          {
+            // Done is for the letter on screen. While the helper still holds
+            // it, send the sent time it has now (it can land just after the
+            // text). If a new letter replaced it, send the time it was opened
+            // with, and leave the new letter's envelope showing.
+            done_raw = shown;
+            if (raw == shown) {
+              done_sent = sent;
+              kind = 1;
+            } else {
+              done_sent = opened_sent;
+            }
+          }
+          // END letter-done
+          id(read_raw) = done_raw;
+          id(read_sent) = done_sent;
           id(read_pending) = true;
-          id(letter_kind) = 1;
+          id(letter_kind) = kind;
       - script.execute: show_letter_state
       - script.execute: go_home
       - script.execute: resend_pending
@@ -171,6 +203,7 @@ script:
                 data:
                   child: ${child}
                   sent: !lambda return id(read_sent);
+                  letter: !lambda return id(read_raw);
 
 interval:
   # The red dot breathes while a letter waits: two shades, not a flash.

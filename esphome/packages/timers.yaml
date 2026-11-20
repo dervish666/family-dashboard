@@ -19,10 +19,13 @@
 #
 # End times are kept in flash (as Unix seconds), so a timer survives a reboot
 # or a power cut. Coming back up, a timer that ended in the last 2 minutes
-# rings as normal; one that ended longer ago shows its card quietly, with no
-# chime and nothing sent to Home Assistant; one that ended more than six hours
-# ago is forgotten. Until the clock is set from Home Assistant a running timer
-# shows --:-- and keeps its end time.
+# rings as normal, and is announced unless it was before the restart; one
+# that ended longer ago shows its card quietly, with no chime and nothing
+# sent to Home Assistant; one that ended more than six hours ago is
+# forgotten. Until the clock is set from Home Assistant a running timer shows
+# --:-- and keeps its end time. Which end was announced is in flash too,
+# written within flash_write_interval, so only a power cut in the 10 s after
+# an announcement can repeat it.
 #
 # The screen cost. The JC3248W535 redraws its whole frame (307,200 bytes) for
 # any change, so the panel only touches the time labels once a second while
@@ -85,6 +88,20 @@ globals:
     type: uint32_t
     restore_value: true
     initial_value: "0"
+  # The end time each timer last told Home Assistant about. Kept in flash
+  # with the end, so a restart inside the ring window does not say it twice.
+  - id: timer_1_said
+    type: uint32_t
+    restore_value: true
+    initial_value: "0"
+  - id: timer_2_said
+    type: uint32_t
+    restore_value: true
+    initial_value: "0"
+  - id: timer_3_said
+    type: uint32_t
+    restore_value: true
+    initial_value: "0"
   # The minutes a stopped timer will run for when Go is pressed.
   - id: timer_set
     type: std::array<int, 3>
@@ -137,6 +154,7 @@ script:
           auto t = id(ha_time).now();
           uint32_t now = t.is_valid() ? (uint32_t) t.timestamp : 0;
           uint32_t *ends[3] = {&id(timer_1_end), &id(timer_2_end), &id(timer_3_end)};
+          uint32_t saids[3] = {id(timer_1_said), id(timer_2_said), id(timer_3_said)};
           int ring = ${timer_ring_seconds};
           for (int i = 0; i < 3; i++) {
             uint32_t end = *ends[i];
@@ -158,12 +176,22 @@ script:
               *ends[i] = 0;
               phase = 0;
             }
-            if (phase == 0 || phase == 1) id(timer_fired)[i] = false;
-            if ((phase == 2 || phase == 3) && !id(timer_fired)[i]) {
-              id(timer_fired)[i] = true;
-              if (phase == 2) id(timer_announce).execute(i);
-              else ESP_LOGI("timers", "Timer %d ended while the panel was off", i + 1);
+            bool was = id(timer_fired)[i], fired = was, announce = false;
+            uint32_t said = saids[i];
+            // BEGIN timer-alert (tests/panels/check.py compiles this block)
+            {
+              // fired resets with every restart; said is in flash.
+              if (phase == 0 || phase == 1) fired = false;
+              else if (!fired) {
+                fired = true;
+                announce = phase == 2 && said != end;
+              }
             }
+            // END timer-alert
+            id(timer_fired)[i] = fired;
+            if (announce) id(timer_announce).execute(i);
+            else if (fired && !was && phase == 2) ESP_LOGI("timers", "Timer %d was announced before a restart; not again", i + 1);
+            else if (fired && !was) ESP_LOGI("timers", "Timer %d ended while the panel was off", i + 1);
             id(timer_phase)[i] = phase;
             id(timer_left)[i] = left;
           }
@@ -387,8 +415,9 @@ script:
           else:
             - script.execute: timer_test
 
-  # Tells Home Assistant a timer ended. Sent once; if Home Assistant is away
-  # it waits for the reconnect, and is dropped once the timer stops ringing.
+  # Tells Home Assistant a timer ended. Sent once, even across a restart; if
+  # Home Assistant is away it waits for the reconnect, and is dropped once
+  # the timer stops ringing.
   - id: timer_announce
     mode: queued
     parameters:
@@ -397,7 +426,11 @@ script:
       - if:
           condition: api.connected
           then:
-            - lambda: id(timer_unsent)[slot] = false;
+            - lambda: |-
+                uint32_t *ends[3] = {&id(timer_1_end), &id(timer_2_end), &id(timer_3_end)};
+                uint32_t *saids[3] = {&id(timer_1_said), &id(timer_2_said), &id(timer_3_said)};
+                id(timer_unsent)[slot] = false;
+                *saids[slot] = *ends[slot];
             - homeassistant.event:
                 event: esphome.family_panel_timer_done
                 data:

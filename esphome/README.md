@@ -132,8 +132,9 @@ clears it. When one ends the panel lights up, shows a full-width "Timer done" ca
 timer's name and **Dismiss**, plays the chime every `timer_chime_every` seconds until Dismiss or
 `timer_ring_seconds` (two minutes) after the end, and fires the event once so Home Assistant can
 say it out loud. End times are kept in flash: after a reboot, a timer still running carries on;
-one that ended in the last two minutes rings; one that ended longer ago shows its card quietly,
-with no chime and nothing said; after six hours it is forgotten.
+one that ended in the last two minutes rings, and is said out loud only if it was not before the
+reboot; one that ended longer ago shows its card quietly, with no chime and nothing said; after
+six hours it is forgotten.
 
 The chime starts at `timer_volume` (0.85) and, with `timer_escalate` on (the default), each
 repeat is a step louder until it reaches `timer_volume_max` (1.0, full scale) 30 seconds in:
@@ -400,10 +401,12 @@ or the panel's request is refused and the log says why.
    `letter: input_text.letter_kid_a` reads the helper itself and shows the letter once.
 2. Kid A's panel sees the helper change, shows the red dot and brightens.
 3. Kid A taps the envelope, reads it, taps **Done**. The panel fires
-   `esphome.family_letter_read` with `child: kid_a` and the sent time it saw.
+   `esphome.family_letter_read` with `child: kid_a`, the letter it opened and that letter's
+   sent time.
 4. An automation empties `input_text.letter_kid_a` (and the postie copy if it is still there).
-   Every screen drops it. If the sent time does not match, a newer letter arrived in between and
-   stays. A **Done** with no sent time leaves the letter too, and says so in the log.
+   Every screen drops it. If the helper no longer holds that letter, or its sent time differs, a
+   newer letter arrived in between and stays, even if it landed while the old one was open. A
+   **Done** with no sent time leaves the letter too, and says so in the log.
 
 If the letter is read on the wall card first, a v1.8 card with `letter:` empties the child's
 helper (and the postie copy) itself; an older card empties the postie and a second automation

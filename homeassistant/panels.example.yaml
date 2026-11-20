@@ -40,9 +40,10 @@
 # the ceiling, because that is what an entity state can hold.
 #
 # input_datetime.letter_<slug>_sent (optional) records when it was sent. A
-# panel's Done carries the time it saw, so a Done on an old letter never
-# clears a newer one that arrived meanwhile, and the daily expiry uses it.
-# Without it the expiry falls back to the helper's last change.
+# panel's Done carries the letter it showed and that letter's sent time, so a
+# Done on an old letter never clears a newer one that arrived meanwhile, and
+# the daily expiry uses it. Without it the expiry falls back to the helper's
+# last change.
 #
 # Read once, gone everywhere: whoever reads it first (the panel's Done, or
 # opening that child on the wall card, which reads the helper itself when the
@@ -200,9 +201,10 @@ script:
               value: "{{ postie_value }}"
 
 automation:
-  # A panel's Done. The panel fires esphome.family_letter_read with its child
-  # and the sent time it saw; Home Assistant accepts esphome.* events from any
-  # adopted ESPHome device without the "allow actions" option.
+  # A panel's Done. The panel fires esphome.family_letter_read with its child,
+  # the letter it showed and that letter's sent time; Home Assistant accepts
+  # esphome.* events from any adopted ESPHome device without the "allow
+  # actions" option.
   - id: family_panel_letter_read
     alias: "Family: a room panel read its letter"
     mode: queued
@@ -225,12 +227,17 @@ automation:
               logger: family_panels
               message: "A room panel reported a letter read for an unknown child: {{ slug }}"
           - stop: Unknown child
-      # With the sent helper set, a Done must carry the same sent time or the
-      # letter stays: a missing or unreadable one cannot prove it was this
-      # letter. Without the helper there is nothing to compare, so it clears.
+      # A Done names the letter the panel showed: its sent time and, from
+      # firmware that sends it, the helper value itself (`letter`). It clears
+      # only if the helpers still hold that letter. With the sent helper set,
+      # a missing or unreadable sent time cannot prove it was this letter, so
+      # it stays. A panel too old to send `letter` is matched on the sent time
+      # alone, and with no sent helper either, its Done clears what waits.
       - if: >-
-          {{ states(sent_helper) not in ['unknown', 'unavailable']
-             and states(sent_helper) != seen_sent }}
+          {{ (states(sent_helper) not in ['unknown', 'unavailable']
+              and states(sent_helper) != seen_sent)
+             or ('letter' in trigger.event.data
+                 and trigger.event.data.letter | string != states(helper)) }}
         then:
           - action: system_log.write
             data:
@@ -238,7 +245,8 @@ automation:
               logger: family_panels
               message: >-
                 {{ helper }}: {{ 'the read carried no sent time, so it cannot be matched to the letter waiting'
-                if seen_sent in ['', 'unknown', 'unavailable'] else 'a newer letter arrived after the one marked read' }}; kept it.
+                if seen_sent in ['', 'unknown', 'unavailable'] and states(sent_helper) not in ['unknown', 'unavailable']
+                else 'the letter waiting is not the one the panel showed' }}; kept it.
           - stop: Letter kept
       - variables:
           current: "{{ states(helper) if states(helper) not in ['unknown', 'unavailable'] else '' }}"
