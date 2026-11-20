@@ -497,6 +497,12 @@ npm run build
 node tests/check.mjs && sh tests/falsify.sh
 ```
 
+Two checks run the built card in Chromium, and CI runs both. `tests/demo/smoke.py` opens
+`/demo/` at 1280x800, 1024x768, 800x1280 and 400x800 and fails if the HUD's boxes overlap, if
+the keyboard cannot open and close a card, or if the page logs an error.
+`tests/ha-card/ha_card.py` loads the card into a throwaway Home Assistant in Docker. Each needs
+Playwright in a venv: `pip install playwright`, then `python -m playwright install chromium`.
+
 `dist/` is minified, so stack traces from it name nothing useful. `npm run build:debug` writes
 an unminified copy with a source map to `build/` (ignored by git); point a test page at that
 one when you need to read a trace. Nothing in `build/` ships.

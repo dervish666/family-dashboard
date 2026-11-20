@@ -62,3 +62,36 @@ jobs:
           TZ: America/New_York
       - name: Prove the checks can fail
         run: sh tests/falsify.sh
+
+  # The committed card on /demo/ in Chromium at 1280x800, 1024x768, 800x1280 and 400x800: the HUD's
+  # boxes do not overlap, Tab and Enter open a card and Escape closes it, and the page logs no
+  # errors. check.mjs never lays out the HUD, so this is what catches a collision. The
+  # screenshots are kept.
+  demo-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PLAYWRIGHT_VERSION: "1.64.1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Playwright and Chromium in a venv
+        run: |
+          python -m venv "$RUNNER_TEMP/pw"
+          "$RUNNER_TEMP/pw/bin/pip" install "playwright==$PLAYWRIGHT_VERSION"
+          "$RUNNER_TEMP/pw/bin/python" -m playwright install --with-deps chromium
+      - name: The demo at four sizes, at night and on a resize
+        env:
+          DEMO_SMOKE_SHOTS: ${{ runner.temp }}/demo-smoke
+        run: |
+          "$RUNNER_TEMP/pw/bin/python" tests/demo/smoke.py
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-smoke
+          path: ${{ runner.temp }}/demo-smoke
+          if-no-files-found: warn

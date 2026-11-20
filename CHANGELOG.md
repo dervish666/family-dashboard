@@ -52,6 +52,9 @@ Room panels
 Tests, CI and docs
 - The real engine boots in tests, and the built card loads into a real Home Assistant
   (2024.11.0 and stable) in Chromium. CI also runs the checks on New York time.
+- CI opens `/demo/` in Chromium at 1280x800, 1024x768, 800x1280 and 400x800 and fails on
+  overlapping HUD boxes, a keyboard that cannot open and close a card, or a page error
+  (`tests/demo/smoke.py`, screenshots kept as an artifact).
 - The README has a contents list and a troubleshooting section, and the school data shapes
   moved to docs/08-school-data.md.
 
