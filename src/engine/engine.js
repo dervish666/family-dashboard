@@ -26,6 +26,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function setInterval(f, ms) { var id = window.setInterval(function () { if (!STOPPED) f(); }, ms); TIMERS.push(id); return id; }
   function setTimeout(f, ms) { var id = window.setTimeout(function () { clearTimeout(id); if (!STOPPED) f(); }, ms); TOUTS.push(id); return id; }
   function clearTimeout(id) { var i = TOUTS.indexOf(id); if (i >= 0) TOUTS.splice(i, 1); window.clearTimeout(id); }
+  // A history kept for ?dbg checks (writes, taps, clears, views asked for): the last 20, so a
+  // panel left running for months does not grow it.
+  function note(list, v) { list.push(v); if (list.length > 20) list.splice(0, list.length - 20); }
   function requestAnimationFrame(f) { if (!STOPPED) RAF = window.requestAnimationFrame(f); return RAF; }
   var HOUR = (Q.match(/[?&]hour=([\d.]+)/) || [])[1];          // test hook: fake the clock
   var DATE = (Q.match(/[?&]date=(\d{4}-\d\d-\d\d)/) || [])[1];  // test hook: fake the day (countdowns, parties, school days); pair with hour=
@@ -2549,7 +2552,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     w.forEach(function (c) {
       var s = h.states && h.states[c.entity];
       if (!s || String(s.state) !== c.expect) return;
-      LETTER.writes.push(c.entity);
+      note(LETTER.writes, c.entity);
       Promise.resolve().then(function () { return h.callService(c.entity.split(".")[0], "set_value", { entity_id: c.entity, value: "" }); })
         .then(function () { LETTER.clearErr = null; })
         .catch(function (e) { console.warn("meadow: could not clear " + c.entity, e); LETTER.clearErr = e.message || String(e); });
@@ -2617,7 +2620,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var NAVS = [];                                     // what a tap asked for, for ?dbg checks
   function goView(path) {
     if (!path) return false;
-    NAVS.push({ path: path, at: Date.now() });
+    note(NAVS, { path: path, at: Date.now() });
     try { return HA.navigate(path); }
     catch (e) { console.warn("meadow: could not open " + path, e); say("oops", W / 2, H / 2); return false; }
   }
@@ -2841,7 +2844,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (TILE_CONF.length) { var tl = el("tiles", $("corner"));
       tl.addEventListener("pointerdown", function (e) { activity();
         var t = e.target && e.target.closest ? e.target.closest(".tile") : null, k = t ? +t.getAttribute("data-i") : -1;
-        if (k >= 0 && TILE_CONF[k]) { XS.taps.push(TILE_CONF[k].entity); t.classList.add("tap"); setTimeout(function () { t.classList.remove("tap"); }, 260);
+        if (k >= 0 && TILE_CONF[k]) { note(XS.taps, TILE_CONF[k].entity); t.classList.add("tap"); setTimeout(function () { t.classList.remove("tap"); }, 260);
           if (!DEMO) HA.moreInfo(TILE_CONF[k].entity); } }); }
   }
   function extrasHud(d) {
@@ -3104,7 +3107,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   // announcement_clear says so.
   function annTap(key) {
     if (!key) return;
-    XS.hidden = key; XS.annKey = null; CWANT = null; XS.dismissed.push(key);
+    XS.hidden = key; XS.annKey = null; CWANT = null; note(XS.dismissed, key);
     if (CRIER) CRIER.v.happy = 2;
     clearAnnouncement(key);
     extrasHud(now());
@@ -3113,7 +3116,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (!CRY || !CRY.clear || DEMO || XS.hook) return;
     var h = HA.hass(), id = ANN_CONF.entity, s = h && h.states && h.states[id];
     if (!s || String(s.state == null ? "" : s.state).trim() + "|" + (s.last_changed || "") !== key) return;   // a newer one has landed: leave it be
-    XS.clears.push(id);
+    note(XS.clears, id);
     Promise.resolve().then(function () { return h.callService(id.split(".")[0], "set_value", { entity_id: id, value: "" }); })
       .then(function () { XS.clearErr = null; })
       .catch(function (e) { console.warn("family-dashboard-card: could not clear " + id, e); XS.clearErr = e && e.message || String(e); });
@@ -3211,7 +3214,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var READING = null;
   function readLetter(t, tap) {
     var l = t.letter, h = HA.hass(), sh = SENSORS.letter && h && h.states ? h.states[SENSORS.letter] : null;
-    READING = { t: t, l: l, tap: tap, plan: l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null };
+    var plan = letterRead(BOOK, l, SENSORS.letter, sh);          // out of the book either way, so a read letter is never matched again
+    READING = { t: t, l: l, tap: tap, plan: l.src ? plan : null };
   }
   function settleLetter() {
     var r = READING; if (!r) return false;

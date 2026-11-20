@@ -195,5 +195,7 @@ engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \
 engine/engine.js|s/ if (openThing \&\& openThing.person) openCard(openThing, false, true); }/ }/|an open card keeps yesterday's Today after midnight
 engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) html += postBlock(READING.l); }/    if (false) {}/|the midnight redraw reads the letter again and clears it
 engine/engine.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
+engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
+engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
 EOF
 echo "ok: all $n sabotaged copies failed the check"

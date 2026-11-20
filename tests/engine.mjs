@@ -502,6 +502,34 @@ export async function engineChecks(src, T) {
     done(card);
   }
 
+  // A shared letter that has been read leaves the letter book, so a later per-person letter
+  // whose bridge copy reads the same is not swallowed by it.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    st["input_text.family_letter"] = { state: "Alex: Shared note", last_changed: "2026-10-26T11:58:00Z" };
+    st["input_text.letter_alex"] = { state: "", last_changed: "2026-10-26T10:00:00Z" };
+    const hass = fakeHass(st);
+    const ppl = PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: "input_text.letter_alex" }, p) : p; });
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home", letter: "input_text.family_letter" } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    card.$("done").fire("click");
+    await flush();
+    eq(sets(hass, "input_text.family_letter").length, 1, "reading the shared letter empties its helper");
+    st["input_text.family_letter"] = { state: "", last_changed: "2026-10-26T12:00:05Z" };
+    eq(card.dbg.book().live.length, 0, "and it leaves the letter book");
+    st["input_text.letter_alex"] = { state: "|Shared note", last_changed: "2026-10-26T12:00:20Z" };
+    await advance(45000);
+    eq(card.dbg.LETTER.queue.map(function (l) { return [l.src, l.text]; }), [["input_text.letter_alex", "Shared note"]], "a later per-person letter with the same words is a new letter");
+    // and the histories kept for ?dbg stay short however long the panel runs
+    for (let i = 0; i < 30; i++) card.dbg.go("/wall-panel/v" + i);
+    eq([card.dbg.nav().length, card.dbg.nav()[19].path], [20, "/wall-panel/v29"], "the views asked for keep the last 20");
+    done(card);
+  }
+
   // ── stop(): the card leaves the page and takes its loop and timers with it ────────
   {
     C.now = NOON;
