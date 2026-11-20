@@ -3,7 +3,7 @@
 One section per release, newest first. The full notes for each are on the
 [releases page](https://github.com/dervish666/family-dashboard/releases).
 
-## Unreleased
+## 1.10.3 (2026-11-20)
 
 Card
 - First run hands only the household's shared calendars (family, home, house, holiday,
