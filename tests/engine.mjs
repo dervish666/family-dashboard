@@ -24,6 +24,9 @@ function stubContext(c) {
     set: function (o, k, v) { o[k] = v; return true; }
   });
 }
+// What has focus: one page, so one at a time. el().focus() takes it, the shadow root's
+// activeElement reads it.
+const FOCUS = { el: null };
 function el(tag, id) {
   const e = {
     tagName: String(tag || "div").toUpperCase(), id: id || "", className: "", textContent: "", style: {}, scrollTop: 0,
@@ -52,6 +55,8 @@ function el(tag, id) {
     getAttribute: function (k) { return k in this.attrs ? this.attrs[k] : null; },
     setAttribute: function (k, v) { this.attrs[k] = String(v); },
     closest: function () { return null; },
+    focus: function () { if (FOCUS.el && FOCUS.el !== this) FOCUS.el.fire("blur"); FOCUS.el = this; this.fire("focus"); },
+    blur: function () { if (FOCUS.el === this) { FOCUS.el = null; this.fire("blur"); } },
     // gotIt() swaps the letter for a "cleared" line: keep the swap so a case can read it
     querySelector: function (sel) {
       const host = this;
@@ -81,10 +86,12 @@ function shadowRoot() {
         const e = el(m[1], m[3]), a = m[2] + m[4], wd = a.match(/\bwidth="(\d+)"/), ht = a.match(/\bheight="(\d+)"/);
         if (wd) e.width = +wd[1];
         if (ht) e.height = +ht[1];
+        for (const at of a.matchAll(/([\w-]+)="([^"]*)"/g)) e.attrs[at[1]] = at[2];
         w.appendChild(e);
       }
     },
     getElementById: function (id) { return find(this.wrap, id); },
+    get activeElement() { return FOCUS.el; },
     querySelector: function (sel) { return sel === ".fd" ? this.wrap : null; }
   };
   return sr;
@@ -214,7 +221,15 @@ export async function engineChecks(src, T) {
   function person(card, name) { return card.dbg.fam.filter(function (t) { return t.person.name === name; })[0]; }
   function text(card, id) { return String(card.$(id).innerHTML || card.$(id).textContent || ""); }
   function sets(hass, entity) { return hass.calls.filter(function (c) { return c.service === "set_value" && c.data.entity_id === entity; }); }
-  function done(card) { card.disconnectedCallback(); C.q.clear(); C.raf = null; MQ = null; }
+  function done(card) { card.disconnectedCallback(); C.q.clear(); C.raf = null; MQ = null; FOCUS.el = null; }
+  function key(card, k) { return card.$("keys").children.filter(function (b) { return b.getAttribute("data-k") === k; })[0]; }
+  function keyNames(card) { return card.$("keys").children.map(function (b) { return b.getAttribute("aria-label"); }); }
+  // The declarations of one rule in the card's stylesheet, as the shadow root was given it.
+  function rule(card, sel) {
+    const css = card.sr.innerHTML.split("</style>")[0], at = css.indexOf("\n" + sel + " {");
+    return at < 0 ? null : css.slice(at + sel.length + 3, css.indexOf("}", at)).trim();
+  }
+  function press(card, k) { card.sr.wrap.fire("keydown", { key: k, preventDefault: function () {}, stopPropagation: function () {} }); }
 
   const DAY = "2026-10-26";                         // a Monday, GMT
   const NOON = local(2026, 10, 26, 12, 0);
@@ -655,6 +670,75 @@ export async function engineChecks(src, T) {
     await flush();
     eq(sets(hass, id).map(function (c) { return c.data.value; }), [""], what + ": " + (own ? "a tap on the scrim" : "Done") + " then clears it");
     eq(alex.letter, null, what + ": and takes it off the tag");
+    done(card);
+  }
+  // ── Keyboard and screen reader ───────────────────────────────────────────────
+  // The popup is a dialog. Escape is Done: it closes the card and clears the letter, as Done does.
+  {
+    C.now = NOON;
+    const st = BASE_STATES(), id = "input_text.letter_alex";
+    st[id] = { state: "Parent 1|Coats on", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    const ppl = PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: id }, p) : p; });
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home" } }, hass);
+    eq(["role", "aria-modal", "aria-labelledby"].map(function (a) { return card.$("card").getAttribute(a); }), ["dialog", "true", "who"], "the popup is a modal dialog named by its heading");
+    eq([card.$("status").getAttribute("role"), card.$("world").getAttribute("role")], ["status", "img"], "the status line is spoken when it changes, and the canvas is one picture");
+    ok(/visibility: hidden/.test(rule(card, "#scrim")) && /visibility: visible/.test(rule(card, "#scrim.open")),
+      "the closed popup is hidden from Tab and from readers, not only see-through");
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    press(card, "Escape");
+    await flush();
+    ok(!card.$("scrim").classList.contains("open"), "Escape closes the card");
+    eq(sets(hass, id).map(function (c) { return c.data.value; }), [""], "Escape clears the letter, as Done does");
+    eq(alex.letter, null, "and takes it off the tag");
+    press(card, "Escape");
+    eq(sets(hass, id).length, 1, "Escape with no card up does nothing");
+    done(card);
+  }
+  // A button for each person, the School and each landmark with a view, named from the name tags
+  // (today's count, a letter waiting), each opening what a tap on it opens. Done takes focus when a
+  // card opens, and closing hands it back to the button that opened it.
+  {
+    C.now = NOON;
+    const st = BASE_STATES();
+    const hass = fakeHass(st);
+    hass.answer = route({ "calendar.sky": [timed("Drama", DAY, "16:00"), timed("Swim", DAY, "17:00")], "calendar.house": [timed("Bins", DAY, "18:00")] });
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" }, view: { music: "/wall-panel/music" } }, hass);
+    await advance(1600);
+    frame();
+    const sl = card.$("status"); let said = 0, words = sl.textContent;
+    Object.defineProperty(sl, "textContent", { get: function () { return words; }, set: function (v) { said++; words = v; } });
+    for (let i = 0; i < 5; i++) frame();
+    eq(said, 0, "the status line is written only when its words change, so a reader does not hear it every second");
+    eq(keyNames(card), ["Alex", "Sky, 2 things today", "House, 1 thing today", "School", "Music view"], "a key button for each person, the School and the music view, named like their tags");
+    person(card, "Alex").letter = { text: "Coats on", from: "Sky" };
+    frame();
+    eq(keyNames(card)[0], "Alex, letter waiting", "a letter on the tag is in the button's name");
+    const sky = key(card, "p:Sky");
+    sky.focus();
+    sky.fire("click");
+    await advance(400);
+    eq(card.$("scrim").classList.contains("open") && card.$("who").textContent, "Sky", "a person's button opens their card");
+    ok(card.sr.activeElement === card.$("done"), "opening a card puts focus on Done");
+    card.$("done").fire("click");
+    ok(card.sr.activeElement === sky, "closing it hands focus back to the button that opened it");
+    key(card, "school").fire("click");
+    await advance(400);
+    eq(card.$("scrim").classList.contains("open") && card.$("who").textContent, "School", "the School's button opens the School card");
+    press(card, "Escape");
+    key(card, "music").fire("click");
+    await advance(400);
+    eq(card.dbg.nav().map(function (n) { return n.path; }), ["/wall-panel/music"], "a landmark's button opens its view");
+    const tap = function (name) { const b = person(card, name).tagBox; card.$("world").fire("pointerdown", { clientX: b[0] + b[2] / 2, clientY: b[1] + b[3] / 2 }); };
+    card.sr.activeElement.blur();                     // a tap on the canvas takes focus off the button, as a browser does
+    frame(); tap("House");
+    await advance(400);
+    ok(card.$("scrim").classList.contains("open") && card.sr.activeElement === card.$("done"), "a tap on the canvas opens with focus on Done too");
+    card.$("done").fire("click");
+    ok(card.sr.activeElement === null, "and closing lets go of focus, so it is not left on a hidden Done");
     done(card);
   }
   // A letter kept that way is back in the letter book: a panel's Done still takes it off the tag.

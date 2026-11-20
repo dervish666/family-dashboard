@@ -246,5 +246,17 @@ data.js|s/  if (inTerm) return true;/  if (inTerm) return null;/|a day in term r
 popup.js|s/sum = !weekday(d) ? "Weekend" :/sum = false ? "Weekend" :/|the School card counts who is at school at the weekend
 popup.js|s/"Letter from " + esc(l.from) + " cleared."/"Letter from " + l.from + " cleared."/|the cleared letter's line stops escaping who it was from
 popup.js|s/  else sum = live ? label : "Printer not reachable";/  else sum = label;/|a printer that stopped answering reads as its last status on the workshop card
+engine/engine.js|s/    if (e.key === "Escape" .. e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }//|Escape does not close the card
+engine/engine.js|s/    if (e.key === "Escape" .. e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }/    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); $("scrim").classList.remove("open"); openThing = null; return; }/|Escape hides the card without clearing the letter as Done does
+engine/engine.js|s/^    \$("done").focus({ preventScroll: true });$//|opening a card leaves focus where it was, not on Done
+engine/engine.js|s/if (o .. o.isConnected !== false .. o.focus) o.focus({ preventScroll: true });/if (false) {}/|closing a card does not hand focus back to the button that opened it
+engine/engine.js|s/^    else if (a .. a.blur) a.blur();$//|closing a card opened by a tap leaves focus on a hidden Done
+card.js|s/opacity: 0; visibility: hidden;/opacity: 0;/|the closed popup is only see-through, so Tab lands on its Done
+card.js|s/<div id="status" role="status">/<div id="status">/|the status line is not spoken when it changes
+engine/engine.js|s/    if (\$("status").textContent !== stl) \$("status").textContent = stl;/    $("status").textContent = stl;/|the status line is written every second, so a reader says it every second
+engine/engine.js|s/        b.addEventListener("click", function () { keyAct(w.k); });//|the key buttons do nothing
+engine/engine.js|s/ + (postBadge(t.letter) ? ", letter waiting" : "")//|a person's button does not say a letter is waiting
+engine/engine.js|s/label: t.person.name + onToday(todayFor(t.person.name).length)/label: t.person.name/|a person's button does not say how many things are on today
+engine/engine.js|s/if (h.robot ? ROBOT .. VIEW.office : VIEW\[id\])/if (h.robot ? ROBOT \&\& VIEW.office : false)/|a landmark with a view has no button
 EOF
 echo "ok: all $n sabotaged copies failed the check"

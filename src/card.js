@@ -21,6 +21,15 @@ const STYLE = `
   font-family: Fredoka, "Instrument Sans", Roboto, sans-serif; color: var(--ink);
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action: none; }
+/* A real button for each tap target on the canvas (the engine's refreshKeys), for a keyboard, a
+   switch or a screen reader. Out of sight until one has focus; then it rings its target. */
+#keys { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
+.key { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; background: none; color: transparent; pointer-events: none; }
+.key.on { margin: 0; overflow: visible; clip: auto; box-sizing: border-box; border-radius: 22px; outline: none;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF; }
+.key.on.loose { left: 40px; top: auto; bottom: 30px; width: auto; height: auto; padding: 8px 18px; border-radius: 999px;
+  background: rgba(255, 255, 255, .96); color: #26352C; font: 600 20px Fredoka, sans-serif; }
 
 #hud { position: absolute; left: 40px; top: 22px; pointer-events: none; color: var(--hud); }
 #clock { font-size: 88px; font-weight: 600; line-height: 1; letter-spacing: -.02em; }
@@ -80,9 +89,10 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .soft.late { color: var(--warn); }
 
 #scrim { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: var(--scrim);
-  display: flex; align-items: center; justify-content: center; opacity: 0;
-  pointer-events: none; transition: opacity .22s ease-out; }
-#scrim.open { opacity: 1; pointer-events: auto; }
+  display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden;
+  pointer-events: none; transition: opacity .22s ease-out, visibility 0s linear .22s; }
+#scrim.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .22s ease-out, visibility 0s; }
+#card:focus { outline: none; }
 #card { width: 1080px; max-width: calc(100% - 48px); height: 660px; max-height: calc(100% - 48px);
   background: var(--paper); border-radius: 32px; display: flex; overflow: hidden;
   box-shadow: 0 24px 60px rgba(20, 44, 30, .35);
@@ -186,12 +196,13 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 `;
 
 const MARKUP = `<div class="fd">
-<canvas id="world"></canvas>
+<canvas id="world" role="img" aria-label="The family as animals in an animated scene"></canvas>
+<div id="keys" role="group" aria-label="People and places"></div>
 <div id="hud"><div id="clock">--:--</div><div id="date"></div><div id="next"></div></div>
 <div id="dates"></div>
-<div id="corner"><div>Tap someone to see their week</div><div id="status"></div></div>
-<div id="scrim"><section id="card">
-  <div id="face"><canvas id="portrait" width="480" height="480"></canvas>
+<div id="corner"><div id="hint">Tap someone to see their week</div><div id="status" role="status"></div></div>
+<div id="scrim"><section id="card" role="dialog" aria-modal="true" aria-labelledby="who" tabindex="-1">
+  <div id="face"><canvas id="portrait" width="480" height="480" aria-hidden="true"></canvas>
     <h1 id="who"></h1><p id="sum"></p><button id="done">Done</button></div>
   <div id="lists"></div>
 </section></div>

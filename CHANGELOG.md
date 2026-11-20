@@ -22,6 +22,12 @@ Card
   outside still clear it. A read letter leaves the letter book.
 - Midnight moves the week on, and a slow old load cannot bring the old week back. A stopped
   engine runs no more timeouts.
+- A keyboard or a screen reader can open every card. Each person, the School and each
+  landmark with a view has a button, named like its tag ("Kid 2, 1 thing today, letter
+  waiting"), that does what a tap does and rings its target on the scene while it has focus.
+- The popup is a dialog. Done takes focus when it opens, Tab stays inside it, Escape closes it
+  the way Done does, and closing hands focus back. A closed popup is hidden from Tab and from
+  readers. The status line is spoken when its words change.
 
 Editor
 - A "Birthday (MM-DD)" field per person. A rename carries the birthday and anniversary along.

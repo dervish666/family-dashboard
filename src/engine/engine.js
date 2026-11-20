@@ -2269,8 +2269,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function todayFor(name) { var td = ymd(now()); return DATA.events.filter(function (e) { return e.who === name && e.day === td; }); }
   function refreshTags() {
     PEOPLE.forEach(function (p) { TAGS[p.name] = bakeTag(p, todayFor(p.name).length); });
-    var td = ymd(now()), n = ((DATA.extra || {}).items || []).filter(function (i) { return i.date === td && KIDS.indexOf(i.who) >= 0; }).length;
-    TAGS.School = bakeTag({ name: "School", col: "#C9594A" }, n);
+    TAGS.School = bakeTag({ name: "School", col: "#C9594A" }, schoolToday());
   }
   // The workshop's fence board: "45%" while printing or paused, a tick when done,
   // baked again only when the words change. Nothing while the plot is empty.
@@ -2989,9 +2988,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     $("next").innerHTML = up.length ? "Next: <b>" + esc(up[0].at) + "</b> " + esc(up[0].who === "House" ? "" : up[0].who + ", ") + esc(up[0].what)
       : DATA.events.length ? "Nothing else on today" : "";
     // Say out loud when the picture is old (data.js statusLine).
-    $("status").textContent = statusLine(DATA, d, { demo: DEMO, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
+    // Written only when the words change: it is a live region, and a reader would say it every second.
+    var stl = statusLine(DATA, d, { demo: DEMO, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
+    if ($("status").textContent !== stl) $("status").textContent = stl;
     $("next").style.opacity = FLIGHT ? 0 : 1;
-    extrasHud(d); postHud(d);
+    extrasHud(d); postHud(d); refreshKeys();
     WRAP.classList.toggle("night", DARK > 0.5);
     if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
   }
@@ -3062,9 +3063,23 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     g.clearRect(0, 0, pc.width, pc.height);
     var fit = Math.min(pc.width / bs.c.width, pc.height / bs.c.height) * 0.98;
     g.drawImage(bs.c, (pc.width - bs.c.width * fit) / 2, pc.height - 20 - bs.ay * fit, bs.c.width * fit, bs.c.height * fit);
-    openThing = t; t.happy = 99;
+    t.happy = 99;
+    showCard(t);
+  }
+  // The popup is a dialog: Done takes focus, and closing hands it back to whatever had it (a key
+  // button, see refreshKeys), or lets go of it so it does not sit on a hidden Done.
+  var OPENER = null;
+  function showCard(thing) {
+    if (!openThing) OPENER = ROOT.activeElement || null;
+    openThing = thing;
     $("scrim").classList.add("open");
     armClose();                                                             // a wall panel forgets
+    $("done").focus({ preventScroll: true });
+  }
+  function giveFocusBack() {
+    var o = OPENER, a = ROOT.activeElement; OPENER = null;
+    if (o && o.isConnected !== false && o.focus) o.focus({ preventScroll: true });
+    else if (a && a.blur) a.blur();
   }
   function armClose() { clearTimeout(closeTimer); closeTimer = setTimeout(autoClose, 60000); }
   // Closing on its own is not someone closing the card: an unread letter stays on its creature,
@@ -3079,6 +3094,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     $("scrim").classList.remove("open");
     if (openThing) { openThing.happy = 0; openThing.wait = 1; }
     openThing = null; clearTimeout(closeTimer);
+    giveFocusBack();
   }
   // ── The school card ─────────────────────────────────────────────────────────
   // Everything school-shaped in one place (popup.js schoolCard). KIDS are the PEOPLE with
@@ -3094,9 +3110,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var pc = $("portrait"), g = pc.getContext("2d"), s = LAY.school, cut = s.cut || [s.x - 105, s.y - 150, 210, 175], sw = cut[2], sh = cut[3];
     g.clearRect(0, 0, pc.width, pc.height);
     g.drawImage(BG, cut[0] * DPR, cut[1] * DPR, sw * DPR, sh * DPR, 0, (pc.height - pc.width * sh / sw) / 2, pc.width, pc.width * sh / sw);
-    openThing = SCHOOL_CARD;
-    $("scrim").classList.add("open");
-    armClose();
+    showCard(SCHOOL_CARD);
   }
   // ── The workshop card ───────────────────────────────────────────────────────
   // The print job as the printer reports it (popup.js shopCard).
@@ -3112,9 +3126,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     g.clearRect(0, 0, pc.width, pc.height); g.save(); g.scale(k, k); g.translate(65, 118);
     [[SHOP.walls2, 0, 0], [SHOP.roof, 0, -48], [SHOP.sign, -56, 0]].forEach(function (p) { var ic = p[0]; g.drawImage(ic.c, p[1] - ic.ax / ic.k, p[2] - ic.ay / ic.k, ic.c.width / ic.k, ic.c.height / ic.k); });
     g.restore();
-    openThing = SHOP_CARD;
-    $("scrim").classList.add("open");
-    armClose();
+    showCard(SHOP_CARD);
   }
 
   // ── The banner plane ────────────────────────────────────────────────────────
@@ -3202,6 +3214,16 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   $("scrim").addEventListener("pointerdown", function (e) { if (e.target === $("scrim")) closeCard(); });
   $("lists").addEventListener("scroll", function () { if (openThing) armClose(); });
   $("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });       // reading the School grid is not walking away
+  // Escape is Done. Tab goes round the card's own buttons while it is up (aria-modal says the
+  // rest is out of reach, and Chrome 87 has no inert to make it so).
+  WRAP.addEventListener("keydown", function (e) {
+    if (!openThing) return;
+    if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }
+    if (e.key !== "Tab" || !$("card").querySelectorAll) return;
+    var f = [].slice.call($("card").querySelectorAll("button, summary, [href]")), a = ROOT.activeElement, i = f.indexOf(a);
+    if (!f.length) return;
+    if (e.shiftKey ? i <= 0 : i === f.length - 1 || i < 0) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+  });
 
   cv.addEventListener("pointerdown", function (e) {
     if (openThing) return;
@@ -3212,11 +3234,9 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
       var d = Math.sqrt(Math.pow(x - at[0], 2) + Math.pow(y - (at[2] - t.r * sc * 0.9), 2));
       if (b && x >= b[0] - 10 && x <= b[0] + b[2] + 10 && y >= b[1] - 10 && y <= b[1] + b[3] + 10) d = 0;
       if (d < t.r * sc * 1.8 && d < bd) { bd = d; best = t; } }
-    if (best) { best.jump = 0.6; best.happy = 1; puff("heart", best.x, best.y - best.r * 2.2, 3, best.person.col);
-      setTimeout(function () { openCard(best, true); }, 320); return; }
+    if (best) { tapPerson(best); return; }
     // The office robot, or its speech bubble: the agent office view
-    if (robotHit(x, y)) { ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
-      setTimeout(function () { goView(VIEW.office); }, 380); return; }
+    if (robotHit(x, y)) { tapRobot(); return; }
     // The scene's landmarks (scene.hotspots): the school opens the School card, the others
     // their view in VIEW, and a landmark whose view is null is scenery.
     SV.sign = SIGN && MUSIC_T > 0.3 ? SIGN.h + 14 : 0;                  // the now-playing sign over the meadow's bandstand
@@ -3233,10 +3253,84 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (!h || h.robot || (id !== "school" && !VIEW[id])) return false;
     var b = h.box(SV), tb = id === "school" && SCHOOL_CARD.tagBox;
     if (!(x > b[0] && x < b[2] && y > b[1] && y < b[3]) && !(tb && x >= tb[0] - 10 && x <= tb[0] + tb[2] + 10 && y >= tb[1] - 10 && y <= tb[1] + tb[3] + 10)) return false;
-    h.tap(SV);
+    openSpot(id);
+    return true;
+  }
+  // What a tap on each does, for the canvas and the key buttons alike.
+  function tapPerson(t) {
+    t.jump = 0.6; t.happy = 1; puff("heart", t.x, t.y - t.r * 2.2, 3, t.person.col);
+    setTimeout(function () { openCard(t, true); }, 320);
+  }
+  function tapRobot() {
+    ROBOT.hop = 0.5; ROBOT.flash = 1; say("beep!", ROBOT.x, ROBOT.y - 90);
+    setTimeout(function () { goView(VIEW.office); }, 380);
+  }
+  function openSpot(id) {
+    SCENE.hotspots[id].tap(SV);
     if (id === "school") setTimeout(openSchool, 320);
     else setTimeout(function () { goView(VIEW[id]); }, 380);
-    return true;
+  }
+
+  // ── Keys ────────────────────────────────────────────────────────────────────
+  // The canvas is one picture, so a keyboard, a switch or a screen reader has nothing to press.
+  // #keys holds a real button for each person, the School and each landmark with a view (the
+  // office robot once it is out), named from what their name tag shows (the count refreshTags
+  // bakes, the letter badge), and each does what a tap on it does. Out of sight until one has
+  // focus; then frame() rings its target on the scene (placeKey), or shows it as a pill when the
+  // target is off the scene. Named again with the HUD, once a second.
+  var KEYS = [], KEYON = null, SPOT_NAME = { printer: "Printer", music: "Music", home: "Home", office: "Office" };
+  function schoolToday() {
+    var td = ymd(now());
+    return ((DATA.extra || {}).items || []).filter(function (i) { return i.date === td && KIDS.indexOf(i.who) >= 0; }).length;
+  }
+  function onToday(n) { return n ? ", " + n + (n === 1 ? " thing today" : " things today") : ""; }
+  function keyList() {
+    var out = fam.map(function (t) {
+      return { k: "p:" + t.person.name, text: t.person.name, label: t.person.name + onToday(todayFor(t.person.name).length) + (postBadge(t.letter) ? ", letter waiting" : "") }; });
+    var hs = SCENE.hotspots || {};
+    if (hs.school && LAY.school) out.push({ k: "school", text: "School", label: "School" + onToday(schoolToday()) });
+    HOTSPOT_IDS.forEach(function (id) {
+      var h = hs[id]; if (!h || id === "school") return;
+      if (h.robot ? ROBOT && VIEW.office : VIEW[id]) out.push({ k: id, text: SPOT_NAME[id] || id, label: (SPOT_NAME[id] || id) + " view" }); });
+    return out;
+  }
+  function refreshKeys() {
+    var want = keyList(), box = $("keys"), id = function (x) { return x.k; };
+    if (want.map(id).join("\n") !== KEYS.map(id).join("\n")) {
+      var had = KEYON && KEYON.k; KEYON = null;
+      box.innerHTML = "";
+      KEYS = want.map(function (w) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "key"; b.textContent = w.text; b.setAttribute("data-k", w.k);
+        b.addEventListener("click", function () { keyAct(w.k); });
+        b.addEventListener("focus", function () { KEYON = { k: w.k, b: b }; placeKey(); });
+        b.addEventListener("blur", function () { if (KEYON && KEYON.b === b) KEYON = null; b.className = "key"; b.style.left = b.style.top = b.style.width = b.style.height = ""; });
+        box.appendChild(b);
+        return { k: w.k, b: b, label: null };
+      });
+      KEYS.forEach(function (kb) { if (kb.k === had) kb.b.focus({ preventScroll: true }); });
+    }
+    want.forEach(function (w, i) { var kb = KEYS[i]; if (kb.label !== w.label) { kb.label = w.label; kb.b.setAttribute("aria-label", w.label); } });
+  }
+  function keyAct(k) {
+    if (openThing) return;
+    activity();
+    var t = fam.filter(function (f) { return "p:" + f.person.name === k; })[0];
+    if (t) tapPerson(t);
+    else if (k === "office" && SCENE.hotspots.office.robot) { if (ROBOT) tapRobot(); }
+    else if (SCENE.hotspots[k]) openSpot(k);
+  }
+  // The focused key's ring: round the name tag, the School's tag, the landmark or the robot.
+  function placeKey() {
+    var kb = KEYON; if (!kb) return;
+    var t = fam.filter(function (f) { return "p:" + f.person.name === kb.k; })[0], h = (SCENE.hotspots || {})[kb.k], r = null, b;
+    if (t) r = t.tagBox && [t.tagBox[0], t.tagBox[1], t.tagBox[2], t.tagBox[3] - 10];
+    else if (kb.k === "school" && SCHOOL_CARD.tagBox) r = [SCHOOL_CARD.tagBox[0], SCHOOL_CARD.tagBox[1], SCHOOL_CARD.tagBox[2], SCHOOL_CARD.tagBox[3] - 10];
+    else if (h && h.robot) r = ROBOT && [ROBOT.x - 40, ROBOT.y - 92, 80, 104];
+    else if (h) { b = h.box(SV); r = [b[0], b[1], b[2] - b[0], b[3] - b[1]]; }
+    var s = kb.b.style;
+    if (r) { kb.b.className = "key on"; s.left = Math.round(r[0]) + "px"; s.top = Math.round(r[1]) + "px"; s.width = Math.round(r[2]) + "px"; s.height = Math.round(r[3]) + "px"; }
+    else { kb.b.className = "key on loose"; s.left = s.top = s.width = s.height = ""; }
   }
 
   // Tell any idle or backlight timer on the page that the panel is in use.
@@ -3268,6 +3362,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (FPS) { FPSN++; FPSMS += performance.now() - t0; if (ms - FPS0 >= 2000) { FPST = (FPSN * 1000 / (ms - FPS0)).toFixed(1) + " fps \u00b7 " + (FPSMS / FPSN).toFixed(1) + " ms"; FPSN = 0; FPSMS = 0; FPS0 = ms; }
       ctx.font = "600 16px Fredoka"; ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillStyle = "#000"; ctx.fillRect(W - 170, H - 26, 170, 26); ctx.fillStyle = "#FFF"; ctx.fillText(FPST, W - 8, H - 4); }
     if (ms - lastHud > 1000) { lastHud = ms; hud(); }
+    if (KEYON) placeKey();
   }
   function start() {
     // Tags go up before any data: if Home Assistant is down at boot, everyone still has a name.
