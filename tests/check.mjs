@@ -1,5 +1,5 @@
 // Runnable check for the parts of the card that need no real pixels: config normalisation,
-// calendar parsing, the loads from Home Assistant (data.js, on a fake hass), the school timetable and
+// calendar parsing, the loads from Home Assistant (data.js, on a fake hass) and the status line, the school timetable and
 // lunch parsers, the announcement extras and the town crier's
 // rules, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
@@ -186,6 +186,30 @@ eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "
   ok(logs.some(function (l) { return /^meadow: calendar\.b/.test(l); }), "readWeek logs the calendar that failed");
 }
 function allDayEv(summary, day) { return { summary: summary, start: { date: day }, end: { date: day } }; }
+
+// The status line (data.js statusLine): with everything wrong at once, each fix uncovers the
+// next thing down, so the order is the one the HUD shows them in.
+{
+  const at = new Date(2026, 9, 26, 12, 0);
+  const snap = { events: [], error: "no calendar answered (calendar.a)", gotAt: new Date(2026, 9, 25, 23, 50), weekAt: new Date(2026, 9, 25, 9, 0),
+    calFailed: [{ who: "Sky", id: "calendar.sky" }, { who: "Alex", id: "calendar.a" }], holidaysErr: "Trips offline", holidaysAt: new Date(2026, 9, 26, 11, 5) };
+  const o = { demo: false, letters: { bad: [{ who: "Alex" }], clearErr: "boom" }, weatherLive: false, annErr: "bang" };
+  const peel = [function () { snap.error = null; }, function () { snap.weekAt = new Date(2026, 9, 26, 11, 30); }, function () { snap.calFailed = []; },
+    function () { o.letters.bad = []; }, function () { snap.holidaysErr = null; }, function () { o.weatherLive = true; }, function () { o.letters.clearErr = null; }, function () { o.annErr = null; }];
+  const lines = [m.statusLine(snap, at, o)].concat(peel.map(function (f) { f(); return m.statusLine(snap, at, o); }));
+  eq(lines, ["Can't load the week (no calendar answered (calendar.a)). Showing sun 25 23:50", "Calendars last checked sun 25 09:00", "2 calendars unavailable: Sky, Alex",
+    "Letters unavailable: Alex", "Holidays unavailable (Trips offline). Showing the list from today 11:05", "Weather unavailable, showing made-up showers",
+    "Couldn't clear the letter in Home Assistant", "Couldn't clear the announcement in Home Assistant", ""], "statusLine: what is wrong, most urgent first, and nothing once all is well");
+  const quiet = { demo: false, letters: { bad: [] }, weatherLive: true };
+  eq([m.statusLine({ events: [], error: "x", gotAt: new Date(2026, 9, 26, 11, 20) }, at, quiet), m.statusLine({ events: [], error: "x", gotAt: null }, at, quiet)],
+    ["Can't load the week (x). Showing 11:20", "Can't load the week (x)"], "statusLine: a failed load says how old the week showing is, or nothing to show");
+  eq([m.statusLine({ events: [], gotAt: null }, at, quiet), m.statusLine({ events: [], gotAt: null }, at, { demo: true, letters: { bad: [] }, weatherLive: false })],
+    ["Loading the week", ""], "statusLine: before the first load the week is loading, and the demo has nothing to load");
+  eq([39, 41].map(function (mins) { return m.statusLine({ events: [], gotAt: at, weekAt: new Date(at - mins * 60000) }, at, quiet); }), ["", "Calendars last checked today 11:19"],
+    "statusLine: a week checked over 40 minutes ago is stale");
+  eq(["2026-10-26", "2026-10-27", "2026-10-29", "2026-10-31", "2026-11-05"].map(function (ds) { return m.dayLabel(ds, at); }), ["Today", "Tomorrow", "Thu 29", "Sat 31", "Thu 5 Nov"],
+    "dayLabel: today, tomorrow, the day this week, and the month once a week or more on");
+}
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });

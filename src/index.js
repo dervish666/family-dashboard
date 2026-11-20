@@ -11,7 +11,7 @@
 //   editor.js         the visual editor
 //   config.js         DEFAULTS, normalize(), the first-install stub
 //   calendar.js       reading calendars straight from Home Assistant
-//   data.js           the loads from Home Assistant (week, holidays, sensors) and each child's school sources
+//   data.js           the loads from Home Assistant (week, holidays, sensors), each child's school sources, the status line
 //   school.js         each child's timetable and lunch menu, parsed from sensor attributes
 //   extras.js         the announcement banner, due-time row and status tiles: config and parsing
 //   crier.js          the town crier for a new announcement: config, what is new or late, its steps
@@ -26,7 +26,7 @@ import "./card.js";
 // For tests/check.mjs. Home Assistant loads this file as a module and ignores the exports.
 export { normalize, stubConfig, SCENES, LOOKS } from "./config.js";
 export { parseCalendarEvents, weekRange, calendarPath, calendarHealth } from "./calendar.js";
-export { readWeek, holidays, byStart, newLoader, schoolSources, schoolEntities, CAL_WAIT } from "./data.js";
+export { readWeek, holidays, byStart, newLoader, schoolSources, schoolEntities, CAL_WAIT, statusLine, dayLabel } from "./data.js";
 export { parseTimetable, parseLunch, lunchChoice, lessonsEnd, lessonsOver, readExtra } from "./school.js";
 export { parseAnnouncement, parseDue, dueForHud, tileState, thresholdText, parseThresholdText, TILE_ICONS, MAX_TILES } from "./extras.js";
 export { normCrier, parseAnnounce, annStep, newCrier, crierStep, crierShowing, holdFor, wrapWords, fitWords, CRIER_LATE, CRIER_TIMES } from "./crier.js";

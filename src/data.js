@@ -7,9 +7,23 @@
 //   readWeek, holidays, ask         the calendar reads, each with its 20 s limit
 //   schoolSources(people, demo)     each child's timetable, lunch and choice entities
 //   byStart(events)                 the week's order
+//   statusLine(data, d, o)          the HUD's status line: what is old or broken, most urgent first
+//   dayLabel(ds, t)                 "Today", "Tomorrow", "Thu 29", or "Thu 5 Nov" a week or more on
 import { weekRange, calendarPath, parseCalendarEvents } from "./calendar.js";
 import { readExtra } from "./school.js";
-import { ymd } from "./engine/draw.js";
+import { pad2, ymd } from "./engine/draw.js";
+
+export var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export var DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+export var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// A day, "YYYY-MM-DD", as the cards name it from t (the engine's clock, test hooks and all).
+export function dayLabel(ds, t) {
+  var today = ymd(t), tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);   // the next civil day: a DST eve is 23 or 25 hours
+  if (ds === today) return "Today";
+  if (ds === ymd(tm)) return "Tomorrow";
+  var d = new Date(ds + "T12:00:00"), days = (d - t) / 864e5;
+  return DAYS[d.getDay()] + " " + d.getDate() + (days > 6 ? " " + MONTHS[d.getMonth()] : "");
+}
 
 // ── Home Assistant ──────────────────────────────────────────────────────────────
 // Home Assistant hands the card its hass object, so there is no token to find:
@@ -116,6 +130,26 @@ export function newLoader(config, now, timers) {
       return Promise.all([week, hols, rest]);
     }).catch(function (e) { console.error("meadow: load failed", e); put({ error: e.message || String(e) }); });
   };
+}
+
+// ── The status line ─────────────────────────────────────────────────────────────
+// Say out loud when the picture is old. A stale week must not read as a quiet one. One line,
+// the most urgent first, "" when nothing is wrong. data is the engine's snapshot (DATA), d now,
+// and o the rest it reports on: { demo, letters (LETTER: bad, clearErr), weatherLive,
+// annErr (the announcement's failed clear) }. The demo has no week to load and no weather.
+export function statusLine(data, d, o) {
+  var st = "", L = o.letters;
+  if (data.error) st = "Can't load the week (" + data.error + ")" + (data.gotAt ? ". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayLabel(ymd(data.gotAt), d).toLowerCase() + " ") +
+    pad2(data.gotAt.getHours()) + ":" + pad2(data.gotAt.getMinutes()) : "");              // the day too once it is not today: an overnight outage must not read as this morning
+  else if (!data.gotAt && !o.demo) st = "Loading the week";
+  else if (data.weekAt && d - data.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(data.weekAt), d).toLowerCase() + " " + pad2(data.weekAt.getHours()) + ":" + pad2(data.weekAt.getMinutes());
+  else if (data.calFailed && data.calFailed.length) st = data.calFailed.length + (data.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + data.calFailed.map(function (f) { return f.who; }).join(", ");
+  else if (L.bad.length) st = "Letters unavailable: " + L.bad.map(function (b) { return b.who; }).join(", ");
+  else if (data.holidaysErr) st = "Holidays unavailable (" + data.holidaysErr + ")" + (data.holidaysAt ? ". Showing the list from " + dayLabel(ymd(data.holidaysAt), d).toLowerCase() + " " + pad2(data.holidaysAt.getHours()) + ":" + pad2(data.holidaysAt.getMinutes()) : "");
+  else if (!o.weatherLive && !o.demo) st = "Weather unavailable, showing made-up showers";
+  else if (L.clearErr) st = "Couldn't clear the letter in Home Assistant";
+  else if (o.annErr) st = "Couldn't clear the announcement in Home Assistant";
+  return st;
 }
 
 // ── School data per child ───────────────────────────────────────────────────────

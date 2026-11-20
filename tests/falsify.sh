@@ -182,7 +182,7 @@ engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: 
 engine/engine.js|s/if (DATA.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
 engine/engine.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
 calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars down reads as a free day
-engine/engine.js|s/d - DATA.weekAt > 40 \* 60000/d - DATA.weekAt > 400 * 60000/|a week hours old is not flagged stale
+data.js|s/d - data.weekAt > 40 \* 60000/d - data.weekAt > 400 * 60000/|a week hours old is not flagged stale
 engine/engine.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
 engine/engine.js|s/esc(up\[0\].what)/up[0].what/|the Next line stops escaping titles
 engine/engine.js|s/if (s \&\& String(s.state) !== l.was) return;//|closing a card empties a shared letter that landed while it was up
@@ -191,14 +191,14 @@ engine/engine.js|s/return h.callService("input_text", "set_value", { entity_id: 
 engine/engine.js|s/window.cancelAnimationFrame(RAF);//|stop() leaves the frame queued
 engine/engine.js|s/if (!STOPPED) RAF = window.requestAnimationFrame(f);/RAF = window.requestAnimationFrame(f);/|a frame that runs after stop() queues another
 engine/engine.js|s/TIMERS.forEach(function (id) { window.clearInterval(id); });//|stop() leaves the polls running
-engine/engine.js|s/else if (DATA.holidaysErr) st = /else if (false) st = /|a failed holiday fetch is not on the status line
+data.js|s/else if (data.holidaysErr) st = /else if (false) st = /|a failed holiday fetch is not on the status line
 data.js|s/if (newest("hol", gen)) put({ holidaysErr: /if (newest("hol", gen)) put({ holidays: [], holidaysErr: /|a failed holiday fetch drops the last list
 data.js|s/    .then(function (evs) { return evs.filter(/    .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
 card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
 engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
 calendar.js|s/  if (!data .. !data.gotAt) return "loading";//|a card opened before the first load says Free today
 engine/engine.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
-engine/engine.js|s/    else if (!DATA.gotAt \&\& !DEMO) st = "Loading the week";//|the status line never says the week is loading
+data.js|s/  else if (!data.gotAt \&\& !o.demo) st = "Loading the week";//|the status line never says the week is loading
 data.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
 data.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
 data.js|s/if (newest("week", gen)) put({ error: /if (newest("week", gen)) put({ events: [], error: /|a failed reload throws away the last good week
@@ -209,10 +209,10 @@ data.js|s/function newest(k, gen) { if (gen < SHOWN\[k\]) return false;/function
 engine/engine.js|s/if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { load(); /if (HUD_DAY \&\& HUD_DAY !== ymd(d)) { /|midnight waits for the five-minute reload
 engine/engine.js|s/ if (openThing \&\& openThing.person) openCard(openThing, false, true); }/ }/|an open card keeps yesterday's Today after midnight
 engine/engine.js|s/    if (again) { if (READING \&\& READING.t === t) html += postBlock(READING.l); }/    if (false) {}/|the midnight redraw reads the letter again and clears it
-engine/engine.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
+data.js|s/tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);/tm = new Date(t.getTime() + 864e5);/|Tomorrow is 24 hours on, wrong on the eve of a clock change
 engine/engine.js|s/    var plan = letterRead(BOOK, l, SENSORS.letter, sh);/    var plan = l.src ? letterRead(BOOK, l, SENSORS.letter, sh) : null;/|a read shared letter stays in the book and swallows a later letter
 engine/engine.js|s/if (list.length > 20) list.splice(0, list.length - 20);//|the histories grow for as long as the panel runs
-engine/engine.js|s/". Showing " + (ymd(DATA.gotAt) === ymd(d) ? "" : dayLabel(ymd(DATA.gotAt)).toLowerCase() + " ") +/". Showing " +/|an overnight outage's Showing time has no day
+data.js|s/". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayLabel(ymd(data.gotAt), d).toLowerCase() + " ") +/". Showing " +/|an overnight outage's Showing time has no day
 engine/engine.js|s/^    update(dt);$//;s/if (!REDUCED .. ms - lastPaint >= REDUCED_PAINT) { lastPaint = ms; /&update(dt); /|reduced motion stops the world between paints, not just the picture
 engine/engine.js|s/REDUCED_PAINT = 10000;/REDUCED_PAINT = 4000;/|reduced motion repaints every four seconds
 engine/engine.js|s/REDUCE_MQ.addEventListener("change", readReduced)/REDUCE_MQ.addEventListener("change", function () {})/|turning reduced motion on or off needs a reload
@@ -239,5 +239,7 @@ engine/engine.js|s#      if (e.cont) continue;  *// the second day of a trip#   
 data.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
 editor.js|s/: p.look .. LOOKS\[i % 6\],/: p.look ? p.look : "crow",/|an edit turns a look-less person into a crow
 engine/engine.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
+data.js|s/  else if (L.clearErr) st = /  else if (false) st = /|a letter that could not be cleared is not on the status line
+data.js|s/  else if (o.annErr) st = /  else if (false) st = /|an announcement that could not be cleared is not on the status line
 EOF
 echo "ok: all $n sabotaged copies failed the check"

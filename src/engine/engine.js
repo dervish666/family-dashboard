@@ -8,7 +8,7 @@ import { parseAnnouncement, parseDue, dueForHud, tileState } from "../extras.js"
 import { annStep, newCrier, crierStep, crierShowing, fitWords } from "../crier.js";
 import { letterStep, bridgeCopy, letterShared, letterRead, nextLetter, newLetterBook } from "../letters.js";
 import { sleepCurve, postHint, postBadge, badgeSpot } from "../post.js";
-import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities } from "../data.js";
+import { hassReady, getState, newLoader, byStart, schoolSources, schoolEntities, statusLine, dayLabel as dayLabelAt, DAYS, DAYS_LONG, MONTHS } from "../data.js";
 
 // The whole meadow, one instance per card. ROOT is the shadow root, WRAP the .fd div,
 // HA a small bridge to the card (hass, navigate), HOOKS the test hooks as a query string.
@@ -45,9 +45,6 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   var OFORCE = (Q.match(/[?&]office=([^&]+)/) || [])[1];         // test hook: off (unreachable) | quiet | ask:Name | Name:what it is doing (url-encoded), overrides the office poll
   var WARM = +(Q.match(/[?&]warm=([\d.]+)/) || [])[1] || 0;      // test hook: run this many seconds of the sim before the first frame (headless screenshots see fades finished, guests arrived)
 
-  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  var DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   function now() {
     var d = new Date();
@@ -55,13 +52,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (HOUR) { var h = parseFloat(HOUR); d.setHours(h | 0, Math.round((h % 1) * 60), 0, 0); }
     return d;
   }
-  function dayLabel(ds) {
-    var t = now(), today = ymd(t), tm = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1);   // the next civil day: a DST eve is 23 or 25 hours
-    if (ds === today) return "Today";
-    if (ds === ymd(tm)) return "Tomorrow";
-    var d = new Date(ds + "T12:00:00"), days = (d - t) / 864e5;
-    return DAYS[d.getDay()] + " " + d.getDate() + (days > 6 ? " " + MONTHS[d.getMonth()] : "");
-  }
+  function dayLabel(ds) { return dayLabelAt(ds, now()); }               // data.js, on the test hooks' clock
 
   function foodSprite(berry) {
     var s = 18 * K, c = canvas(s * 2, s * 2), g = c.getContext("2d"), x = s, y = s * 1.3;
@@ -3057,19 +3048,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var td = ymd(d), up = DATA.events.filter(function (e) { return e.day === td && !e.all_day && new Date(e.start) > d; });
     $("next").innerHTML = up.length ? "Next: <b>" + esc(up[0].at) + "</b> " + esc(up[0].who === "House" ? "" : up[0].who + ", ") + esc(up[0].what)
       : DATA.events.length ? "Nothing else on today" : "";
-    // Say out loud when the picture is old. A stale week must not read as a quiet one.
-    var st = "";
-    if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + (ymd(DATA.gotAt) === ymd(d) ? "" : dayLabel(ymd(DATA.gotAt)).toLowerCase() + " ") +
-      pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");              // the day too once it is not today: an overnight outage must not read as this morning
-    else if (!DATA.gotAt && !DEMO) st = "Loading the week";
-    else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
-    else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
-    else if (LETTER.bad.length) st = "Letters unavailable: " + LETTER.bad.map(function (b) { return b.who; }).join(", ");
-    else if (DATA.holidaysErr) st = "Holidays unavailable (" + DATA.holidaysErr + ")" + (DATA.holidaysAt ? ". Showing the list from " + dayLabel(ymd(DATA.holidaysAt)).toLowerCase() + " " + pad2(DATA.holidaysAt.getHours()) + ":" + pad2(DATA.holidaysAt.getMinutes()) : "");
-    else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
-    else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
-    else if (XS.clearErr) st = "Couldn't clear the announcement in Home Assistant";
-    $("status").textContent = st;
+    // Say out loud when the picture is old (data.js statusLine).
+    $("status").textContent = statusLine(DATA, d, { demo: DEMO, letters: LETTER, weatherLive: WX.live, annErr: XS.clearErr });
     $("next").style.opacity = FLIGHT ? 0 : 1;
     extrasHud(d); postHud(d);
     WRAP.classList.toggle("night", DARK > 0.5);
