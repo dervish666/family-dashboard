@@ -229,6 +229,8 @@ engine/engine.js|s/      if (REDUCED) fam.forEach(function (t) { t.seen = seenAt
 engine/engine.js|s/    if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA.events); refreshTags(); return; }//|the demo asks Home Assistant for a week it does not have
 engine/engine.js|s/closeTimer = setTimeout(autoClose, 60000)/closeTimer = setTimeout(closeCard, 60000)/|the card closing itself clears an unread letter
 engine/engine.js|s/  \$("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });//|a tap inside the card does not start its minute again
+engine/engine.js|s/  \$("card").addEventListener("keydown", function () { if (openThing) armClose(); });//|scrolling the card from the keyboard does not start its minute again
+card.js|s/<div id="lists" tabindex="0" /<div id="lists" /|the card's lists take no focus, so a keyboard cannot scroll a long card
 engine/engine.js|s/)) BOOK.live.push(r.l);/)) void 0;/|a letter kept by the auto-close is left out of the book, so a panel's Done cannot take it back
 engine/engine.js|s/      if (!stillHeld(r.l)) { r.t.letter = null; r.l.gone = true; }/      if (false) {}/|the card closing itself brings back a letter read on a panel while it was up
 engine/engine.js|s/String(s.state).trim() !== "";$/true;/|the card closing itself keeps a shared letter cleared elsewhere

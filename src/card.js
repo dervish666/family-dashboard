@@ -125,6 +125,9 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #done:focus { outline: none; }
 #done:focus-visible { box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF; }
 #lists { flex: 1; overflow-y: auto; padding: 36px 44px 32px 40px; -webkit-overflow-scrolling: touch; }
+/* #lists takes focus so a keyboard can scroll a long card (arrows, Page Down): the key ring, inside its edge */
+#lists:focus { outline: none; }
+#lists:focus-visible { box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 7px #1F5FBF; border-radius: 0 32px 32px 0; }
 #lists h2 { font-size: 20px; font-weight: 600; color: var(--ink-soft); margin: 26px 0 10px; }
 #lists h2:first-child { margin-top: 0; }
 .row { display: flex; align-items: baseline; padding: 7px 0; font-size: 24px; line-height: 1.25; }
@@ -201,6 +204,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .fd.narrow #sum { font-size: 15px; margin: 0; text-align: left; grid-column: 2; align-self: start; }
 .fd.narrow #done { margin: 0; padding: 10px 20px; font-size: 18px; grid-column: 3; grid-row: 1 / 3; }
 .fd.narrow #lists { padding: 16px 16px 20px; }
+.fd.narrow #lists:focus-visible { border-radius: 0 0 24px 24px; }
 .fd.narrow #lists h2 { font-size: 17px; margin: 20px 0 6px; }
 .fd.narrow .row { font-size: 19px; }
 .fd.narrow .when { width: 76px; font-size: 15px; }
@@ -222,7 +226,7 @@ const MARKUP = `<div class="fd">
 <div id="scrim"><section id="card" role="dialog" aria-modal="true" aria-labelledby="who" tabindex="-1">
   <div id="face"><canvas id="portrait" width="480" height="480" aria-hidden="true"></canvas>
     <h1 id="who"></h1><p id="sum"></p><button id="done">Done</button></div>
-  <div id="lists"></div>
+  <div id="lists" tabindex="0" role="region" aria-label="Details"></div>
 </section></div>
 </div>`;
 

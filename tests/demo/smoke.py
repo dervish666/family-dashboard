@@ -18,7 +18,8 @@ checks each case:
   focus back to the button.
 
 Then the dialog on its own at 1280x800, on the seaside (a letter comes by airmail there): Enter
-on a letter's Got it leaves focus on Done, so Escape still closes the card.
+on a letter's Got it leaves focus on Done, so Escape still closes the card; and on the School
+card, longer than its window, Tab reaches the lists and Page Down scrolls them.
 
 The context asks for reduced motion: with it the announcement goes straight to the banner, where
 otherwise the town crier holds it on the canvas for 20 seconds or more first. The HUD is HTML
@@ -187,7 +188,7 @@ IN_CARD = f"""(() => {{ const r = {SR}, a = r.activeElement; if (!a) return 'out
 
 
 def run_dialog(browser, base, shots):
-    """The popup as a keyboard meets it: a letter's Got it."""
+    """The popup as a keyboard meets it: a letter's Got it, and a card longer than its window."""
     print("dialog 1280x800:")
     errors: list[str] = []
     ctx = browser.new_context(viewport={"width": 1280, "height": 800}, reduced_motion="reduce")
@@ -203,9 +204,11 @@ def run_dialog(browser, base, shots):
         page.keyboard.press("Enter")
         page.wait_for_function(f"() => {SR}.getElementById('scrim').classList.contains('open')", timeout=3000)
         page.wait_for_timeout(300)
-        page.keyboard.press("Tab")
-        on = page.evaluate(IN_CARD)
-        check(on == "pgot", f"Tab from Done reaches the letter's Got it (focus on {on})")
+        seen = []
+        for _ in range(2):
+            page.keyboard.press("Tab")
+            seen.append(page.evaluate(IN_CARD))
+        check(seen == ["lists", "pgot"], f"Tab from Done goes to the lists, then the letter's Got it ({', '.join(seen)})")
         page.keyboard.press("Enter")
         page.wait_for_timeout(200)
         on, cleared = page.evaluate(IN_CARD), page.evaluate(f"!!{SR}.querySelector('.post.done')")
@@ -215,6 +218,22 @@ def run_dialog(browser, base, shots):
         page.wait_for_timeout(400)
         shut = page.evaluate(f"!{SR}.getElementById('scrim').classList.contains('open')")
         check(shut and page.evaluate(IN_CARD) == "p:Parent 2", "then Escape closes the card and focus goes back to the button")
+
+        page.evaluate(f"{key('school')}.focus()")
+        page.keyboard.press("Enter")
+        page.wait_for_function(f"() => {SR}.getElementById('scrim').classList.contains('open') && {SR}.getElementById('who').textContent === 'School'", timeout=3000)
+        page.wait_for_timeout(300)
+        lists = f"{SR}.getElementById('lists')"
+        tall = page.evaluate(f"[{lists}.scrollHeight, {lists}.clientHeight]")
+        check(tall[0] > tall[1], f"the School card is longer than its window ({tall[0]} px in {tall[1]})")
+        page.keyboard.press("Tab")
+        on = page.evaluate(IN_CARD)
+        page.keyboard.press("PageDown")
+        page.wait_for_timeout(300)
+        top = page.evaluate(f"{lists}.scrollTop")
+        check(on == "lists" and top > 0, f"Tab from Done reaches the lists and Page Down scrolls them (focus on {on}, scrolled {top} px)")
+        page.screenshot(path=str(shots / "dialog-scrolled.png"))
+        page.keyboard.press("Escape")
     except Exception as e:
         check(False, f"the dialog case ran to the end: {str(e).splitlines()[0]}")
         try:

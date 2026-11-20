@@ -758,8 +758,10 @@ export async function engineChecks(src, T) {
     card.dbg.open(alex, true);
     await advance(30000);
     card.$("card").fire("pointerdown");
+    await advance(30000);
+    card.$("card").fire("keydown", { key: "PageDown" });
     await advance(59000);
-    ok(card.$("scrim").classList.contains("open"), what + ": a tap inside the card starts its minute again");
+    ok(card.$("scrim").classList.contains("open"), what + ": a tap or a key inside the card starts its minute again");
     await advance(1000);
     ok(!card.$("scrim").classList.contains("open"), what + ": the card closes itself a minute after the last tap");
     eq(sets(hass, id).length, 0, what + ": closing itself does not clear the letter");
@@ -808,6 +810,9 @@ export async function engineChecks(src, T) {
     eq([card.$("status").getAttribute("role"), card.$("world").getAttribute("role")], ["status", "img"], "the status line is spoken when it changes, and the canvas is one picture");
     eq([rule(card, "#done:focus"), rule(card, "#done:focus-visible")], ["outline: none;", "box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF;"],
       "Done's focus ring is the key buttons' ring, not the browser's blue one");
+    eq(["tabindex", "role", "aria-label"].map(function (a) { return card.$("lists").getAttribute(a); }), ["0", "region", "Details"],
+      "the card's lists take focus, so a keyboard can scroll a long card, and a reader names them");
+    ok(/7px #1F5FBF/.test(rule(card, "#lists:focus-visible") || ""), "and show the key ring while they have it");
     ok(/visibility: hidden/.test(rule(card, "#scrim")) && /visibility: visible/.test(rule(card, "#scrim.open")),
       "the closed popup is hidden from Tab and from readers, not only see-through");
     await advance(1600);

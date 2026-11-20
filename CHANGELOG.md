@@ -44,7 +44,9 @@ Card
   waiting"), that does what a tap does and rings its target on the scene while it has focus.
 - The popup is a dialog. Done takes focus when it opens, Tab stays inside it, Escape closes it
   the way Done does, and closing hands focus back. Got it hands focus to Done as it goes, so
-  Escape and Tab still work after it. A closed popup is hidden from Tab and from
+  Escape and Tab still work after it. A card longer than its window scrolls from the keyboard: Tab
+  reaches its lists, which take arrows and Page Down, and a key pressed in the card starts its
+  minute again as a tap does. A closed popup is hidden from Tab and from
   readers. The status line is spoken when its words change.
 - Status tiles and the announcement banner are buttons that act on a tap, Enter or Space, and
   a new announcement is read out. Grey "unavailable" text is 5.7:1 on its grey (was 3.9:1), and

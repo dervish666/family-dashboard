@@ -3260,13 +3260,14 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   $("scrim").addEventListener("pointerdown", function (e) { if (e.target === $("scrim")) closeCard(); });
   $("lists").addEventListener("scroll", function () { if (openThing) armClose(); });
   $("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });       // reading the School grid is not walking away
-  // Escape is Done. Tab goes round the card's own buttons while it is up (aria-modal says the
-  // rest is out of reach, and Chrome 87 has no inert to make it so).
+  $("card").addEventListener("keydown", function () { if (openThing) armClose(); });           // nor is scrolling it from the keyboard
+  // Escape is Done. Tab goes round the card's own buttons and its scrolling #lists while it is up
+  // (aria-modal says the rest is out of reach, and Chrome 87 has no inert to make it so).
   WRAP.addEventListener("keydown", function (e) {
     if (!openThing) return;
     if (e.key === "Escape" || e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }
     if (e.key !== "Tab" || !$("card").querySelectorAll) return;
-    var f = [].slice.call($("card").querySelectorAll("button, summary, [href]")), a = ROOT.activeElement, i = f.indexOf(a);
+    var f = [].slice.call($("card").querySelectorAll("button, summary, [href], #lists")), a = ROOT.activeElement, i = f.indexOf(a);
     if (!f.length) return;
     if (e.shiftKey ? i <= 0 : i === f.length - 1 || i < 0) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
   });
