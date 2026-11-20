@@ -163,7 +163,7 @@ scenes/winter.js|s/  postbox: function () { var p = G.postbox; return { x: p.x, 
 scenes/winter.js|s/  postbox: function () {/  postbox: 3, xx: function () {/|a postbox that is not a function
 engine/engine.js|s/if (!ok.length) throw new Error("no calendar answered/if (false) throw new Error("no calendar answered/|every calendar failing reads as an empty week
 engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable" : "Free today";/: "Free today";/|a failed load's summary says Free today
-engine/engine.js|s/(calHealth !== "ok" ? "Calendar unavailable, so this card/(false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
+engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable, so this card/: false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
 engine/engine.js|s/if (DATA.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
 engine/engine.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
 calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars down reads as a free day
@@ -181,5 +181,8 @@ engine/engine.js|s/holidays: s\[7\] .. (DATA.holidays .. \[\]),/holidays: s[7] ?
 engine/engine.js|s/      .then(function (evs) { return evs.filter(/      .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
 card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
 engine/engine.js|s/    READING = { t: t, l: l, tap: tap,/    l.was = sh \&\& sh.state != null ? String(sh.state) : null; READING = { t: t, l: l, tap: tap,/|a shared letter is cleared against what the helper held when its card opened
+calendar.js|s/  if (!data .. !data.gotAt) return "loading";//|a card opened before the first load says Free today
+engine/engine.js|s/: calHealth === "loading" ? "Loading the week" : /: /|a loading card's summary says Calendar unavailable
+engine/engine.js|s/    else if (!DATA.gotAt \&\& !DEMO) st = "Loading the week";//|the status line never says the week is loading
 EOF
 echo "ok: all $n sabotaged copies failed the check"

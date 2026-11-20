@@ -255,6 +255,28 @@ export async function engineChecks(src, T) {
     eq(card.$("status").textContent, "1 calendar unavailable: Alex", "one calendar down: the status line names whose");
     done(card);
   }
+  // Before the first load answers, the week is loading, not free: on the card and on the status
+  // line, which says so ahead of a letter helper that cannot be read.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = function () { return HOLD; };
+    const ppl = PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: "input_text.letter_alex" }, p) : p; });
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home" } }, hass);
+    await advance(1600);
+    card.dbg.open(person(card, "Alex"), true);
+    eq(card.$("sum").textContent, "Loading the week", "a card opened while the calendars are still answering says the week is loading");
+    ok(/Still loading the week, so this card can't say what's on yet\./.test(text(card, "lists")) && !/Nothing on today/.test(text(card, "lists")), "and its Today is not a free day");
+    frame();
+    eq(card.$("status").textContent, "Loading the week", "the status line says the week is loading");
+    hass.held.splice(0).forEach(function (h) { h.ok([]); });
+    await flush();
+    card.dbg.open(person(card, "Alex"), true);
+    eq(card.$("sum").textContent, "Free today", "once the calendars answer, an empty day is free");
+    frame();
+    eq(card.$("status").textContent, "Letters unavailable: Alex", "and the status line moves on");
+    done(card);
+  }
   // A title is text: markup in it comes out escaped, on the card and in the HUD's Next line.
   {
     C.now = NOON;

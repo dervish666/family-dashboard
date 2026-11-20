@@ -3130,11 +3130,11 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     // Say out loud when the picture is old. A stale week must not read as a quiet one.
     var st = "";
     if (DATA.error) st = "Can't load the week (" + DATA.error + ")" + (DATA.gotAt ? ". Showing " + pad2(DATA.gotAt.getHours()) + ":" + pad2(DATA.gotAt.getMinutes()) : "");
+    else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (DATA.weekAt && d - DATA.weekAt > 40 * 60000) st = "Calendars last checked " + dayLabel(ymd(DATA.weekAt)).toLowerCase() + " " + pad2(DATA.weekAt.getHours()) + ":" + pad2(DATA.weekAt.getMinutes());
     else if (DATA.calFailed && DATA.calFailed.length) st = DATA.calFailed.length + (DATA.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + DATA.calFailed.map(function (f) { return f.who; }).join(", ");
     else if (LETTER.bad.length) st = "Letters unavailable: " + LETTER.bad.map(function (b) { return b.who; }).join(", ");
     else if (DATA.holidaysErr) st = "Holidays unavailable (" + DATA.holidaysErr + ")" + (DATA.holidaysAt ? ". Showing the list from " + dayLabel(ymd(DATA.holidaysAt)).toLowerCase() + " " + pad2(DATA.holidaysAt.getHours()) + ":" + pad2(DATA.holidaysAt.getMinutes()) : "");
-    else if (!DATA.gotAt && !DEMO) st = "Loading the week";
     else if (!WX.live && !DEMO) st = "Weather unavailable, showing made-up showers";
     else if (LETTER.clearErr) st = "Couldn't clear the letter in Home Assistant";
     else if (XS.clearErr) st = "Couldn't clear the announcement in Home Assistant";
@@ -3218,7 +3218,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); }     // the postie's letter, read once
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
-      : '<div class="empty">' + (calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
+      : '<div class="empty">' + (calHealth === "loading" ? "Still loading the week, so this card can't say what's on yet."
+        : calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
         : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
     if (later.length) {
       html += "<h2>This week</h2>";
@@ -3257,7 +3258,8 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
     $("lists").innerHTML = html; $("lists").scrollTop = 0;
     $("who").textContent = name;
-    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today") : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
+    $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today")
+      : calHealth === "loading" ? "Loading the week" : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
     $("face").style.background = mix(p.col, "#ffffff", 0.35);
     var pc = $("portrait"), g = pc.getContext("2d");
     // portrait: the same creature, redrawn large rather than scaled up blurry

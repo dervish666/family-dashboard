@@ -112,10 +112,11 @@ eq(rows, [
   { who: "Alex", what: "Busy", day: "2026-10-29", all_day: false, start: "2026-10-29T18:00:00+01:00", at: "18:00" }], "calendar events become week rows");
 throws(function () { m.parseCalendarEvents({ message: "Entity not found" }, "Alex", range); }, /not a list/, "an error answer is not an empty week");
 // A person's card: a failed load, or one of their calendars down, is not a free day.
-eq([m.calendarHealth({ events: [], error: null, calFailed: [] }, "Alex"), m.calendarHealth({ events: [], error: "no calendar answered (calendar.alex)" }, "Alex"),
-  m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }] }, "Sky"), m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }] }, "Alex"),
+const gotAt = new Date(2026, 9, 26, 12);
+eq([m.calendarHealth({ events: [], error: null, calFailed: [], gotAt: gotAt }, "Alex"), m.calendarHealth({ events: [], error: "no calendar answered (calendar.alex)" }, "Alex"),
+  m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }], gotAt: gotAt }, "Sky"), m.calendarHealth({ events: [], error: null, calFailed: [{ who: "Sky", id: "calendar.sky" }], gotAt: gotAt }, "Alex"),
   m.calendarHealth({ events: [], extra: null, weekAt: null, error: null, gotAt: null }, "Alex")],
-  ["ok", "error", "failed", "ok", "ok"], "calendar health: total failure, one of theirs down, someone else's down, before any load");
+  ["ok", "error", "failed", "ok", "loading"], "calendar health: loaded and free, total failure, one of theirs down, someone else's down, before any load");
 
 // First install: the demo cast, picking up whatever calendars exist.
 const one = m.stubConfig({ states: { "calendar.home": {}, "weather.forecast_home": {}, "sun.sun": {} } });
