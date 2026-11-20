@@ -30,7 +30,8 @@ Card
   menu after an INSET Monday. A timetable day with no lessons on it no longer walks a child to
   school; the lunch menu or the term dates decide.
 - A card that closes itself after a minute keeps an unread letter. Got it, Done and a tap
-  outside still clear it. A read letter leaves the letter book.
+  outside still clear it. A read letter leaves the letter book. A letter read on a room panel
+  while its card was up on the wall goes when the card closes itself, instead of coming back.
 - A person's card that is up when a load lands shows the new week in place, keeping its
   letter, scroll, unfolded week grid and focus. A card opened during the first load no longer
   says "Loading the week" after the week has come in.

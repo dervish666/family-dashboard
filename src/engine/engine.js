@@ -3116,11 +3116,23 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   }
   function armClose() { clearTimeout(closeTimer); closeTimer = setTimeout(autoClose, 60000); }
   // Closing on its own is not someone closing the card: an unread letter stays on its creature,
-  // and in the book, so the next open shows it again and a panel's Done still takes it back.
+  // and in the book, so the next open shows it again and a panel's Done still takes it back. One
+  // its helper no longer holds was read elsewhere while the card was up (Done on a panel, the
+  // expiry): it goes quietly, and nothing is written.
   function autoClose() {
     var r = READING; READING = null;
-    if (r && r.t.letter === r.l && r.inBook && !BOOK.live.some(function (x) { return x.src && x.src === r.l.src; })) BOOK.live.push(r.l);
+    if (r && r.t.letter === r.l) {
+      if (!stillHeld(r.l)) { r.t.letter = null; r.l.gone = true; }
+      else if (r.inBook && !BOOK.live.some(function (x) { return x.src && x.src === r.l.src; })) BOOK.live.push(r.l);
+    }
     closeCard();
+  }
+  // A per-person helper still holds this letter's exact value; the shared one still holds a letter
+  // (a newer one there is not this one read). A helper that cannot be read keeps it.
+  function stillHeld(l) {
+    var h = HA.hass(), id = l.src || SENSORS.letter, s = !DEMO && !l.hook && l.key !== "hook" && id && h && h.states ? h.states[id] : null;
+    if (!s || /^(unknown|unavailable)$/.test(String(s.state))) return true;
+    return l.src ? String(s.state) === l.raw : String(s.state).trim() !== "";
   }
   function closeCard() {
     settleLetter();

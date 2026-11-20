@@ -772,6 +772,29 @@ export async function engineChecks(src, T) {
     eq(alex.letter, null, what + ": and takes it off the tag");
     done(card);
   }
+  // The card closing itself keeps a letter only while its helper still holds it. One read on a
+  // panel while the card was up (Done there empties the helper) goes, with nothing written, and
+  // does not come back; a newer letter in the shared helper is not this one read, so it stays.
+  for (const [own, after, kept] of [[true, "", false], [false, "", false], [false, "Sky: Letter B", true]]) {
+    C.now = NOON;
+    const st = BASE_STATES(), id = own ? "input_text.letter_alex" : "input_text.family_letter";
+    const what = (own ? "a per-person letter" : "a shared letter") + (after ? " with a newer one in its helper" : " read on a panel");
+    st[id] = { state: own ? "Parent 1|Letter A" : "Alex: Letter A", last_changed: "2026-10-26T11:58:00Z" };
+    const hass = fakeHass(st);
+    const ppl = own ? PEOPLE.map(function (p) { return p.name === "Alex" ? Object.assign({ letter: id }, p) : p; }) : PEOPLE;
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home", letter: own ? null : id } }, hass);
+    await advance(1600);
+    const alex = person(card, "Alex");
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    st[id] = { state: after, last_changed: "2026-10-26T12:00:04Z" };
+    await advance(61000);                              // the wall polls at 45 s, and the card closes itself at 60 s
+    ok(!card.$("scrim").classList.contains("open"), what + ": the card closed itself");
+    eq([!!alex.letter, card.dbg.book().live.length, sets(hass, id).length], [kept, 0, 0], what + ": " + (kept ? "the letter stays on the tag" : "the letter goes, and nothing is written"));
+    await advance(45000);
+    eq(!!alex.letter, kept, what + ": the next poll leaves it " + (kept ? "there" : "gone"));
+    done(card);
+  }
   // ── Keyboard and screen reader ───────────────────────────────────────────────
   // The popup is a dialog. Escape is Done: it closes the card and clears the letter, as Done does.
   {

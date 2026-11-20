@@ -230,6 +230,8 @@ engine/engine.js|s/    if (DEMO) { DATA = demoData(); DATA.events = byStart(DATA
 engine/engine.js|s/closeTimer = setTimeout(autoClose, 60000)/closeTimer = setTimeout(closeCard, 60000)/|the card closing itself clears an unread letter
 engine/engine.js|s/  \$("card").addEventListener("pointerdown", function () { if (openThing) armClose(); });//|a tap inside the card does not start its minute again
 engine/engine.js|s/)) BOOK.live.push(r.l);/)) void 0;/|a letter kept by the auto-close is left out of the book, so a panel's Done cannot take it back
+engine/engine.js|s/      if (!stillHeld(r.l)) { r.t.letter = null; r.l.gone = true; }/      if (false) {}/|the card closing itself brings back a letter read on a panel while it was up
+engine/engine.js|s/String(s.state).trim() !== "";$/true;/|the card closing itself keeps a shared letter cleared elsewhere
 data.js|s/var xr = readExtra(s\[0\] ? s\[0\].attributes : null);/var xr = { data: s[0] ? s[0].attributes : null, bad: [] };/|the engine hands sensors.extra to the cards unchecked, and schools as a string stops the HUD
 popup.js|s/  if (data.extraBad \&\& data.extraBad.length) return "School info unreadable/  if (false) return "School info unreadable/|school info in the wrong shape is left out without a word on the cards
 school.js|s/const kept = v.map(each).filter(function (x) { return x != null; })/const kept = v.slice()/|an entry of sensors.extra in the wrong shape is kept
