@@ -241,6 +241,14 @@ of their tokens, can run the script or type straight into a letter helper. So:
   only send its presets, a light target from `light_targets`, and a timer name that is spoken
   only if it is in `timer_names`.
 
+**Trust.** Every ESPHome device you adopt holds an API key you gave it, and any of them can fire
+the `esphome.*` events these packages listen for. The automations check what an event asks for
+(a known child, a preset, a listed light target, a timer name), not which device sent it. A
+filter on the event's `device_id` would not help. Home Assistant's ESPHome integration
+spreads the device's own event fields over `device_id` (`async_on_service_call` in
+`components/esphome/manager.py`, checked in 2024.12.0 and 2026.10.0), so a device can send any
+`device_id` it likes. Only adopt devices you own.
+
 ## Testing it
 
 ```sh
