@@ -203,6 +203,8 @@ data.js|s/  else if (!data.gotAt \&\& !o.demo) st = "Loading the week";//|the st
 data.js|s/var CAL_WAIT = 20000;/var CAL_WAIT = 2e9;/|a calendar that never answers holds the week forever
 data.js|s/var rest = Promise.all(\[extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)\])/var rest = week.then(function () { return Promise.all([extra, school, opt(SENSORS.kit), opt(SENSORS.sun), opt(SENSORS.weather)]); })/|the weather and school wait for the week
 data.js|s/if (newest("week", gen)) put({ error: /if (newest("week", gen)) put({ events: [], error: /|a failed reload throws away the last good week
+data.js|s/calFailed: wk.failed, error: null, gotAt/calFailed: wk.failed, gotAt/|a good load after a failed one leaves "Can't load the week" up until the page reloads
+editor.js|s/else p.calendar = cal.length === 1 ? cal\[0\] : cal;/else p.calendar = cal[0];/|the editor writes only the first of two calendars
 engine/engine.js|s/  function setTimeout(f, ms) { var id = window.setTimeout(/  function setTimeoutX(f, ms) { var id = window.setTimeout(/|the engine's timeouts are not its own, so stop() cannot clear them
 engine/engine.js|s/      TOUTS.splice(0).forEach(function (id) { window.clearTimeout(id); });//|stop() leaves the auto-close and a tap's open waiting
 engine/engine.js|s/      if (CAUDIO) { var ac = CAUDIO;/      if (false) { var ac = CAUDIO;/|stop() leaves the bell's AudioContext open

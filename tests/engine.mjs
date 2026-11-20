@@ -386,6 +386,24 @@ export async function engineChecks(src, T) {
     ok(/9\u00b0/.test(text(card, "clock")), "the weather updates although the week failed");
     done(card);
   }
+  // And a load that works again after one that failed puts it all back: the status line clears
+  // and an empty day is a free one again, without a reload of the page.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = function () { return new Error("Calendar offline"); };
+    const card = await boot({ people: PEOPLE, sensors: { weather: "weather.home" } }, hass);
+    frame();
+    ok(/^Can't load the week/.test(card.$("status").textContent), "every calendar failing: the status line says so");
+    hass.answer = function () { return []; };
+    await advance(5 * 60000);
+    frame();
+    eq(card.$("status").textContent, "", "the next load works: the status line clears");
+    card.dbg.open(person(card, "Alex"), true);
+    eq(card.$("sum").textContent, "Free today", "and an empty day is a free one again");
+    ok(!/Can't load the week/.test(text(card, "lists")), "with nothing about the failed load on the card");
+    done(card);
+  }
   // The week that failed to reload says when it is from, with the day once that is not today.
   {
     C.now = local(2026, 10, 26, 23, 50);

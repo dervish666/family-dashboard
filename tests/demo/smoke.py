@@ -14,8 +14,8 @@ checks each case:
   announcement banner do not overlap, none runs off the card, and no chip is cut;
   the banner's text column is wider than 150 px, and a tap beside the banner reaches the scene;
   Tab from the top of the page reaches a person's button, whose ring is not under the HUD; Enter
-  opens that person's card with focus on Done, and Escape closes it, hides the popup and hands
-  focus back to the button.
+  opens that person's card with focus on Done, Tab goes round the card without leaving it, and
+  Escape closes it, hides the popup and hands focus back to the button.
 
 Then the dialog on its own at 1280x800, on the seaside (a letter comes by airmail there): Enter
 on a letter's Got it leaves focus on Done, so Escape still closes the card; and on the School
@@ -74,6 +74,10 @@ BOXES = """() => { const r = %s, out = [], cut = [];
   return { boxes: out, cut: cut, axW: ax ? ax.clientWidth : null, axText: ax ? ax.textContent : null, beside: beside, W: innerWidth }; }""" % SR
 # The focused key: its ring or pill, as a box.
 KEYBOX = """() => { const a = %s.activeElement; if (!a) return null; const b = a.getBoundingClientRect(); return ['focus ring', b.left, b.top, b.right, b.bottom]; }""" % SR
+
+# The focused element inside the card: its data-k, id or class, or "outside" when focus has left it.
+IN_CARD = f"""(() => {{ const r = {SR}, a = r.activeElement; if (!a) return 'outside';
+  return r.getElementById('card').contains(a) ? (a.id || a.className || a.tagName) : (a.getAttribute('data-k') || 'outside'); }})()"""
 
 fails: list[str] = []
 passes = 0
@@ -166,6 +170,11 @@ def run_case(browser, base, size, extra, then, hass, shots):
             opened = page.evaluate(f"{SR}.getElementById('who').textContent")
             check(opened == who and page.evaluate(ACTIVE) == "done", f"Enter opens {who}'s card with focus on Done (got {opened}, focus on {page.evaluate(ACTIVE)})")
             page.screenshot(path=str(shots / f"open-{tag}.png"))
+            went = []
+            for _ in range(3):
+                page.keyboard.press("Tab")
+                went.append(page.evaluate(IN_CARD))
+            check("outside" not in went and "done" in went and "lists" in went, f"Tab goes round the card and stays in it ({', '.join(went)})")
             page.keyboard.press("Escape")
             page.wait_for_timeout(500)
             closed = page.evaluate(f"() => {{ const s = {SR}.getElementById('scrim'); return !s.classList.contains('open') && getComputedStyle(s).visibility === 'hidden'; }}")
@@ -180,11 +189,6 @@ def run_case(browser, base, size, extra, then, hass, shots):
     finally:
         ctx.close()
     check(not errors, "no page errors and no card warnings" + ("" if not errors else ":\n    " + "\n    ".join(errors[:10])))
-
-
-# The focused element inside the card: its data-k, id or class, or "outside" when focus has left it.
-IN_CARD = f"""(() => {{ const r = {SR}, a = r.activeElement; if (!a) return 'outside';
-  return r.getElementById('card').contains(a) ? (a.id || a.className || a.tagName) : (a.getAttribute('data-k') || 'outside'); }})()"""
 
 
 def run_dialog(browser, base, shots):

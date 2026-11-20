@@ -379,6 +379,10 @@ const ed = editor(edCfg);
 eq([field(ed, 0, BD).value, field(ed, 1, BD).value], ["03-14", "06-02"], "editor: each person's birthday field shows dates.birthdays");
 eq(type(ed, 1, BD, " 07-04 ").dates, { birthdays: { Sam: "03-14", Ann: "07-04" }, fixed: [] }, "editor: a typed birthday is written under the name, the other dates keys kept");
 eq(type(ed, 1, BD, "").dates.birthdays, { Sam: "03-14" }, "editor: an emptied birthday field removes it");
+// Two calendars for one person go out as a list, and come back into the field as they went in.
+const two = type(ed, 0, "Calendar", "calendar.sam, calendar.sam_work");
+eq(two.people[0].calendar, ["calendar.sam", "calendar.sam_work"], "editor: two calendars typed for one person are written as a list");
+eq(field(editor(two), 0, "Calendar").value, "calendar.sam, calendar.sam_work", "editor: and the field shows both when the config comes back");
 const ren = type(ed, 0, "Name", "Samira");
 eq([ren.dates.birthdays, ren.anniversary], [{ Samira: "03-14" }, ["Samira", "Ann"]], "editor: a rename carries the birthday and the anniversary entry");
 // Typed key by key, a new name can pass through someone else's: Tobias to Tommy via Tom.
