@@ -536,7 +536,7 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
   where they cover the back of the scene and the name tags there. A tap beside them still
   reaches the scene.
 - At a phone's width (about 400 px) the scenes' buildings and furniture crowd into each other,
-  the space station's wall most of all; use a wide card there. Under 640 px the corner hint
+  the space station's wall most of all; use a wide card there. Under 700 px the corner hint
   goes, the clock shrinks and the tiles move under it, so the HUD covers about the top half of
   the scene. A card that narrow stacks the person's face over their lists (v1.9.0), so a
   letter and the week can be read on a phone.
@@ -557,8 +557,6 @@ and if a scene leaves any landmark unmapped: every scene needs a tappable `schoo
   cleared or runs out.
 - The crier's scroll is drawn on the canvas, under the HTML clock and corner. Each scene hangs
   it below them at 1280x800; on a much shorter card the clock can sit over its top.
-- The HUD (clock, countdowns, announcement, due times, tiles) is laid out in fixed pixels for
-  1280x800. On a narrow card the announcement and the tiles can overlap.
 - The 3D printer workshop speaks the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab)'s
   sensor names only.
 

@@ -372,7 +372,7 @@ export async function engineChecks(src, T) {
     ok(/\. Showing 23:50$/.test(card.$("status").textContent), "a failed reload the same evening shows the time of the week it kept");
     await advance(5 * 60000);
     frame();
-    ok(/^Can't load the week \(.*\)\. Showing mon 26 23:50$/.test(card.$("status").textContent), "after midnight it says which day that week is from");
+    ok(/^Can't load the week \(.*\)\. Showing Mon 26 23:50$/.test(card.$("status").textContent), "after midnight it says which day that week is from");
     done(card);
   }
   // A calendar that never answers counts as failed after 20 s; the sensors do not wait for it.
@@ -715,6 +715,8 @@ export async function engineChecks(src, T) {
     const card = await boot({ people: ppl, sensors: { weather: "weather.home" } }, hass);
     eq(["role", "aria-modal", "aria-labelledby"].map(function (a) { return card.$("card").getAttribute(a); }), ["dialog", "true", "who"], "the popup is a modal dialog named by its heading");
     eq([card.$("status").getAttribute("role"), card.$("world").getAttribute("role")], ["status", "img"], "the status line is spoken when it changes, and the canvas is one picture");
+    eq([rule(card, "#done:focus"), rule(card, "#done:focus-visible")], ["outline: none;", "box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF;"],
+      "Done's focus ring is the key buttons' ring, not the browser's blue one");
     ok(/visibility: hidden/.test(rule(card, "#scrim")) && /visibility: visible/.test(rule(card, "#scrim.open")),
       "the closed popup is hidden from Tab and from readers, not only see-through");
     await advance(1600);
@@ -807,7 +809,7 @@ export async function engineChecks(src, T) {
     done(card);
   }
   // Narrow cards: under 1100 px the countdowns, due chips and banner are rows under the clock and
-  // the tiles, and under 640 the tiles go under the clock too. A resize lays the HUD out again at
+  // the tiles, and under 700 the tiles go under the clock too. A resize lays the HUD out again at
   // once and fits the chips again to the new width (they used to be fitted once a day).
   {
     C.now = NOON;
@@ -823,6 +825,8 @@ export async function engineChecks(src, T) {
     ok(card.$("dates").writes > fitted, "and the countdown chips are fitted again to the new width");
     wrap.clientWidth = 400; ro.cb();
     ok(at()[1] && at()[5], "400 wide: the corner (status and tiles) goes under the clock");
+    wrap.clientWidth = 690; ro.cb();
+    ok(at()[1], "690 wide too: between 640 and 700 four tiles ran into a long date");
     wrap.clientWidth = 1280; ro.cb();
     eq(at(), [false, false, "", "", "124px", ""], "back to 1280: the places come back");
     ok(/pointer-events: none/.test(rule(card, "#announce")) && /pointer-events: auto/.test(rule(card, ".ann")),

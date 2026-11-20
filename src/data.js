@@ -29,7 +29,9 @@ export function dayLabel(ds, t) {
   var d = new Date(ds + "T12:00:00"), days = (d - t) / 864e5;
   return DAYS[d.getDay()] + " " + d.getDate() + (days > 6 ? " " + MONTHS[d.getMonth()] : "");
 }
-export function stamp(at, t) { return dayLabel(ymd(at), t).toLowerCase() + " " + pad2(at.getHours()) + ":" + pad2(at.getMinutes()); }
+// In a sentence "today" and "tomorrow" are lower case and a day keeps its capital: "Showing Mon 26".
+function dayWord(ds, t) { var w = dayLabel(ds, t); return w === "Today" || w === "Tomorrow" ? w.toLowerCase() : w; }
+export function stamp(at, t) { return dayWord(ymd(at), t) + " " + pad2(at.getHours()) + ":" + pad2(at.getMinutes()); }
 export var WEEK_STALE = 40 * 60000;
 
 // ── Home Assistant ──────────────────────────────────────────────────────────────
@@ -150,13 +152,13 @@ export const DEMO_IN_HA = "Demo data. Turn off Demo cast in the card editor to s
 export function statusLine(data, d, o) {
   var st = "", L = o.letters;
   if (o.demoInHa) st = DEMO_IN_HA;
-  else if (data.error) st = "Can't load the week (" + data.error + ")" + (data.gotAt ? ". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayLabel(ymd(data.gotAt), d).toLowerCase() + " ") +
+  else if (data.error) st = "Can't load the week (" + data.error + ")" + (data.gotAt ? ". Showing " + (ymd(data.gotAt) === ymd(d) ? "" : dayWord(ymd(data.gotAt), d) + " ") +
     pad2(data.gotAt.getHours()) + ":" + pad2(data.gotAt.getMinutes()) : "");              // the day too once it is not today: an overnight outage must not read as this morning
   else if (!data.gotAt && !o.demo) st = "Loading the week";
   else if (data.weekAt && d - data.weekAt > WEEK_STALE) st = "Calendars last checked " + stamp(data.weekAt, d);
   else if (data.calFailed && data.calFailed.length) st = data.calFailed.length + (data.calFailed.length === 1 ? " calendar" : " calendars") + " unavailable: " + data.calFailed.map(function (f) { return f.who; }).join(", ");
   else if (L.bad.length) st = "Letters unavailable: " + L.bad.map(function (b) { return b.who; }).join(", ");
-  else if (data.holidaysErr) st = "Holidays unavailable (" + data.holidaysErr + ")" + (data.holidaysAt ? ". Showing the list from " + dayLabel(ymd(data.holidaysAt), d).toLowerCase() + " " + pad2(data.holidaysAt.getHours()) + ":" + pad2(data.holidaysAt.getMinutes()) : "");
+  else if (data.holidaysErr) st = "Holidays unavailable (" + data.holidaysErr + ")" + (data.holidaysAt ? ". Showing the list from " + stamp(data.holidaysAt, d) : "");
   else if (!o.weatherLive && !o.demo) st = "Weather unavailable, showing made-up showers";
   else if (L.clearErr) st = "Couldn't clear the letter in Home Assistant";
   else if (o.annErr) st = "Couldn't clear the announcement in Home Assistant";

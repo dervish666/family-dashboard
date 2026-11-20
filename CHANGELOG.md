@@ -43,9 +43,11 @@ Card
   a new announcement is read out. Grey "unavailable" text is 5.7:1 on its grey (was 3.9:1), and
   a tile's label is 13 px (was 11).
 - Under 1100 px wide the countdowns, due chips and announcement are rows under the clock and
-  tiles, so at 1024 the banner keeps its words and nothing is cut. Under 640 px the corner hint
-  goes and the tiles move under a smaller clock. A resize fits the countdown chips again.
-  1280x800 looks as it did.
+  tiles, so at 1024 the banner keeps its words and nothing is cut. Under 700 px the corner hint
+  goes and the tiles move under a smaller clock (between 640 and 700 px four tiles ran into a
+  long date). A resize fits the countdown chips again. 1280x800 looks as it did.
+- Done's focus ring is the key buttons' ring, not the browser's blue one, and the status line
+  keeps a day's capital ("Showing Mon 26 23:50").
 - With **Demo cast** on in a real dashboard, the status line says "Demo data. Turn off Demo
   cast in the card editor to see your calendars", and the cards' feet say the same instead of
   "Calendars checked". The demo page on its own is unchanged. A long status line wraps in the

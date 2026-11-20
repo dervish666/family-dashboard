@@ -204,7 +204,7 @@ function allDayEv(summary, day) { return { summary: summary, start: { date: day 
   const peel = [function () { snap.error = null; }, function () { snap.weekAt = new Date(2026, 9, 26, 11, 30); }, function () { snap.calFailed = []; },
     function () { o.letters.bad = []; }, function () { snap.holidaysErr = null; }, function () { o.weatherLive = true; }, function () { o.letters.clearErr = null; }, function () { o.annErr = null; }];
   const lines = [m.statusLine(snap, at, o)].concat(peel.map(function (f) { f(); return m.statusLine(snap, at, o); }));
-  eq(lines, ["Can't load the week (no calendar answered (calendar.a)). Showing sun 25 23:50", "Calendars last checked sun 25 09:00", "2 calendars unavailable: Sky, Alex",
+  eq(lines, ["Can't load the week (no calendar answered (calendar.a)). Showing Sun 25 23:50", "Calendars last checked Sun 25 09:00", "2 calendars unavailable: Sky, Alex",
     "Letters unavailable: Alex", "Holidays unavailable (Trips offline). Showing the list from today 11:05", "Weather unavailable, showing made-up showers",
     "Couldn't clear the letter in Home Assistant", "Couldn't clear the announcement in Home Assistant", ""], "statusLine: what is wrong, most urgent first, and nothing once all is well");
   const quiet = { demo: false, letters: { bad: [] }, weatherLive: true };

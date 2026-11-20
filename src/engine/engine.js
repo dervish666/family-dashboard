@@ -1,4 +1,4 @@
-import { rgb, css, mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, hat, prng } from "./draw.js";
+import { mix, shade, rand, pick, dist, pad2, ymd, canvas, rr, esc, clamp, spike, K, INK, rimmed, prng } from "./draw.js";
 import { CREATURE, TIMERS as HABIT_TIMERS, creatureSprite, bakeRig } from "../creatures/index.js";
 import { classicSprite } from "../creatures/classic.js";
 import { SCENE_BY_ID, SCENE_LIST, HOTSPOT_IDS } from "../scenes/index.js";
@@ -3001,7 +3001,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     if (SCENE.darkSky) WRAP.classList.add("darksky");         // light HUD text over a sky that is always dark
   }
   // Under 1100 px (.compact) the countdowns, due chips and announcement are rows under the clock
-  // and the tiles, each below the last one that has something in it; under 640 (.narrow) the
+  // and the tiles, each below the last one that has something in it; under 700 (.narrow) the
   // corner goes under the clock first. Measured each tick: the status line, the tiles and the
   // post hint come and go. Wide, they keep card.js's places.
   function layHud() {
@@ -3374,7 +3374,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function size() {
     W = WRAP.clientWidth || 1280; H = WRAP.clientHeight || 800; DPR = Math.min(window.devicePixelRatio || 1, 2);
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + "px"; cv.style.height = H + "px";
-    if (W < 640) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack
+    if (W < 700) WRAP.classList.add("narrow"); else WRAP.classList.remove("narrow");   // a phone: the cards stack; up to 700 four tiles meet a long date
     WRAP.classList.toggle("compact", W < 1100);                                        // the HUD's middle row moves under the clock (layHud)
     CD_KEY = ""; XS.dueKey = null;                                                    // and the chips are fitted again to the new width
     HZ = Math.round(H * 0.27); TOP = HZ + 44;

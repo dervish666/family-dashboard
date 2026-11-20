@@ -91,7 +91,7 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 .soft.late { color: var(--warn); }
 /* Under 1100 px wide (.compact, from the engine's size()) the gap between the clock and the
    corner is too narrow for words: the countdowns, the due chips and the announcement become
-   full-width rows under both, and the engine's layHud sets each one's top. Under 640 px
+   full-width rows under both, and the engine's layHud sets each one's top. Under 700 px
    (.narrow) the corner hint goes, the clock shrinks and the status and tiles move under it. */
 .fd.compact #dates, .fd.compact #due, .fd.compact #announce { left: 40px; right: 36px; }
 .fd.narrow #hud { left: 16px; top: 14px; }
@@ -122,6 +122,8 @@ canvas#world { display: block; position: absolute; left: 0; top: 0; touch-action
 #done { margin-top: auto; font: 600 24px Fredoka, sans-serif; color: #26352C;
   background: rgba(255, 255, 255, .78); border: 0; border-radius: 999px; padding: 16px 48px; }
 #done:active { transform: scale(.97); }
+#done:focus { outline: none; }
+#done:focus-visible { box-shadow: 0 0 0 3px #fff, 0 0 0 7px #1F5FBF; }
 #lists { flex: 1; overflow-y: auto; padding: 36px 44px 32px 40px; -webkit-overflow-scrolling: touch; }
 #lists h2 { font-size: 20px; font-weight: 600; color: var(--ink-soft); margin: 26px 0 10px; }
 #lists h2:first-child { margin-top: 0; }
