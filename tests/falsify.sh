@@ -7,7 +7,9 @@
 # announcement, due-time and status-tile parsers and config, and v1.7.0's town crier: its
 # config, what counts as new or late, its steps, the scroll's words and each scene's walk,
 # and v1.8.0's per-person letters: the from|text parser, the copy it matches against the
-# postie, the dedupe and their config, and v1.9.0's post hours, hint and badge). The breaks go in src/, not dist/, because dist/ is
+# postie, the dedupe and their config, and v1.9.0's post hours, hint and badge, and the engine
+# booted through the card: failed and partial loads, the stale flag, escaping, the letter
+# guards, the holidays, stop() and a new config). The breaks go in src/, not dist/, because dist/ is
 # minified and its names change with every build. Exits 1 if any broken copy passes. Needs
 # npm ci first.
 set -u
@@ -159,5 +161,24 @@ engine/engine.js|s/if (postBadge(t.letter)) {/if (t.letter) {/|the tags draw the
 scenes/meadow.js|s/  postbox: function (S) { var p = S.lay.post; return { x: p.x + 57, y: S.lay.B - 32 }; },/  postbox: function (S) { return { x: S.W \/ 2, y: 20 }; },/|the meadow's hint points at the sky
 scenes/winter.js|s/  postbox: function () { var p = G.postbox; return { x: p.x, y: p.y - 36 }; },/  postbox: function () { var p = G.postbox; return { x: p.x, y: NaN }; },/|the winter postbox is nowhere
 scenes/winter.js|s/  postbox: function () {/  postbox: 3, xx: function () {/|a postbox that is not a function
+engine/engine.js|s/if (!ok.length) throw new Error("no calendar answered/if (false) throw new Error("no calendar answered/|every calendar failing reads as an empty week
+engine/engine.js|s/: calHealth !== "ok" ? "Calendar unavailable" : "Free today";/: "Free today";/|a failed load's summary says Free today
+engine/engine.js|s/(calHealth !== "ok" ? "Calendar unavailable, so this card/(false ? "Calendar unavailable, so this card/|a failed load's Today reads as nothing on
+engine/engine.js|s/if (DATA.error) foot.push(/if (false) foot.push(/|the foot does not name a failed load
+engine/engine.js|s/if (calBad.length) foot.push(/if (false) foot.push(/|the foot does not name the calendar that failed
+calendar.js|s/? "failed" : "ok";/? "ok" : "ok";/|one of a person's calendars down reads as a free day
+engine/engine.js|s/d - DATA.weekAt > 40 \* 60000/d - DATA.weekAt > 400 * 60000/|a week hours old is not flagged stale
+engine/engine.js|s/(raw ? what : esc(what))/(raw ? what : what)/|card rows stop escaping titles
+engine/engine.js|s/esc(up\[0\].what)/up[0].what/|the Next line stops escaping titles
+engine/engine.js|s/if (was != null \&\& s \&\& String(s.state) !== was) return;//|closing a card empties a shared letter that landed while it was up
+engine/engine.js|s/if (!s .. String(s.state) !== c.expect) return;/if (!s) return;/|closing a card empties a per-person letter that landed while it was up
+engine/engine.js|s/return h.callService("input_text", "set_value", { entity_id: SENSORS.letter, value: "" });/return;/|closing a card never empties the shared helper
+engine/engine.js|s/window.cancelAnimationFrame(RAF);//|stop() leaves the frame queued
+engine/engine.js|s/if (!STOPPED) RAF = window.requestAnimationFrame(f);/RAF = window.requestAnimationFrame(f);/|a frame that runs after stop() queues another
+engine/engine.js|s/TIMERS.forEach(function (id) { window.clearInterval(id); });//|stop() leaves the polls running
+engine/engine.js|s/else if (DATA.holidaysErr) st = /else if (false) st = /|a failed holiday fetch is not on the status line
+engine/engine.js|s/holidays: s\[7\] .. (DATA.holidays .. \[\]),/holidays: s[7] ? s[7] : [],/|a failed holiday fetch drops the last list
+engine/engine.js|s/      .then(function (evs) { return evs.filter(/      .catch(function () { return []; }).then(function (evs) { return evs.filter(/|holidays() swallows its own failure
+card.js|s/    this._stop(); this._run();/    this._run();/|a new config leaves the old engine running
 EOF
 echo "ok: all $n sabotaged copies failed the check"

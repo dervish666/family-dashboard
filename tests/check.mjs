@@ -2,7 +2,7 @@
 // calendar parsing, the school timetable and lunch parsers, the announcement extras and the town crier's
 // rules, and the creature and scene registries (every module has the interface,
 // every module file is registered, and each one draws and runs on a stub canvas without
-// throwing). No dependencies.
+// throwing). Then the engine itself, booted from src/ by tests/engine.mjs. No dependencies.
 // Run: node tests/check.mjs [path/to/family-dashboard.js] [path/to/src]
 // Exits 1 on the first broken expectation. tests/falsify.sh proves that it can.
 import { pathToFileURL } from "node:url";
@@ -519,15 +519,6 @@ eq([m.postHint(pat(0, 0), 20.5, 2), m.postHint(pat(5, 0), 20.5, 1), m.postHint(p
 eq([m.postHint(pat(20, 50), 21.5, 1), m.postHint(pat(20, 51), 21.5, 1)], ["", "Post goes at 07:09 tomorrow"], "a party night keeps the post an hour longer");
 // The engine's own gate, read out of the source, is the one the hours use.
 const engSrc = fs.readFileSync(path.join(src, "engine", "engine.js"), "utf8");
-ok(/var calHealth = calendarHealth\(DATA, name\);/.test(engSrc) && /calHealth !== "ok" \? "Calendar unavailable, so this card can't say what's on\."/.test(engSrc)
-  && /: calHealth !== "ok" \? "Calendar unavailable" : "Free today";/.test(engSrc) && /if \(DATA\.error\) foot\.push\(/.test(engSrc),
-  "a person's card reads calendarHealth for its empty line and summary, and names a failed load in its foot");
-// The holidays: a failed fetch keeps the last list, and the status line says so and how old it is.
-const holFn = engSrc.slice(engSrc.indexOf("function holidays(tok)"), engSrc.indexOf("function readWeek("));
-ok(holFn.length > 0 && holFn.indexOf(".catch(") < 0, "holidays() does not swallow its own failure");
-ok(/holidays\(tok\)\.catch\(function \(e\) \{ console\.warn\("meadow: holidays", e\); holErr = /.test(engSrc)
-  && /holidaysErr: holErr, holidaysAt: s\[7\] \? new Date\(\) : DATA\.holidaysAt \|\| null/.test(engSrc)
-  && /else if \(DATA\.holidaysErr\) st = "Holidays unavailable \("/.test(engSrc), "a failed holiday fetch reaches the status line with the age of the list it kept");
 // Reduced motion: the world (and the data it shows) runs every frame, the canvas repaints every REDUCED_PAINT ms,
 // a tap aims at what was painted, and turning the preference on or off takes effect without a reload.
 const frameFn = engSrc.slice(engSrc.indexOf("function frame(ms)"), engSrc.indexOf("function start()"));
@@ -734,4 +725,8 @@ SL.forEach(function (sc) {
       ["under", "back", "front", "light"].forEach(function (k) { if (sc.ambient[k]) sc.ambient[k](g, 4, S); }); });
   }
 });
+// The engine itself, booted through the card on a fake page with a fake Home Assistant: a
+// failed or partial calendar load, a stale week, escaping, the letter guards, the holidays and
+// stop(). tests/engine.mjs has the cases.
+await (await import("./engine.mjs")).engineChecks(src, { eq: eq, ok: ok });
 console.log("ok: " + n + " checks passed");
