@@ -287,6 +287,21 @@ export async function engineChecks(src, T) {
     eq(card.$("status").textContent, "Letters unavailable: Alex", "and the status line moves on");
     done(card);
   }
+  // A person with no calendar of their own has nothing to read, which is not a free day.
+  {
+    C.now = NOON;
+    const hass = fakeHass(BASE_STATES());
+    hass.answer = route({ "calendar.house": [] });
+    const ppl = [{ name: "Alex" }, { name: "House", calendar: "calendar.house" }];
+    const card = await boot({ people: ppl, sensors: { weather: "weather.home" } }, hass);
+    card.dbg.open(person(card, "Alex"), true);
+    eq(card.$("sum").textContent, "No calendar", "a person with no calendar: the summary is not Free today");
+    ok(/No calendar picked for Alex yet\. Add one in the card editor\./.test(text(card, "lists")), "a person with no calendar: Today says to pick one");
+    card.$("done").fire("click");
+    card.dbg.open(person(card, "House"), true);
+    eq(card.$("sum").textContent, "Free today", "the household's own calendar, empty, is a free day");
+    done(card);
+  }
   // A later load where every calendar fails keeps the last good week and says so, and the
   // weather still updates: the week no longer holds the other sources hostage.
   {

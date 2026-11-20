@@ -237,5 +237,7 @@ engine/engine.js|s#if (e.day !== td .. e.cont) continue;     // a party#if (e.da
 engine/engine.js|s/var e = DATA.events\[i\]; if (e.day !== td .. e.cont) continue;$/var e = DATA.events[i]; if (e.day !== td) continue;/|a friend's party that ran past midnight fills the house again the next day
 engine/engine.js|s#      if (e.cont) continue;  *// the second day of a trip#      // the second day of a trip#|the banner's next thing on is the second day of a trip
 engine/engine.js|s/return a.day < b.day ? -1 : a.day > b.day ? 1 : rank(a) - rank(b) .. new Date(a.start) - new Date(b.start);/return new Date(a.start) - new Date(b.start);/|the week sorts by start alone, so the morning after a shift sorts back to the day it began
+editor.js|s/: p.look .. LOOKS\[i % 6\],/: p.look ? p.look : "crow",/|an edit turns a look-less person into a crow
+engine/engine.js|s/calHealth === "ok") calHealth = "none";/false) calHealth = "none";/|a person with no calendar reads Free today
 EOF
 echo "ok: all $n sabotaged copies failed the check"

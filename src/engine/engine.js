@@ -3258,11 +3258,13 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
     var mine = DATA.events.filter(function (e) { return e.who === name; });
     var today = mine.filter(function (e) { return e.day === td; }), later = mine.filter(function (e) { return e.day > td; });
     var calHealth = calendarHealth(DATA, name);
+    if (CONFIG.calendarMode && !(p.calendars || []).length && calHealth === "ok") calHealth = "none";   // nothing to read is not a free day
     if (again) { if (READING && READING.t === t) html += postBlock(READING.l); }
     else { settleLetter(); if (t.letter) { readLetter(t, tap); html += postBlock(t.letter); } }     // the postie's letter, read once
     html += "<h2>Today</h2>";
     html += today.length ? today.map(function (e) { return row(e.all_day ? "All day" : e.at, e.what); }).join("")
-      : '<div class="empty">' + (calHealth === "loading" ? "Still loading the week, so this card can't say what's on yet."
+      : '<div class="empty">' + (calHealth === "none" ? "No calendar picked for " + esc(name) + " yet. Add one in the card editor."
+        : calHealth === "loading" ? "Still loading the week, so this card can't say what's on yet."
         : calHealth !== "ok" ? "Calendar unavailable, so this card can't say what's on."
         : name === "House" ? "Nothing for the house today." : "Nothing on today. Plenty of time for snacks.") + "</div>";
     if (later.length) {
@@ -3302,7 +3304,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
 
     $("lists").innerHTML = html;
     $("sum").textContent = today.length ? today.length + (today.length === 1 ? " thing today" : " things today")
-      : calHealth === "loading" ? "Loading the week" : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
+      : calHealth === "none" ? "No calendar" : calHealth === "loading" ? "Loading the week" : calHealth !== "ok" ? "Calendar unavailable" : "Free today";
     if (again) return;
     $("lists").scrollTop = 0;
     $("who").textContent = name;
