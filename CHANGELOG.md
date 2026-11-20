@@ -43,7 +43,8 @@ Card
   landmark with a view has a button, named like its tag ("Kid 2, 1 thing today, letter
   waiting"), that does what a tap does and rings its target on the scene while it has focus.
 - The popup is a dialog. Done takes focus when it opens, Tab stays inside it, Escape closes it
-  the way Done does, and closing hands focus back. A closed popup is hidden from Tab and from
+  the way Done does, and closing hands focus back. Got it hands focus to Done as it goes, so
+  Escape and Tab still work after it. A closed popup is hidden from Tab and from
   readers. The status line is spoken when its words change.
 - Status tiles and the announcement banner are buttons that act on a tap, Enter or Space, and
   a new announcement is read out. Grey "unavailable" text is 5.7:1 on its grey (was 3.9:1), and

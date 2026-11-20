@@ -821,6 +821,18 @@ export async function engineChecks(src, T) {
     eq(alex.letter, null, "and takes it off the tag");
     press(card, "Escape");
     eq(sets(hass, id).length, 1, "Escape with no card up does nothing");
+    // Got it replaces itself with the "cleared" line: focus moves to Done first, so Escape and Tab
+    // still act on the dialog.
+    st[id] = { state: "Parent 1|Hat too", last_changed: "2026-10-26T12:01:00Z" };
+    await advance(45000);
+    alex.letter = card.dbg.LETTER.queue.shift();
+    card.dbg.open(alex, true);
+    const got = el("button"); got.className = "pgot";
+    got.focus();                                       // Enter on Got it: the button has focus
+    card.$("lists").fire("click", { target: got });
+    ok(/cleared/.test(card.$("lists").swapped) && card.sr.activeElement === card.$("done"), "Got it hands focus to Done as it goes");
+    press(card, "Escape");
+    ok(!card.$("scrim").classList.contains("open"), "so Escape still closes the card");
     done(card);
   }
   // A button for each person, the School and each landmark with a view, named from the name tags

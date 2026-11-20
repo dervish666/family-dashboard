@@ -264,6 +264,7 @@ popup.js|s/  else sum = live ? label : "Printer not reachable";/  else sum = lab
 engine/engine.js|s/    if (e.key === "Escape" .. e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }//|Escape does not close the card
 engine/engine.js|s/    if (e.key === "Escape" .. e.key === "Esc") { e.preventDefault(); e.stopPropagation(); closeCard(); return; }/    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); $("scrim").classList.remove("open"); openThing = null; return; }/|Escape hides the card without clearing the letter as Done does
 engine/engine.js|s/^    \$("done").focus({ preventScroll: true });$//|opening a card leaves focus where it was, not on Done
+engine/engine.js|s/^    \$("done").focus({ preventScroll: true });          \/\/ Got it is about to go.*$//|Got it takes focus out of the dialog with it
 engine/engine.js|s/if (o .. o.isConnected !== false .. o.focus) o.focus({ preventScroll: true });/if (false) {}/|closing a card does not hand focus back to the button that opened it
 engine/engine.js|s/^    else if (a .. a.blur) a.blur();$//|closing a card opened by a tap leaves focus on a hidden Done
 card.js|s/opacity: 0; visibility: hidden;/opacity: 0;/|the closed popup is only see-through, so Tab lands on its Done

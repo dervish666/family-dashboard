@@ -17,6 +17,9 @@ checks each case:
   opens that person's card with focus on Done, and Escape closes it, hides the popup and hands
   focus back to the button.
 
+Then the dialog on its own at 1280x800, on the seaside (a letter comes by airmail there): Enter
+on a letter's Got it leaves focus on Done, so Escape still closes the card.
+
 The context asks for reduced motion: with it the announcement goes straight to the banner, where
 otherwise the town crier holds it on the canvas for 20 seconds or more first. The HUD is HTML
 over the canvas, so its layout is the same either way.
@@ -178,6 +181,51 @@ def run_case(browser, base, size, extra, then, hass, shots):
     check(not errors, "no page errors and no card warnings" + ("" if not errors else ":\n    " + "\n    ".join(errors[:10])))
 
 
+# The focused element inside the card: its data-k, id or class, or "outside" when focus has left it.
+IN_CARD = f"""(() => {{ const r = {SR}, a = r.activeElement; if (!a) return 'outside';
+  return r.getElementById('card').contains(a) ? (a.id || a.className || a.tagName) : (a.getAttribute('data-k') || 'outside'); }})()"""
+
+
+def run_dialog(browser, base, shots):
+    """The popup as a keyboard meets it: a letter's Got it."""
+    print("dialog 1280x800:")
+    errors: list[str] = []
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800}, reduced_motion="reduce")
+    page = ctx.new_page()
+    page.on("pageerror", lambda e: errors.append(f"page error: {e.message}"))
+    page.on("console", lambda m: errors.append(f"console {m.type}: {m.text}")
+            if m.type == "error" or (m.type == "warning" and ("meadow:" in m.text or "family-dashboard-card:" in m.text)) else None)
+    key = lambda k: f"{SR}.querySelector('[data-k=\"{k}\"]')"
+    try:
+        page.goto(base + "?scene=seaside&hour=10&pletter=Parent%202%7CKid%201%7CCoats%20on")
+        page.wait_for_function(f"() => {{ const b = {SR} && {key('p:Parent 2')}; return b && /letter waiting/.test(b.getAttribute('aria-label')); }}", timeout=15000)
+        page.evaluate(f"{key('p:Parent 2')}.focus()")
+        page.keyboard.press("Enter")
+        page.wait_for_function(f"() => {SR}.getElementById('scrim').classList.contains('open')", timeout=3000)
+        page.wait_for_timeout(300)
+        page.keyboard.press("Tab")
+        on = page.evaluate(IN_CARD)
+        check(on == "pgot", f"Tab from Done reaches the letter's Got it (focus on {on})")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(200)
+        on, cleared = page.evaluate(IN_CARD), page.evaluate(f"!!{SR}.querySelector('.post.done')")
+        check(cleared and on == "done", f"Enter on Got it clears the letter and leaves focus on Done (focus on {on})")
+        page.screenshot(path=str(shots / "dialog-got-it.png"))
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        shut = page.evaluate(f"!{SR}.getElementById('scrim').classList.contains('open')")
+        check(shut and page.evaluate(IN_CARD) == "p:Parent 2", "then Escape closes the card and focus goes back to the button")
+    except Exception as e:
+        check(False, f"the dialog case ran to the end: {str(e).splitlines()[0]}")
+        try:
+            page.screenshot(path=str(shots / "failure-dialog.png"))
+        except Exception as e2:
+            print("    no failure screenshot:", str(e2).splitlines()[0])
+    finally:
+        ctx.close()
+    check(not errors, "no page errors and no card warnings" + ("" if not errors else ":\n    " + "\n    ".join(errors[:10])))
+
+
 def main() -> int:
     try:
         from playwright.sync_api import sync_playwright
@@ -197,6 +245,7 @@ def main() -> int:
             try:
                 for size, extra, then, hass in CASES:
                     run_case(browser, base, size, extra, then, hass, shots)
+                run_dialog(browser, base, shots)
             finally:
                 browser.close()
     finally:

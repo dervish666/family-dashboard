@@ -3066,6 +3066,7 @@ export function engine(ROOT, WRAP, CONFIG, HOOKS, HA) {
   function gotIt() {
     var r = READING; if (!settleLetter()) return;
     var b = $("lists").querySelector(".post");
+    $("done").focus({ preventScroll: true });          // Got it is about to go, and focus with it: keep it in the dialog
     if (b) b.outerHTML = postCleared(r.l);
     armClose();
   }
